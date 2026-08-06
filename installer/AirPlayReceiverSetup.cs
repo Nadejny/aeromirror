@@ -174,6 +174,7 @@ namespace AirPlayReceiverSetup
                 InstallerOperations.StopInstalledProcesses(installDirectory);
                 InstallerOperations.RemoveShortcuts();
                 InstallerOperations.RemoveRegistryEntries(installDirectory);
+                InstallerOperations.RemoveRuntimeCache();
                 if (Directory.Exists(installDirectory))
                     Directory.Delete(installDirectory, true);
                 MessageBox.Show(
@@ -530,6 +531,16 @@ namespace AirPlayReceiverSetup
         private const string RequiredRuntimeRelease = "2.0.0.1736";
         private const string RequiredCoreRuntimeCompatibility =
             "uxplay-windows-2.0.0.1736";
+        private static readonly string RuntimeCacheDirectory = Path.Combine(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+            "AirPlayReceiverMvp",
+            "cache",
+            "runtime");
+        private static readonly string RuntimeCachePath = Path.Combine(
+            RuntimeCacheDirectory,
+            "sha256-" + RuntimeSha256.ToLowerInvariant() +
+            "-uxplay-windows.zip");
         private const string UninstallKey =
             @"Software\Microsoft\Windows\CurrentVersion\Uninstall\AirPlayReceiverMvp";
 
@@ -736,12 +747,7 @@ namespace AirPlayReceiverSetup
 
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
             string archive = Path.Combine(staging, "uxplay-windows.zip");
-            using (var client = new PinnedDownloadClient())
-            {
-                client.Headers[HttpRequestHeader.UserAgent] =
-                    "AeroMirror-Setup/0.10.0";
-                client.DownloadFile(RuntimeUrl, archive);
-            }
+            AcquirePinnedRuntimeArchive(archive);
             string actualHash = ComputeSha256(archive);
             if (!string.Equals(
                     actualHash, RuntimeSha256,
@@ -797,6 +803,124 @@ namespace AirPlayReceiverSetup
                     "Runtime не прошёл проверку полноты после распаковки.");
             }
             VerifyCoreLoaderCompatibility(core);
+        }
+
+        private static void AcquirePinnedRuntimeArchive(string archive)
+        {
+            bool cacheHit = false;
+            try
+            {
+                PruneRuntimeCache();
+                if (File.Exists(RuntimeCachePath) &&
+                    string.Equals(
+                        ComputeSha256(RuntimeCachePath),
+                        RuntimeSha256,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(RuntimeCachePath, archive, true);
+                    cacheHit = string.Equals(
+                        ComputeSha256(archive),
+                        RuntimeSha256,
+                        StringComparison.OrdinalIgnoreCase);
+                    if (cacheHit)
+                        SetupLog.Write(
+                            "Verified pinned runtime cache reused.");
+                }
+                else if (File.Exists(RuntimeCachePath))
+                {
+                    SetupLog.Write(
+                        "Pinned runtime cache was invalid and will be replaced.");
+                    TryDeleteFile(RuntimeCachePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write(
+                    "Pinned runtime cache could not be reused: " + ex.Message);
+                TryDeleteFile(archive);
+            }
+
+            if (cacheHit)
+                return;
+
+            SetupLog.Write("Downloading pinned runtime.");
+            using (var client = new PinnedDownloadClient())
+            {
+                client.Headers[HttpRequestHeader.UserAgent] =
+                    "AeroMirror-Setup/0.10.0";
+                client.DownloadFile(RuntimeUrl, archive);
+            }
+            if (!string.Equals(
+                    ComputeSha256(archive),
+                    RuntimeSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteFile(archive);
+                throw new InvalidOperationException(
+                    "Проверка runtime не пройдена: SHA-256 не совпал. " +
+                    "Установка остановлена без замены текущей версии.");
+            }
+            TryStorePinnedRuntimeCache(archive);
+        }
+
+        private static void PruneRuntimeCache()
+        {
+            if (!Directory.Exists(RuntimeCacheDirectory))
+                return;
+            foreach (string candidate in Directory.GetFiles(
+                RuntimeCacheDirectory))
+            {
+                if (!string.Equals(
+                        candidate,
+                        RuntimeCachePath,
+                        StringComparison.OrdinalIgnoreCase))
+                    TryDeleteFile(candidate);
+            }
+        }
+
+        private static void TryStorePinnedRuntimeCache(string archive)
+        {
+            string temporary = "";
+            try
+            {
+                Directory.CreateDirectory(RuntimeCacheDirectory);
+                temporary = Path.Combine(
+                    RuntimeCacheDirectory,
+                    "." + Guid.NewGuid().ToString("N") + ".partial");
+                File.Copy(archive, temporary, true);
+                if (!string.Equals(
+                        ComputeSha256(temporary),
+                        RuntimeSha256,
+                        StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "Runtime cache copy failed SHA-256 verification.");
+
+                if (File.Exists(RuntimeCachePath))
+                {
+                    if (string.Equals(
+                            ComputeSha256(RuntimeCachePath),
+                            RuntimeSha256,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        TryDeleteFile(temporary);
+                        return;
+                    }
+                    TryDeleteFile(RuntimeCachePath);
+                }
+                File.Move(temporary, RuntimeCachePath);
+                temporary = "";
+                SetupLog.Write("Verified pinned runtime stored in cache.");
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write(
+                    "Pinned runtime cache could not be stored: " + ex.Message);
+            }
+            finally
+            {
+                if (!string.IsNullOrWhiteSpace(temporary))
+                    TryDeleteFile(temporary);
+            }
         }
 
         private static void ValidateReviewedManifest(string path)
@@ -1034,6 +1158,14 @@ namespace AirPlayReceiverSetup
                 }
             }
             catch { }
+        }
+
+        internal static void RemoveRuntimeCache()
+        {
+            TryDeleteDirectory(RuntimeCacheDirectory);
+            if (Directory.Exists(RuntimeCacheDirectory))
+                SetupLog.Write(
+                    "Runtime cache could not be fully removed during uninstall.");
         }
 
         private static void WriteUninstallRegistry(

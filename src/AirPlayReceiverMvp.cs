@@ -26,6 +26,19 @@ using Microsoft.Win32;
 
 namespace AirPlayReceiverMvp
 {
+    internal static class AppVersion
+    {
+        public static Version Current
+        {
+            get { return Assembly.GetExecutingAssembly().GetName().Version; }
+        }
+
+        public static string Display
+        {
+            get { return Current.ToString(3); }
+        }
+    }
+
     internal static class Program
     {
         [STAThread]
@@ -339,6 +352,8 @@ namespace AirPlayReceiverMvp
         private string networkProfileName = "";
         private string networkInterfaceName = "";
         private string networkSignature = "";
+        private int nonPhysicalProfileCount;
+        private int publicNonPhysicalProfileCount;
         private IntPtr fittedStreamWindow = IntPtr.Zero;
         private int networkRefreshPending;
         private long networkRefreshDueTicks;
@@ -412,6 +427,10 @@ namespace AirPlayReceiverMvp
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Диагностика", null, delegate { ShowDiagnostics(); });
             menu.Items.Add("Открыть журнал", null, delegate { OpenLog(); });
+            menu.Items.Add("Сообщить о проблеме", null, delegate
+            {
+                OpenProblemReport(null);
+            });
             menu.Items.Add("Выход", null, delegate { RequestQuit(); });
 
             tray = new NotifyIcon();
@@ -434,7 +453,7 @@ namespace AirPlayReceiverMvp
 
             Log("=== AeroMirror session started ===");
             Log("Shell version " +
-                Assembly.GetExecutingAssembly().GetName().Version +
+                AppVersion.Display +
                 "; Windows " + Environment.OSVersion +
                 "; 64-bit process: " + Environment.Is64BitProcess +
                 "; startup: " + startup + ".");
@@ -470,6 +489,14 @@ namespace AirPlayReceiverMvp
         public bool IsNetworkProfileKnown { get { return networkProfileKnown; } }
         public string NetworkProfileName { get { return networkProfileName; } }
         public string NetworkInterfaceName { get { return networkInterfaceName; } }
+        public bool HasNetworkOverlay
+        {
+            get { return nonPhysicalProfileCount > 0; }
+        }
+        public int NetworkOverlayCount
+        {
+            get { return nonPhysicalProfileCount; }
+        }
         public string ReceiverStateText { get { return receiverStateText; } }
 
         public string CorePath
@@ -574,13 +601,20 @@ namespace AirPlayReceiverMvp
             publicNetwork = profile.IsPublic;
             networkProfileName = profile.Name;
             networkInterfaceName = profile.InterfaceName;
+            nonPhysicalProfileCount = profile.NonPhysicalProfileCount;
+            publicNonPhysicalProfileCount =
+                profile.PublicNonPhysicalProfileCount;
             networkSignature = profile.Signature;
+            bool physicalNetworkUnsafe =
+                !profile.IsKnown || profile.IsPublic;
             bool unsafeAccess =
-                settings.PairingMode == "none" && (!profile.IsKnown || publicNetwork);
+                settings.PairingMode == "none" && physicalNetworkUnsafe;
             bool receiverStartedByProfile = false;
             networkWarningItem.Visible = unsafeAccess;
             networkWarningItem.Text = profile.IsKnown
-                ? "⚠ Публичная сеть без PIN — открыть настройки"
+                ? (profile.NonPhysicalProfileCount > 0
+                    ? "⚠ Wi-Fi/Ethernet публичная · VPN/виртуальная сеть обнаружена"
+                    : "⚠ Публичная сеть без PIN — открыть настройки")
                 : "⚠ Профиль сети не определён — включить PIN";
             bool changed = previousSignature.Length > 0 &&
                 !string.Equals(previousSignature, networkSignature,
@@ -591,6 +625,10 @@ namespace AirPlayReceiverMvp
                     (profile.IsKnown ? profile.Category : "Unknown") +
                     " (physical interface " + profile.InterfaceName +
                     ", IPv4 count " + CountAddresses(profile.Addresses) + ")" +
+                    "; non-physical overlays " +
+                    profile.NonPhysicalProfileCount +
+                    " (public " +
+                    profile.PublicNonPhysicalProfileCount + ")" +
                     "; access: " + settings.PairingMode +
                     "; changed: " + changed + ".");
             }
@@ -619,7 +657,9 @@ namespace AirPlayReceiverMvp
                 networkWarningShown = true;
                 tray.ShowBalloonTip(7000, AppTitle,
                     profile.IsKnown
-                        ? "Приёмник приостановлен: публичная сеть требует PIN. Нажмите уведомление, чтобы включить защиту."
+                        ? (profile.NonPhysicalProfileCount > 0
+                            ? "Приёмник приостановлен: Windows считает физическую сеть публичной. VPN или виртуальная сеть обнаружены, но не используются для определения доверия. Включите PIN или проверьте профиль Wi-Fi/Ethernet."
+                            : "Приёмник приостановлен: публичная сеть требует PIN. Нажмите уведомление, чтобы включить защиту.")
                         : "Приёмник приостановлен: Windows не удалось определить профиль сети. Включите PIN или повторите проверку.",
                     ToolTipIcon.Warning);
             }
@@ -1113,19 +1153,19 @@ namespace AirPlayReceiverMvp
                 safe = safe.Replace(knownPin, "****");
             safe = Regex.Replace(
                 safe,
-                @"(?i)(-{1,2}pin(?:\s+|[=:]\s*))[""']?\d{4,}[""']?",
+                @"(?i)(-{1,2}pin(?:[ \t]+|[=:][ \t]*))[""']?\d{4,}[""']?",
                 "$1****");
             safe = Regex.Replace(
                 safe,
-                @"(?i)(-{1,2}(?:pw|password|passcode|token|secret)(?:\s+|[=:]\s*))(?:""[^""]*""|'[^']*'|(?!-)[^\s,;\]]+)",
+                @"(?i)(-{1,2}(?:pw|password|passcode|token|secret)(?:[ \t]+|[=:][ \t]*))(?:""[^""]*""|'[^']*'|(?!-)[^\s,;\]]+)",
                 "$1****");
             safe = Regex.Replace(
                 safe,
-                @"(?i)\b(pin|password|passcode|token|secret)\s*[:=]\s*(?:""[^""]*""|'[^']*'|[^\s,;\]]+)",
+                @"(?i)\b(pin|password|passcode|token|secret)[ \t]*[:=][ \t]*(?:""[^""]*""|'[^']*'|[^\s,;\]]+)",
                 "$1: ****");
             safe = Regex.Replace(
                 safe,
-                @"(?i)\b(password|passcode|token|secret)\s+(?:""[^""]*""|'[^']*'|(?!-)[^\s,;\]]+)",
+                @"(?i)\b(password|passcode|token|secret)[ \t]+(?:""[^""]*""|'[^']*'|(?!-)[^\s,;\]]+)",
                 "$1 ****");
             safe = Regex.Replace(
                 safe,
@@ -1155,6 +1195,37 @@ namespace AirPlayReceiverMvp
                 safe = safe.Replace(roamingData, "%APPDATA%");
             if (!string.IsNullOrWhiteSpace(profile))
                 safe = safe.Replace(profile, "%USERPROFILE%");
+            return safe;
+        }
+
+        private static string RedactSupportText(
+            string text, string knownPin)
+        {
+            string safe = RedactSensitiveText(text, knownPin);
+            safe = Regex.Replace(
+                safe,
+                @"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+                "[redacted IP]");
+            safe = Regex.Replace(
+                safe,
+                @"(?i)(?<![0-9a-f:])(?:(?:[0-9a-f]{1,4}:){3,}[0-9a-f:]*|[0-9a-f:]*::[0-9a-f:]*)(?![0-9a-f:])",
+                "[redacted IP]");
+            safe = Regex.Replace(
+                safe,
+                @"(?im)^(\s*(?:Имя приёмника|Receiver name)\s*:\s*).*$",
+                "$1[redacted]");
+            safe = Regex.Replace(
+                safe,
+                @"(?i)(-{1,2}n\s+)(?:""[^""]*""|'[^']*'|[^\s]+)",
+                "$1\"[redacted]\"");
+            safe = Regex.Replace(
+                safe,
+                @"(?i)(connection request from\s+).*?(\s+\([^)\r\n]+\))",
+                "$1[redacted device]$2");
+            safe = Regex.Replace(
+                safe,
+                @"(?im)^(\s*Физическая сеть:\s+\S+\s+·\s+).*$",
+                "$1[redacted network]");
             return safe;
         }
 
@@ -1192,7 +1263,7 @@ namespace AirPlayReceiverMvp
             text.AppendLine("AeroMirror — диагностика");
             text.AppendLine("Время: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             text.AppendLine();
-            text.AppendLine("Оболочка: " + Assembly.GetExecutingAssembly().GetName().Version);
+            text.AppendLine("Оболочка: " + AppVersion.Display);
             text.AppendLine("Windows: " + Environment.OSVersion);
             text.AppendLine("64-bit процесс: " + Environment.Is64BitProcess);
             text.AppendLine("Ядро: " + (File.Exists(CorePath) ? "найдено" : "НЕ НАЙДЕНО"));
@@ -1205,6 +1276,9 @@ namespace AirPlayReceiverMvp
             text.AppendLine("Физическая сеть: " +
                 (networkProfileKnown ? (publicNetwork ? "публичная" : "частная") : "не определена") +
                 " · " + networkProfileName + " · " + networkInterfaceName);
+            text.AppendLine("VPN/виртуальные сетевые профили: " +
+                nonPhysicalProfileCount +
+                " (публичных: " + publicNonPhysicalProfileCount + ")");
             text.AppendLine("Защита подключения: " + settings.PairingMode);
             text.AppendLine("Имя приёмника: " + settings.ReceiverName);
             text.AppendLine("Запрашиваемое качество: " + settings.QualityPreset);
@@ -1466,10 +1540,33 @@ namespace AirPlayReceiverMvp
 
         private bool HasVisibleRendererWindow()
         {
+            IntPtr window;
+            return TryGetRendererWindow(out window);
+        }
+
+        private bool TryGetRendererWindow(out IntPtr rendererWindow)
+        {
+            rendererWindow = IntPtr.Zero;
             if (!IsCoreRunning)
                 return false;
-            bool found = false;
+
+            if (fittedStreamWindow != IntPtr.Zero &&
+                NativeMethods.IsWindow(fittedStreamWindow) &&
+                NativeMethods.IsWindowVisible(fittedStreamWindow))
+            {
+                uint cachedPid;
+                NativeMethods.GetWindowThreadProcessId(
+                    fittedStreamWindow, out cachedPid);
+                if (cachedPid == (uint)coreProcess.Id)
+                {
+                    rendererWindow = fittedStreamWindow;
+                    return true;
+                }
+                fittedStreamWindow = IntPtr.Zero;
+            }
+
             int pid = coreProcess.Id;
+            IntPtr foundWindow = IntPtr.Zero;
             NativeMethods.EnumWindows(delegate(IntPtr window, IntPtr parameter)
             {
                 uint windowPid;
@@ -1480,56 +1577,47 @@ namespace AirPlayReceiverMvp
                     NativeMethods.GetWindowText(window, title, title.Capacity);
                     if (IsRendererWindowTitle(title.ToString()))
                     {
-                        found = true;
+                        foundWindow = window;
                         return false;
                     }
                 }
                 return true;
             }, IntPtr.Zero);
-            return found;
+            if (foundWindow != IntPtr.Zero)
+            {
+                rendererWindow = foundWindow;
+                fittedStreamWindow = rendererWindow;
+                return true;
+            }
+            return false;
         }
 
         private void ApplyTopMost()
         {
             if (!IsCoreRunning)
                 return;
-            if (fittedStreamWindow != IntPtr.Zero &&
-                (!NativeMethods.IsWindow(fittedStreamWindow) ||
-                 !NativeMethods.IsWindowVisible(fittedStreamWindow)))
+            IntPtr previousWindow = fittedStreamWindow;
+            IntPtr window;
+            if (!TryGetRendererWindow(out window))
+                return;
+
+            NativeMethods.SetWindowText(window, "iPhone · AeroMirror");
+            NativeMethods.SetToolWindowStyle(
+                window, !settings.ShowStreamInTaskbar);
+            if (settings.AutoFitWindow &&
+                previousWindow != window &&
+                !NativeMethods.IsLeftMouseButtonDown())
             {
-                fittedStreamWindow = IntPtr.Zero;
+                FitRendererWindow(window);
+                Log("Applied one-time renderer window fit.");
             }
-            int pid = coreProcess.Id;
-            NativeMethods.EnumWindows(delegate(IntPtr window, IntPtr parameter)
-            {
-                uint windowPid;
-                NativeMethods.GetWindowThreadProcessId(window, out windowPid);
-                if (windowPid == (uint)pid && NativeMethods.IsWindowVisible(window))
-                {
-                    var title = new StringBuilder(512);
-                    NativeMethods.GetWindowText(window, title, title.Capacity);
-                    string value = title.ToString();
-                    if (IsRendererWindowTitle(value))
-                    {
-                        NativeMethods.SetWindowText(window, "iPhone · AeroMirror");
-                        NativeMethods.SetToolWindowStyle(
-                            window, !settings.ShowStreamInTaskbar);
-                        if (settings.AutoFitWindow &&
-                            fittedStreamWindow != window &&
-                            !NativeMethods.IsLeftMouseButtonDown())
-                        {
-                            FitRendererWindow(window);
-                            fittedStreamWindow = window;
-                            Log("Applied one-time renderer window fit.");
-                        }
-                        NativeMethods.SetWindowPos(window,
-                            settings.AlwaysOnTop ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_NOTOPMOST,
-                            0, 0, 0, 0,
-                            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
-                    }
-                }
-                return true;
-            }, IntPtr.Zero);
+            NativeMethods.SetWindowPos(window,
+                settings.AlwaysOnTop
+                    ? NativeMethods.HWND_TOPMOST
+                    : NativeMethods.HWND_NOTOPMOST,
+                0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE |
+                NativeMethods.SWP_NOACTIVATE);
         }
 
         private void FitStreamWindow(bool notifyIfMissing)
@@ -1543,28 +1631,26 @@ namespace AirPlayReceiverMvp
                 return;
             }
 
-            bool found = false;
-            int pid = coreProcess.Id;
-            NativeMethods.EnumWindows(delegate(IntPtr window, IntPtr parameter)
+            IntPtr window = IntPtr.Zero;
+            for (int attempt = 0; attempt < 5; attempt++)
             {
-                uint windowPid;
-                NativeMethods.GetWindowThreadProcessId(window, out windowPid);
-                if (windowPid == (uint)pid && NativeMethods.IsWindowVisible(window))
-                {
-                    var title = new StringBuilder(512);
-                    NativeMethods.GetWindowText(window, title, title.Capacity);
-                    string value = title.ToString();
-                    if (IsRendererWindowTitle(value))
-                    {
-                        FitRendererWindow(window);
-                        fittedStreamWindow = window;
-                        found = true;
-                    }
-                }
-                return true;
-            }, IntPtr.Zero);
+                if (TryGetRendererWindow(out window))
+                    break;
+                if (attempt < 4)
+                    Thread.Sleep(150);
+            }
 
-            if (!found && notifyIfMissing && settings.Notify)
+            if (window != IntPtr.Zero)
+            {
+                FitRendererWindow(window);
+                fittedStreamWindow = window;
+                Log("Renderer window fitted manually.");
+                return;
+            }
+
+            Log("Manual renderer window fit skipped: no visible renderer " +
+                "window was found after five attempts.");
+            if (notifyIfMissing && settings.Notify)
                 tray.ShowBalloonTip(3000, AppTitle,
                     "Окно трансляции пока не найдено. Подключите iPhone и повторите.",
                     ToolTipIcon.Info);
@@ -1722,6 +1808,103 @@ namespace AirPlayReceiverMvp
             if (!File.Exists(AppSettings.LogPath))
                 File.WriteAllText(AppSettings.LogPath, "", Encoding.UTF8);
             Process.Start(new ProcessStartInfo(AppSettings.LogPath) { UseShellExecute = true });
+        }
+
+        public void OpenProblemReport(IWin32Window owner)
+        {
+            try
+            {
+                FlushLog(1000);
+                string folder = Path.Combine(
+                    Path.GetTempPath(), "AeroMirror", "Support");
+                Directory.CreateDirectory(folder);
+                string path = Path.Combine(
+                    folder,
+                    "AeroMirror-report-" +
+                    DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".log");
+
+                var report = new StringBuilder();
+                report.AppendLine(
+                    "AeroMirror support report — review before attaching");
+                report.AppendLine(
+                    "Created: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                report.AppendLine();
+                report.AppendLine(GetDiagnostics());
+                report.AppendLine();
+                report.AppendLine("Recent application log:");
+                report.AppendLine(ReadLogTail(AppSettings.LogPath, 1024 * 1024));
+                File.WriteAllText(
+                    path,
+                    RedactSupportText(report.ToString(), settings.FixedPin),
+                    new UTF8Encoding(false));
+
+                string issueBody =
+                    "Опишите, что произошло и как повторить проблему.\r\n\r\n" +
+                    "Версия AeroMirror: " + AppVersion.Display + "\r\n" +
+                    "Windows: " + Environment.OSVersion.Version + "\r\n\r\n" +
+                    "AeroMirror подготовил обезличенный файл `" +
+                    Path.GetFileName(path) + "`. GitHub не разрешает приложению " +
+                    "прикрепить локальный файл автоматически: перетащите выбранный " +
+                    "файл в это сообщение после входа в GitHub.";
+                string issueUrl =
+                    "https://github.com/Nadejny/aeromirror/issues/new" +
+                    "?title=" + Uri.EscapeDataString("[Bug] ") +
+                    "&body=" + Uri.EscapeDataString(issueBody);
+                Process.Start(new ProcessStartInfo(issueUrl)
+                {
+                    UseShellExecute = true
+                });
+                Process.Start(new ProcessStartInfo("explorer.exe")
+                {
+                    Arguments = "/select,\"" + path + "\"",
+                    UseShellExecute = true
+                });
+                MessageBox.Show(
+                    owner,
+                    "Открыта форма GitHub Issue и выделен обезличенный файл журнала.\r\n\r\n" +
+                    "Проверьте его и перетащите в форму — AeroMirror ничего не " +
+                    "отправляет автоматически.",
+                    AppTitle,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                Log("Support report could not be prepared: " + ex.Message);
+                MessageBox.Show(
+                    owner,
+                    "Не удалось подготовить сообщение о проблеме.\r\n\r\n" +
+                    ex.Message,
+                    AppTitle,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        private static string ReadLogTail(string path, int maximumBytes)
+        {
+            if (!File.Exists(path))
+                return "(log file is empty)";
+            using (var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            {
+                bool truncated = stream.Length > maximumBytes;
+                if (truncated)
+                    stream.Seek(-maximumBytes, SeekOrigin.End);
+                using (var reader = new StreamReader(
+                    stream, Encoding.UTF8, true, 4096, false))
+                {
+                    if (truncated)
+                        reader.ReadLine();
+                    string text = reader.ReadToEnd();
+                    return truncated
+                        ? "(older log entries omitted)\r\n" + text
+                        : text;
+                }
+            }
         }
 
         private void SetState(bool running, string text)
@@ -1882,6 +2065,7 @@ namespace AirPlayReceiverMvp
         private readonly Button refreshDiscovery;
         private readonly Button settingsButton;
         private readonly Button updatesButton;
+        private readonly LinkLabel reportProblem;
         private readonly Label homeFooter;
         private readonly Label homeQuality;
         private readonly TextBox receiverName;
@@ -1915,6 +2099,7 @@ namespace AirPlayReceiverMvp
         private readonly Button installUpdate;
         private readonly Button openRelease;
         private UpdateInfo availableUpdate;
+        private string pendingInstallerPath = "";
         private bool suppressDirty;
         private bool? appliedDarkTheme;
         private DateTime nextThemeCheck;
@@ -1956,18 +2141,15 @@ namespace AirPlayReceiverMvp
 
             status = MakeLabel("", 94, 53);
             status.AutoSize = false;
-            status.Size = new Size(296, 24);
+            status.Size = new Size(450, 24);
             status.AutoEllipsis = true;
             status.Font = new Font("Segoe UI Semibold", 10.5F);
             homeHeader.Controls.Add(status);
 
-            updatesButton = MakeButton(
-                "Обновления", 397, 29, 96, 34, false);
-            updatesButton.Click += delegate { ShowUpdatesPage(); };
-            homeHeader.Controls.Add(updatesButton);
-
             settingsButton = MakeButton(
-                "Настройки", 503, 29, 93, 34, false);
+                "⚙", 552, 28, 44, 36, false);
+            settingsButton.Font = new Font("Segoe UI Symbol", 14F);
+            settingsButton.AccessibleName = "Настройки";
             settingsButton.Click += delegate { ShowSettingsPage(false); };
             homeHeader.Controls.Add(settingsButton);
 
@@ -2023,7 +2205,7 @@ namespace AirPlayReceiverMvp
             trustCard.Controls.Add(pinSetup);
 
             refreshDiscovery = MakeButton(
-                "Перезапустить обнаружение", 24, 314, 250, 38, false);
+                "Перезапустить обнаружение", 24, 314, 224, 38, false);
             refreshDiscovery.Click += delegate
             {
                 context.RefreshDiscovery();
@@ -2031,13 +2213,18 @@ namespace AirPlayReceiverMvp
             };
             homePage.Controls.Add(refreshDiscovery);
 
-            startStop = MakeButton("", 290, 314, 140, 38, true);
+            startStop = MakeButton("", 260, 314, 145, 38, true);
             startStop.Click += delegate
             {
                 if (context.IsCoreRunning) context.StopCore(); else context.StartCore();
                 SyncStatus();
             };
             homePage.Controls.Add(startStop);
+
+            updatesButton = MakeButton(
+                "Обновления", 417, 314, 179, 38, false);
+            updatesButton.Click += delegate { ShowUpdatesPage(); };
+            homePage.Controls.Add(updatesButton);
 
             homeQuality = MakeLabel("", 26, 365);
             homeQuality.AutoSize = false;
@@ -2046,10 +2233,22 @@ namespace AirPlayReceiverMvp
             homePage.Controls.Add(homeQuality);
 
             homeFooter = MakeLabel(
-                "После закрытия окна AeroMirror продолжит работать в трее.",
+                "Один раз настройте — дальше AeroMirror запускается в трее.",
                 26, 398);
+            homeFooter.AutoSize = false;
+            homeFooter.Size = new Size(410, 22);
             homeFooter.ForeColor = Color.DimGray;
             homePage.Controls.Add(homeFooter);
+
+            reportProblem = new LinkLabel();
+            reportProblem.Text = "Сообщить о проблеме";
+            reportProblem.AutoSize = true;
+            reportProblem.Location = new Point(452, 398);
+            reportProblem.LinkClicked += delegate
+            {
+                context.OpenProblemReport(this);
+            };
+            homePage.Controls.Add(reportProblem);
 
             settingsPage = new Panel();
             settingsPage.Dock = DockStyle.Fill;
@@ -2336,7 +2535,7 @@ namespace AirPlayReceiverMvp
 
             var currentVersion = MakeLabel(
                 "Установлена версия " +
-                Assembly.GetExecutingAssembly().GetName().Version.ToString(3),
+                AppVersion.Display,
                 24, 76);
             currentVersion.ForeColor = Color.DimGray;
             updatesPage.Controls.Add(currentVersion);
@@ -2392,6 +2591,8 @@ namespace AirPlayReceiverMvp
 
             LoadSettings();
             WireDirtyTracking();
+            settingsPage.Scroll += delegate { CloseOpenDropDowns(); };
+            settingsPage.MouseWheel += delegate { CloseOpenDropDowns(); };
             SetDirty(false);
             UpdateAdvancedDirty();
             ShowHomePage();
@@ -2416,6 +2617,7 @@ namespace AirPlayReceiverMvp
                     }
                 }
             };
+            FormClosed += delegate { DeletePendingInstaller(); };
         }
 
         public void SyncStatus()
@@ -2470,10 +2672,12 @@ namespace AirPlayReceiverMvp
                 networkCard.BackColor = dark
                     ? Color.FromArgb(73, 57, 24)
                     : Color.FromArgb(255, 244, 215);
-                networkTitle.Text = "Сеть «" + DisplayNetworkName() +
-                    "» публичная — требуется PIN";
-                networkText.Text =
-                    "Без PIN приёмник приостановлен. Откройте настройки подключения.";
+                networkTitle.Text = "Windows считает сеть «" +
+                    DisplayNetworkName() + "» публичной — требуется PIN";
+                networkText.Text = context.HasNetworkOverlay
+                    ? "VPN или виртуальная сеть найдены, но доверие определяется по физическому Wi-Fi/Ethernet. " +
+                      "Отключите VPN и повторите проверку либо включите PIN."
+                    : "Без PIN приёмник приостановлен. Откройте настройки подключения.";
                 networkTitle.ForeColor = dark
                     ? Color.FromArgb(255, 197, 92)
                     : Color.FromArgb(133, 78, 0);
@@ -2493,14 +2697,19 @@ namespace AirPlayReceiverMvp
                 {
                     networkTitle.Text = "Сеть «" + DisplayNetworkName() +
                         "» публичная — PIN включён";
-                    networkText.Text =
-                        "Знакомый iPhone проверяется по сохранённому ключу.";
+                    networkText.Text = context.HasNetworkOverlay
+                        ? "VPN или виртуальная сеть исключены из классификации. " +
+                          "Знакомый iPhone проверяется по сохранённому ключу."
+                        : "Знакомый iPhone проверяется по сохранённому ключу.";
                 }
                 else
                 {
-                    networkTitle.Text = "Сеть «" + DisplayNetworkName() + "» частная";
-                    networkText.Text =
-                        "Можно подключаться без PIN; дополнительную защиту можно включить.";
+                    networkTitle.Text = "Сеть «" + DisplayNetworkName() +
+                        "» частная" +
+                        (context.HasNetworkOverlay ? " · VPN/виртуальная сеть" : "");
+                    networkText.Text = context.HasNetworkOverlay
+                        ? "Проверен именно физический Wi-Fi/Ethernet; виртуальный профиль не меняет режим защиты."
+                        : "Можно подключаться без PIN; дополнительную защиту можно включить.";
                 }
                 networkTitle.ForeColor = dark
                     ? Color.FromArgb(111, 190, 255)
@@ -2559,6 +2768,7 @@ namespace AirPlayReceiverMvp
 
         private void ShowHomePage()
         {
+            CloseOpenDropDowns();
             settingsPage.Visible = false;
             advancedPage.Visible = false;
             updatesPage.Visible = false;
@@ -2580,11 +2790,26 @@ namespace AirPlayReceiverMvp
                 actionTop = 206;
             }
             refreshDiscovery.Location = new Point(24, actionTop);
-            startStop.Location = new Point(290, actionTop);
+            startStop.Location = new Point(260, actionTop);
+            updatesButton.Location = new Point(417, actionTop);
             homeQuality.Location = new Point(26, actionTop + 51);
             homeFooter.Location = new Point(26, actionTop + 84);
+            reportProblem.Location = new Point(452, actionTop + 84);
             if (homePage.Visible)
                 ClientSize = new Size(620, actionTop + 122);
+        }
+
+        private void CloseOpenDropDowns()
+        {
+            ComboBox[] controls =
+            {
+                quality, latency, audioOutput, pairing, theme, renderer
+            };
+            foreach (ComboBox combo in controls)
+            {
+                if (combo != null && combo.DroppedDown)
+                    combo.DroppedDown = false;
+            }
         }
 
         private void TryLeaveSettingsToHome()
@@ -2603,6 +2828,7 @@ namespace AirPlayReceiverMvp
 
         private void ShowSettingsPage(bool focusPin)
         {
+            CloseOpenDropDowns();
             ClientSize = new Size(620, 700);
             homePage.Visible = false;
             advancedPage.Visible = false;
@@ -2618,6 +2844,7 @@ namespace AirPlayReceiverMvp
 
         private void ShowAdvancedPage()
         {
+            CloseOpenDropDowns();
             ClientSize = new Size(620, 570);
             homePage.Visible = false;
             settingsPage.Visible = false;
@@ -2630,6 +2857,7 @@ namespace AirPlayReceiverMvp
 
         private void ShowUpdatesPage()
         {
+            CloseOpenDropDowns();
             ClientSize = new Size(620, 570);
             homePage.Visible = false;
             settingsPage.Visible = false;
@@ -2723,12 +2951,18 @@ namespace AirPlayReceiverMvp
                 "Скачиваем установщик и проверяем его SHA-256…";
             ThreadPool.QueueUserWorkItem(delegate
             {
+                string installerPath = "";
                 try
                 {
-                    string installerPath =
+                    installerPath =
                         UpdateService.DownloadAndVerify(availableUpdate);
+                    pendingInstallerPath = installerPath;
                     if (IsDisposed)
+                    {
+                        DeleteFileQuietly(installerPath);
+                        pendingInstallerPath = "";
                         return;
+                    }
                     BeginInvoke((MethodInvoker)delegate
                     {
                         updateState.Text =
@@ -2748,12 +2982,13 @@ namespace AirPlayReceiverMvp
                                 Arguments = "/update /delete-source",
                                 UseShellExecute = true
                             });
+                            pendingInstallerPath = "";
                             context.QuitApplication();
                         }
                         else
                         {
-                            try { File.Delete(installerPath); }
-                            catch { }
+                            DeleteFileQuietly(installerPath);
+                            pendingInstallerPath = "";
                             checkUpdate.Enabled = true;
                             SetPrimaryButtonState(installUpdate, true);
                         }
@@ -2761,6 +2996,8 @@ namespace AirPlayReceiverMvp
                 }
                 catch (Exception ex)
                 {
+                    DeleteFileQuietly(installerPath);
+                    pendingInstallerPath = "";
                     if (IsDisposed)
                         return;
                     BeginInvoke((MethodInvoker)delegate
@@ -2772,6 +3009,23 @@ namespace AirPlayReceiverMvp
                     });
                 }
             });
+        }
+
+        private void DeletePendingInstaller()
+        {
+            string path = pendingInstallerPath;
+            pendingInstallerPath = "";
+            DeleteFileQuietly(path);
+        }
+
+        private static void DeleteFileQuietly(string path)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                    File.Delete(path);
+            }
+            catch { }
         }
 
         private string DisplayNetworkName()
@@ -2973,9 +3227,11 @@ namespace AirPlayReceiverMvp
             }
             else if (context.IsPublicNetwork)
             {
-                accessNote.Text =
-                    "В публичной сети приёмник без PIN будет приостановлен. " +
-                    "Включите PIN или измените профиль сети в Windows.";
+                accessNote.Text = context.HasNetworkOverlay
+                    ? "VPN или виртуальная сеть обнаружены, но Windows считает физический Wi-Fi/Ethernet " +
+                      "публичным. Включите PIN либо отключите VPN и повторите проверку."
+                    : "В публичной сети приёмник без PIN будет приостановлен. " +
+                      "Включите PIN или измените профиль сети в Windows.";
             }
             else
             {
@@ -4293,16 +4549,33 @@ namespace AirPlayReceiverMvp
 
     internal sealed class WheelSafeComboBox : ComboBox
     {
+        private const int WmMouseWheel = 0x020A;
         private int wheelPixelRemainder;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WmMouseWheel)
+            {
+                int delta = unchecked((short)(
+                    (m.WParam.ToInt64() >> 16) & 0xFFFF));
+                if (DroppedDown)
+                    DroppedDown = false;
+                ScrollParent(delta);
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref m);
+        }
 
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             if (DroppedDown)
-            {
-                base.OnMouseWheel(e);
-                return;
-            }
+                DroppedDown = false;
+            ScrollParent(e.Delta);
+        }
 
+        private void ScrollParent(int delta)
+        {
             Control current = Parent;
             while (current != null)
             {
@@ -4317,7 +4590,7 @@ namespace AirPlayReceiverMvp
                         ? Math.Max(1, scroll.ClientSize.Height)
                         : configuredLines * 16;
                     int numerator =
-                        e.Delta * pixelsPerDetent + wheelPixelRemainder;
+                        delta * pixelsPerDetent + wheelPixelRemainder;
                     int step = numerator / 120;
                     wheelPixelRemainder = numerator % 120;
                     if (step == 0)
@@ -4418,7 +4691,7 @@ namespace AirPlayReceiverMvp
             info.Notes = CleanReleaseNotes(GetString(root, "body"));
             info.ReleasePage = GetString(root, "html_url");
             info.IsNewer = latest.CompareTo(
-                Assembly.GetExecutingAssembly().GetName().Version) > 0;
+                AppVersion.Current) > 0;
 
             object assetsValue;
             object[] assets = root.TryGetValue("assets", out assetsValue)
@@ -4485,24 +4758,33 @@ namespace AirPlayReceiverMvp
             string path = Path.Combine(
                 Path.GetTempPath(),
                 "AeroMirror-" + Guid.NewGuid().ToString("N") + "-" + name);
-            using (var client = CreateClient())
-                client.DownloadFile(uri, path);
-
-            string actual;
-            using (var stream = File.OpenRead(path))
-            using (var sha = SHA256.Create())
-                actual = BitConverter.ToString(
-                    sha.ComputeHash(stream)).Replace("-", "");
-            if (!string.Equals(
-                actual, info.InstallerSha256,
-                StringComparison.OrdinalIgnoreCase))
+            bool complete = false;
+            try
             {
-                try { File.Delete(path); }
-                catch { }
-                throw new InvalidDataException(
-                    "SHA-256 загруженного установщика не совпал с GitHub Release.");
+                using (var client = CreateClient())
+                    client.DownloadFile(uri, path);
+
+                string actual;
+                using (var stream = File.OpenRead(path))
+                using (var sha = SHA256.Create())
+                    actual = BitConverter.ToString(
+                        sha.ComputeHash(stream)).Replace("-", "");
+                if (!string.Equals(
+                    actual, info.InstallerSha256,
+                    StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "SHA-256 загруженного установщика не совпал с GitHub Release.");
+                complete = true;
+                return path;
             }
-            return path;
+            finally
+            {
+                if (!complete)
+                {
+                    try { File.Delete(path); }
+                    catch { }
+                }
+            }
         }
 
         private static WebClient CreateClient()
@@ -4511,7 +4793,7 @@ namespace AirPlayReceiverMvp
             client.Encoding = Encoding.UTF8;
             client.Headers[HttpRequestHeader.UserAgent] =
                 "AeroMirror-Windows/" +
-                Assembly.GetExecutingAssembly().GetName().Version;
+                AppVersion.Display;
             client.Headers[HttpRequestHeader.Accept] =
                 "application/vnd.github+json";
             client.Headers["X-GitHub-Api-Version"] = "2026-03-10";
@@ -4671,6 +4953,17 @@ namespace AirPlayReceiverMvp
                 control.BackColor = Color.Transparent;
                 control.ForeColor = textColor;
             }
+            else if (control is LinkLabel)
+            {
+                var link = (LinkLabel)control;
+                link.LinkColor = dark
+                    ? Color.FromArgb(111, 190, 255)
+                    : Color.FromArgb(0, 95, 184);
+                link.ActiveLinkColor = dark
+                    ? Color.FromArgb(157, 211, 255)
+                    : Color.FromArgb(0, 72, 140);
+                link.VisitedLinkColor = link.LinkColor;
+            }
             else if (control is Label || control is CheckBox)
             {
                 control.ForeColor = IsSecondary(currentFore)
@@ -4764,6 +5057,9 @@ namespace AirPlayReceiverMvp
         public string Name = "";
         public string InterfaceName = "";
         public string Addresses = "";
+        public int InterfaceIndex;
+        public int NonPhysicalProfileCount;
+        public int PublicNonPhysicalProfileCount;
         public string Signature = "Unknown|||";
     }
 
@@ -4784,15 +5080,31 @@ namespace AirPlayReceiverMvp
                     "\"$OutputEncoding=[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); " +
                     "$physical=@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | " +
                     "Where-Object {$_.Status -eq 'Up'} | ForEach-Object {$_.ifIndex}); " +
-                    "$profiles=@(Get-NetConnectionProfile -ErrorAction SilentlyContinue | " +
-                    "Where-Object {($_.IPv4Connectivity -ne 'Disconnected' -or $_.IPv6Connectivity -ne 'Disconnected') " +
-                    "-and ($physical -contains $_.InterfaceIndex)}); " +
-                    "$p=$profiles | Sort-Object @{Expression={if($_.NetworkCategory -eq 'Public'){0}else{1}}}, " +
+                    "$connected=@(Get-NetConnectionProfile -ErrorAction SilentlyContinue | " +
+                    "Where-Object {($_.IPv4Connectivity -ne 'Disconnected' -or " +
+                    "$_.IPv6Connectivity -ne 'Disconnected')}); " +
+                    "$physicalProfiles=@($connected | Where-Object " +
+                    "{$physical -contains $_.InterfaceIndex}); " +
+                    "$overlayProfiles=@($connected | Where-Object " +
+                    "{$physical -notcontains $_.InterfaceIndex}); " +
+                    "$publicOverlays=@($overlayProfiles | Where-Object " +
+                    "{$_.NetworkCategory -eq 'Public'}); " +
+                    "$p=$physicalProfiles | Sort-Object " +
+                    "@{Expression={if($_.NetworkCategory -eq 'Public'){0}else{1}}}, " +
                     "@{Expression={if($_.IPv4Connectivity -eq 'Internet'){0}else{1}}} | Select-Object -First 1; " +
-                    "if($p){$ips=@(Get-NetIPAddress -InterfaceIndex $p.InterfaceIndex -AddressFamily IPv4 " +
-                    "-ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -notlike '169.254.*'} | " +
-                    "ForEach-Object {$_.IPAddress} | Sort-Object -Unique); Write-Output " +
-                    "($p.NetworkCategory.ToString()+'|'+$p.Name+'|'+$p.InterfaceAlias+'|'+($ips -join ','))}\"";
+                    "$category='Unknown';$name='';$alias='';$index=0;$addresses=''; " +
+                    "if($p){$ips=@(Get-NetIPAddress -InterfaceIndex $p.InterfaceIndex " +
+                    "-AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
+                    "Where-Object {$_.IPAddress -notlike '169.254.*'} | " +
+                    "ForEach-Object {$_.IPAddress} | Sort-Object -Unique); " +
+                    "$category=$p.NetworkCategory.ToString();$name=$p.Name;" +
+                    "$alias=$p.InterfaceAlias;$index=[int]$p.InterfaceIndex;" +
+                    "$addresses=($ips -join ',')}; " +
+                    "$value=[ordered]@{category=$category;name=$name;" +
+                    "interfaceName=$alias;addresses=$addresses;interfaceIndex=$index;" +
+                    "overlayCount=$overlayProfiles.Count;" +
+                    "publicOverlayCount=$publicOverlays.Count}; " +
+                    "$value | ConvertTo-Json -Compress\"";
                 start.UseShellExecute = false;
                 start.CreateNoWindow = true;
                 start.WindowStyle = ProcessWindowStyle.Hidden;
@@ -4810,16 +5122,45 @@ namespace AirPlayReceiverMvp
                     string line = output.Trim();
                     if (line.Length == 0)
                         return result;
-                    string[] fields = line.Split(new[] { '|' }, 4);
+                    Dictionary<string, object> values =
+                        new JavaScriptSerializer().DeserializeObject(line)
+                        as Dictionary<string, object>;
+                    if (values == null)
+                        return result;
+                    result.NonPhysicalProfileCount = Math.Max(
+                        0, ReadInt(values, "overlayCount"));
+                    result.PublicNonPhysicalProfileCount = Math.Max(
+                        0, ReadInt(values, "publicOverlayCount"));
+                    result.Category =
+                        ReadString(values, "category").Trim();
+                    result.InterfaceIndex =
+                        ReadInt(values, "interfaceIndex");
+                    bool recognizedCategory =
+                        string.Equals(
+                            result.Category,
+                            "Private",
+                            StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(
+                            result.Category,
+                            "Public",
+                            StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(
+                            result.Category,
+                            "DomainAuthenticated",
+                            StringComparison.OrdinalIgnoreCase);
+                    if (!recognizedCategory || result.InterfaceIndex <= 0)
+                        return result;
                     result.IsKnown = true;
-                    result.Category = fields[0].Trim();
                     result.IsPublic = string.Equals(
                         result.Category, "Public", StringComparison.OrdinalIgnoreCase);
-                    if (fields.Length > 1) result.Name = fields[1].Trim();
-                    if (fields.Length > 2) result.InterfaceName = fields[2].Trim();
-                    if (fields.Length > 3) result.Addresses = fields[3].Trim();
-                    result.Signature = result.Category + "|" + result.Name +
-                        "|" + result.InterfaceName + "|" + result.Addresses;
+                    result.Name = ReadString(values, "name").Trim();
+                    result.InterfaceName =
+                        ReadString(values, "interfaceName").Trim();
+                    result.Addresses =
+                        ReadString(values, "addresses").Trim();
+                    result.Signature = result.Category + "|" +
+                        result.InterfaceIndex + "|" + result.Name + "|" +
+                        result.InterfaceName + "|" + result.Addresses;
                     return result;
                 }
             }
@@ -4828,6 +5169,24 @@ namespace AirPlayReceiverMvp
                 ReceiverContext.Log("Network profile check failed: " + ex.Message);
                 return result;
             }
+        }
+
+        private static string ReadString(
+            Dictionary<string, object> values, string key)
+        {
+            object value;
+            return values.TryGetValue(key, out value) && value != null
+                ? Convert.ToString(value)
+                : "";
+        }
+
+        private static int ReadInt(
+            Dictionary<string, object> values, string key)
+        {
+            int parsed;
+            return int.TryParse(ReadString(values, key), out parsed)
+                ? parsed
+                : 0;
         }
     }
 

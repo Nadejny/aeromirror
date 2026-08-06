@@ -3,6 +3,10 @@
 A native-style Windows tray application that makes an iPhone screen available
 on a Windows 10/11 PC through the open-source UxPlay receiver.
 
+**Set it up once and forget it:** AeroMirror starts quietly with Windows,
+waits in the tray, and is ready from the iPhone's Screen Mirroring menu.
+There is no phone app, account, subscription, advertising, or telemetry.
+
 This is an independent project. It is not affiliated with or endorsed by
 Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
 
@@ -23,7 +27,7 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   register under the user's local application data, independently of the
   current Wi-Fi network and application install folder;
 - detects the active physical Wi-Fi/Ethernet profile while ignoring VPN and
-  virtual adapters;
+  virtual adapters, and reports how many overlay profiles were excluded;
 - pauses unprotected reception on a Windows Public physical network and asks
   the user to enable a visible four-digit PIN;
 - offers simple 720p/30, 1080p/30, 1080p/60, and HEVC 4K/60 quality
@@ -43,7 +47,9 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
 - checks a configured public GitHub Release channel only when requested,
   displays curated release notes, and verifies the setup SHA-256 before
   launching an update;
-- provides a basic diagnostic report and a local log;
+- provides a basic diagnostic report, a local log, and a **Report a problem**
+  action that prepares a separately redacted log snapshot and opens a
+  pre-filled GitHub Issue; the user reviews and attaches the file manually;
 - captures UxPlay stdout/stderr in the rotating log while masking PINs,
   passwords, MAC addresses, user-profile paths, and labelled cryptographic
   material;
@@ -90,6 +96,9 @@ The installer:
   finishes;
 - updates an existing installed version in place with rollback if replacing
   the application files fails;
+- keeps the exact pinned upstream runtime in a content-addressed local cache
+  after SHA-256 verification, so a reinstall or later update using the same
+  runtime does not download the 100+ MB archive again;
 - includes an uninstaller while preserving user settings by default.
 
 An internet connection is therefore required during installation. The pinned
@@ -100,7 +109,10 @@ not mirror or silently fall back to another runtime.
 
 The installer is currently unsigned, so Windows SmartScreen may display an
 unknown-publisher warning. Code signing is required before a broad public
-release.
+release. The GitHub-provided digest and HTTPS protect against corruption and
+an accidental mismatch; until Authenticode publisher verification is added,
+they are not a substitute for a signed release if the repository account
+itself were compromised.
 
 ## Portable build: local testing only in 0.10
 
@@ -131,7 +143,11 @@ code.
 
 VPN, tunnel, Hyper-V, and other virtual profiles do not determine whether the
 LAN is trusted. The UI shows the exact physical profile name and Windows
-category. A personal hotspot is never enabled automatically.
+category. If Windows itself marks the physical Wi-Fi/Ethernet as Public while
+a VPN is active, AeroMirror remains fail-closed: disconnect the VPN and repeat
+the check, change the physical Windows profile to Private only when it really
+is a trusted network, or use PIN protection. A personal hotspot is never
+enabled automatically.
 
 Settings and logs are stored under:
 
@@ -141,6 +157,11 @@ Settings and logs are stored under:
 
 Receiver diagnostics are written to `receiver.log`; installer and update
 failures are written to the separate rotating `setup.log`.
+
+The **Report a problem** link creates a temporary, additionally redacted
+snapshot and opens GitHub. Browsers do not allow AeroMirror to attach a local
+file silently, so Explorer selects the snapshot and the user drags it into the
+Issue after reviewing it. Nothing is uploaded automatically.
 
 For a reproducible bug report, follow
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). Never publish
@@ -189,6 +210,11 @@ The result is:
 ```text
 artifacts\installer\AeroMirror-Setup-0.10.0.exe
 ```
+
+Public release names use three-part semantic versions such as `0.10.0`.
+Windows executable metadata internally requires four numeric fields and may
+show `0.10.0.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.10.0`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:

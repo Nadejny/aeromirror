@@ -10,8 +10,12 @@ the application reports that the receiver is running when it is not usable.
 
 Use either method:
 
-1. Right-click the AeroMirror tray icon and choose **Open log**.
-2. Press `Win+R`, paste the following path, and press Enter:
+1. On the main screen or in the tray menu, choose **Report a problem**.
+   AeroMirror creates an additionally redacted temporary snapshot, opens a
+   pre-filled GitHub Issue, and selects the file in Explorer. Review it and
+   drag it into the Issue; no file is uploaded automatically.
+2. Right-click the AeroMirror tray icon and choose **Open log**.
+3. Press `Win+R`, paste the following path, and press Enter:
 
    ```text
    %LOCALAPPDATA%\AirPlayReceiverMvp\receiver.log
@@ -26,6 +30,10 @@ C:\Users\<you>\AppData\Local\AirPlayReceiverMvp\receiver.log
 Copy the log after reproducing the problem and before reinstalling or cleaning
 application data. In the GitHub report, include the exact local time and time
 zone of the failure so the relevant section can be identified.
+
+GitHub and the browser intentionally prevent a desktop application from
+silently attaching a local file. Signing in and adding the selected snapshot
+is therefore a visible user action.
 
 If installation or an in-place update itself fails, attach the reviewed
 installer journal from:
