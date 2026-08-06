@@ -138,9 +138,9 @@ $checksumLines = foreach ($file in $releaseFiles) {
     [Text.UTF8Encoding]::new($false))
 
 $expectedReleaseFiles = @(
-    "AeroMirror-Setup-" + $Version + ".exe",
-    "AeroMirror-source-" + $Version + ".zip",
-    "AeroMirror-native-source-" + $Version + ".zip",
+    ("AeroMirror-Setup-" + $Version + ".exe"),
+    ("AeroMirror-source-" + $Version + ".zip"),
+    ("AeroMirror-native-source-" + $Version + ".zip"),
     "SHA256SUMS.txt"
 )
 $actualReleaseFiles = @(
