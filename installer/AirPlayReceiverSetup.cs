@@ -17,8 +17,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("AeroMirror Setup")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCompany("AeroMirror open-source project")]
-[assembly: AssemblyVersion("0.10.0.0")]
-[assembly: AssemblyFileVersion("0.10.0.0")]
+[assembly: AssemblyVersion("0.11.0.0")]
+[assembly: AssemblyFileVersion("0.11.0.0")]
 
 namespace AirPlayReceiverSetup
 {
@@ -62,9 +62,11 @@ namespace AirPlayReceiverSetup
                 try
                 {
                     bool keepStartMenu =
-                        File.Exists(InstallPaths.StartMenuShortcut);
+                        File.Exists(InstallPaths.StartMenuShortcut) ||
+                        File.Exists(InstallPaths.LegacyStartMenuShortcut);
                     bool keepDesktop =
-                        File.Exists(InstallPaths.DesktopShortcut);
+                        File.Exists(InstallPaths.DesktopShortcut) ||
+                        File.Exists(InstallPaths.LegacyDesktopShortcut);
                     SetupLog.Write("Silent installation started.");
                     InstallerOperations.Install(keepStartMenu, keepDesktop);
                     SetupLog.Write("Silent installation completed successfully.");
@@ -257,7 +259,7 @@ namespace AirPlayReceiverSetup
 
     internal sealed class SetupForm : Form
     {
-        private static readonly Version SetupVersion = new Version(0, 10, 0);
+        private static readonly Version SetupVersion = new Version(0, 11, 0);
         private readonly CheckBox startMenu;
         private readonly CheckBox desktop;
         private readonly CheckBox launch;
@@ -329,8 +331,18 @@ namespace AirPlayReceiverSetup
             runtimeNotice.ForeColor = Color.DimGray;
             Controls.Add(runtimeNotice);
 
-            startMenu = MakeCheckBox("Добавить ярлык в меню «Пуск»", 28, 224, true);
-            desktop = MakeCheckBox("Добавить ярлык на рабочий стол", 28, 255, false);
+            bool keepStartMenu = installedVersion == null
+                ? true
+                : File.Exists(InstallPaths.StartMenuShortcut) ||
+                    File.Exists(InstallPaths.LegacyStartMenuShortcut);
+            bool keepDesktop = installedVersion == null
+                ? false
+                : File.Exists(InstallPaths.DesktopShortcut) ||
+                    File.Exists(InstallPaths.LegacyDesktopShortcut);
+            startMenu = MakeCheckBox(
+                "Добавить ярлык в меню «Пуск»", 28, 224, keepStartMenu);
+            desktop = MakeCheckBox(
+                "Добавить ярлык на рабочий стол", 28, 255, keepDesktop);
             launch = MakeCheckBox("Запустить AeroMirror после установки", 28, 286, true);
             Controls.Add(startMenu);
             Controls.Add(desktop);
@@ -522,6 +534,7 @@ namespace AirPlayReceiverSetup
     {
         private const string PayloadResource = "AirPlayReceiverPayload";
         private const string UninstallerResource = "AirPlayReceiverUninstaller";
+        private const string ProvenanceResource = "AeroMirrorSourceProvenance";
         private const string RuntimeUrl =
             "https://github.com/leapbtw/uxplay-windows/releases/download/" +
             "2.0.0.1736/uxplay-windows.zip";
@@ -543,6 +556,184 @@ namespace AirPlayReceiverSetup
             "-uxplay-windows.zip");
         private const string UninstallKey =
             @"Software\Microsoft\Windows\CurrentVersion\Uninstall\AirPlayReceiverMvp";
+        private const string RunKey =
+            @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+        private sealed class RegistryValueSnapshot
+        {
+            internal string Name;
+            internal bool Exists;
+            internal object Value;
+            internal RegistryValueKind Kind;
+        }
+
+        private sealed class ShortcutSnapshot
+        {
+            internal string Path;
+            internal byte[] Data;
+        }
+
+        private sealed class InstallationMetadataSnapshot
+        {
+            private readonly List<ShortcutSnapshot> shortcuts =
+                new List<ShortcutSnapshot>();
+            private readonly List<RegistryValueSnapshot> uninstallValues =
+                new List<RegistryValueSnapshot>();
+            private readonly List<RegistryValueSnapshot> runValues =
+                new List<RegistryValueSnapshot>();
+            private bool uninstallKeyExisted;
+
+            internal static InstallationMetadataSnapshot Capture()
+            {
+                var snapshot = new InstallationMetadataSnapshot();
+                string[] shortcutPaths =
+                {
+                    InstallPaths.StartMenuShortcut,
+                    InstallPaths.DesktopShortcut,
+                    InstallPaths.LegacyStartMenuShortcut,
+                    InstallPaths.LegacyDesktopShortcut
+                };
+                foreach (string path in shortcutPaths)
+                {
+                    snapshot.shortcuts.Add(new ShortcutSnapshot
+                    {
+                        Path = path,
+                        Data = File.Exists(path) ? File.ReadAllBytes(path) : null
+                    });
+                }
+
+                using (RegistryKey key =
+                    Registry.CurrentUser.OpenSubKey(UninstallKey))
+                {
+                    snapshot.uninstallKeyExisted = key != null;
+                    if (key != null)
+                    {
+                        foreach (string name in key.GetValueNames())
+                        {
+                            snapshot.uninstallValues.Add(
+                                CaptureRegistryValue(key, name));
+                        }
+                    }
+                }
+
+                using (RegistryKey run =
+                    Registry.CurrentUser.OpenSubKey(RunKey))
+                {
+                    snapshot.runValues.Add(
+                        CaptureRegistryValue(run, "AeroMirror"));
+                    snapshot.runValues.Add(
+                        CaptureRegistryValue(run, "AirPlayReceiverMvp"));
+                }
+                return snapshot;
+            }
+
+            internal void Restore()
+            {
+                Exception firstError = null;
+                try
+                {
+                    RemoveShortcuts();
+                    foreach (ShortcutSnapshot shortcut in shortcuts)
+                    {
+                        if (shortcut.Data == null)
+                            continue;
+                        Directory.CreateDirectory(
+                            Path.GetDirectoryName(shortcut.Path));
+                        File.WriteAllBytes(shortcut.Path, shortcut.Data);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    firstError = ex;
+                }
+
+                try
+                {
+                    Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
+                    if (uninstallKeyExisted)
+                    {
+                        using (RegistryKey key =
+                            Registry.CurrentUser.CreateSubKey(UninstallKey))
+                        {
+                            foreach (RegistryValueSnapshot value in uninstallValues)
+                                RestoreRegistryValue(key, value);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (firstError == null)
+                        firstError = ex;
+                }
+
+                try
+                {
+                    bool needsRunKey = false;
+                    foreach (RegistryValueSnapshot value in runValues)
+                    {
+                        if (value.Exists)
+                        {
+                            needsRunKey = true;
+                            break;
+                        }
+                    }
+                    using (RegistryKey run = needsRunKey
+                        ? Registry.CurrentUser.CreateSubKey(RunKey)
+                        : Registry.CurrentUser.OpenSubKey(RunKey, true))
+                    {
+                        if (run != null)
+                        {
+                            foreach (RegistryValueSnapshot value in runValues)
+                            {
+                                if (value.Exists)
+                                    RestoreRegistryValue(run, value);
+                                else
+                                    run.DeleteValue(value.Name, false);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (firstError == null)
+                        firstError = ex;
+                }
+
+                if (firstError != null)
+                    throw new InvalidOperationException(
+                        "Не удалось полностью восстановить метаданные предыдущей установки.",
+                        firstError);
+            }
+
+            private static RegistryValueSnapshot CaptureRegistryValue(
+                RegistryKey key, string name)
+            {
+                if (key == null ||
+                    Array.IndexOf(key.GetValueNames(), name) < 0)
+                {
+                    return new RegistryValueSnapshot
+                    {
+                        Name = name,
+                        Exists = false
+                    };
+                }
+                return new RegistryValueSnapshot
+                {
+                    Name = name,
+                    Exists = true,
+                    Value = key.GetValue(
+                        name, null,
+                        RegistryValueOptions.DoNotExpandEnvironmentNames),
+                    Kind = key.GetValueKind(name)
+                };
+            }
+
+            private static void RestoreRegistryValue(
+                RegistryKey key, RegistryValueSnapshot value)
+            {
+                key.SetValue(value.Name, value.Value, value.Kind);
+            }
+        }
 
         internal static Version GetInstalledVersion()
         {
@@ -667,6 +858,8 @@ namespace AirPlayReceiverSetup
                         resource.CopyTo(output);
                 }
 
+                InstallationMetadataSnapshot metadata =
+                    InstallationMetadataSnapshot.Capture();
                 StopInstalledProcesses(InstallPaths.InstallDirectory);
                 string backup = InstallPaths.InstallDirectory +
                     ".backup-" + Guid.NewGuid().ToString("N");
@@ -703,7 +896,20 @@ namespace AirPlayReceiverSetup
                             Directory.Move(
                                 backup, InstallPaths.InstallDirectory);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        SetupLog.Write(
+                            "Installation directory rollback failed: " + ex);
+                    }
+                    try
+                    {
+                        metadata.Restore();
+                    }
+                    catch (Exception ex)
+                    {
+                        SetupLog.Write(
+                            "Installation metadata rollback failed: " + ex);
+                    }
                     throw;
                 }
             }
@@ -728,11 +934,16 @@ namespace AirPlayReceiverSetup
                     "В review-пакете отсутствует описание загрузки runtime.");
             string manifest = Path.Combine(
                 core, "resources", "build-manifest.json");
-            ValidateReviewedManifest(manifest);
+            string provenance = Path.Combine(
+                core, "resources", "source-provenance.json");
+            string payloadCore = Path.Combine(core, "uxplay-windows.exe");
+            ValidateReviewedManifest(manifest, provenance, payloadCore);
 
             string patchedCore = Path.Combine(staging, "headless-core.exe");
             string reviewedManifest = Path.Combine(
                 staging, "aeromirror-headless-build.json");
+            string reviewedProvenance = Path.Combine(
+                staging, "aeromirror-source-provenance.json");
             string deliveryCopy = Path.Combine(
                 staging, "runtime-delivery.json");
             File.Copy(
@@ -743,6 +954,7 @@ namespace AirPlayReceiverSetup
                 Path.Combine(core, "resources", "build-manifest.json"),
                 reviewedManifest,
                 true);
+            File.Copy(provenance, reviewedProvenance, true);
             File.Copy(delivery, deliveryCopy, true);
 
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
@@ -787,6 +999,10 @@ namespace AirPlayReceiverSetup
             File.Copy(
                 deliveryCopy,
                 Path.Combine(resources, "runtime-delivery.json"),
+                true);
+            File.Copy(
+                reviewedProvenance,
+                Path.Combine(resources, "source-provenance.json"),
                 true);
             if (File.Exists(upstreamManifestCopy))
             {
@@ -847,7 +1063,7 @@ namespace AirPlayReceiverSetup
             using (var client = new PinnedDownloadClient())
             {
                 client.Headers[HttpRequestHeader.UserAgent] =
-                    "AeroMirror-Setup/0.10.0";
+                    "AeroMirror-Setup/0.11.0";
                 client.DownloadFile(RuntimeUrl, archive);
             }
             if (!string.Equals(
@@ -923,18 +1139,44 @@ namespace AirPlayReceiverSetup
             }
         }
 
-        private static void ValidateReviewedManifest(string path)
+        private static void ValidateReviewedManifest(
+            string path,
+            string provenancePath,
+            string corePath)
         {
             if (!File.Exists(path))
                 throw new InvalidOperationException(
                     "В review-пакете отсутствует manifest headless core.");
+            if (!File.Exists(provenancePath))
+                throw new InvalidOperationException(
+                    "В review-пакете отсутствует source provenance.");
+            if (!File.Exists(corePath))
+                throw new InvalidOperationException(
+                    "В review-пакете отсутствует headless core.");
 
             Dictionary<string, object> manifest;
+            Dictionary<string, object> provenance;
+            byte[] embeddedProvenance;
             try
             {
                 var serializer = new JavaScriptSerializer();
                 manifest = serializer.DeserializeObject(File.ReadAllText(path))
                     as Dictionary<string, object>;
+                provenance = serializer.DeserializeObject(
+                    File.ReadAllText(provenancePath))
+                    as Dictionary<string, object>;
+                using (Stream resource = Assembly.GetExecutingAssembly()
+                    .GetManifestResourceStream(ProvenanceResource))
+                {
+                    if (resource == null)
+                        throw new InvalidDataException(
+                            "Installer provenance resource is missing.");
+                    using (var memory = new MemoryStream())
+                    {
+                        resource.CopyTo(memory);
+                        embeddedProvenance = memory.ToArray();
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -942,7 +1184,14 @@ namespace AirPlayReceiverSetup
                     "Manifest headless core повреждён.", ex);
             }
 
+            string embeddedProvenanceHash =
+                ComputeSha256(embeddedProvenance);
             if (manifest == null ||
+                provenance == null ||
+                !string.Equals(
+                    ComputeSha256(provenancePath),
+                    embeddedProvenanceHash,
+                    StringComparison.OrdinalIgnoreCase) ||
                 !ManifestValueEquals(
                     manifest, "qtBuildVersion", RequiredQtBuildVersion) ||
                 !ManifestValueEquals(
@@ -950,11 +1199,33 @@ namespace AirPlayReceiverSetup
                 !ManifestValueEquals(
                     manifest,
                     "coreRuntimeCompatibility",
-                    RequiredCoreRuntimeCompatibility))
+                    RequiredCoreRuntimeCompatibility) ||
+                !ManifestValueEquals(
+                    manifest,
+                    "sourceProvenanceSha256",
+                    embeddedProvenanceHash) ||
+                !ManifestValueEquals(
+                    manifest,
+                    "headlessExecutableSha256",
+                    ComputeSha256(corePath)) ||
+                !ManifestMatchesProvenance(
+                    manifest, provenance, "headlessExecutableSha256") ||
+                !ManifestMatchesProvenance(
+                    manifest, provenance, "uxplayWindowsCommit") ||
+                !ManifestMatchesProvenance(
+                    manifest, provenance, "libuxplayCommit") ||
+                !ManifestMatchesProvenance(
+                    manifest, provenance, "uxplayWindowsPatchSha256") ||
+                !ManifestMatchesProvenance(
+                    manifest, provenance, "libuxplayPatchSha256") ||
+                !ManifestMapMatchesProvenance(
+                    manifest, provenance, "patchedSources") ||
+                !ManifestMapMatchesProvenance(
+                    manifest, provenance, "buildInputs"))
             {
                 throw new InvalidOperationException(
-                    "Headless core не совместим с закреплённым runtime " +
-                    RequiredRuntimeRelease + ".");
+                    "Headless core не соответствует закреплённым " +
+                    "исходникам и runtime " + RequiredRuntimeRelease + ".");
             }
         }
 
@@ -969,6 +1240,52 @@ namespace AirPlayReceiverSetup
                     value as string,
                     expected,
                     StringComparison.Ordinal);
+        }
+
+        private static bool ManifestMatchesProvenance(
+            Dictionary<string, object> manifest,
+            Dictionary<string, object> provenance,
+            string name)
+        {
+            object manifestValue;
+            object provenanceValue;
+            return manifest.TryGetValue(name, out manifestValue) &&
+                provenance.TryGetValue(name, out provenanceValue) &&
+                string.Equals(
+                    manifestValue as string,
+                    provenanceValue as string,
+                    StringComparison.Ordinal);
+        }
+
+        private static bool ManifestMapMatchesProvenance(
+            Dictionary<string, object> manifest,
+            Dictionary<string, object> provenance,
+            string name)
+        {
+            object manifestValue;
+            object provenanceValue;
+            if (!manifest.TryGetValue(name, out manifestValue) ||
+                !provenance.TryGetValue(name, out provenanceValue))
+                return false;
+
+            var manifestMap = manifestValue as Dictionary<string, object>;
+            var provenanceMap = provenanceValue as Dictionary<string, object>;
+            if (manifestMap == null ||
+                provenanceMap == null ||
+                manifestMap.Count != provenanceMap.Count)
+                return false;
+
+            foreach (KeyValuePair<string, object> pair in provenanceMap)
+            {
+                object actual;
+                if (!manifestMap.TryGetValue(pair.Key, out actual) ||
+                    !string.Equals(
+                        actual as string,
+                        pair.Value as string,
+                        StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
         }
 
         private static void VerifyCoreLoaderCompatibility(string core)
@@ -1059,6 +1376,18 @@ namespace AirPlayReceiverSetup
             }
         }
 
+        private static string ComputeSha256(byte[] data)
+        {
+            using (var algorithm = SHA256.Create())
+            {
+                byte[] hash = algorithm.ComputeHash(data);
+                var text = new StringBuilder(hash.Length * 2);
+                foreach (byte value in hash)
+                    text.Append(value.ToString("x2"));
+                return text.ToString();
+            }
+        }
+
         internal static void StopInstalledProcesses(string installDirectory)
         {
             string[] names =
@@ -1136,7 +1465,7 @@ namespace AirPlayReceiverSetup
             try
             {
                 using (RegistryKey run = Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                    RunKey, true))
                 {
                     if (run != null)
                     {
@@ -1174,7 +1503,7 @@ namespace AirPlayReceiverSetup
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey))
             {
                 key.SetValue("DisplayName", "AeroMirror");
-                key.SetValue("DisplayVersion", "0.10.0");
+                key.SetValue("DisplayVersion", "0.11.0");
                 key.SetValue("Publisher", "AeroMirror open-source project");
                 key.SetValue("InstallLocation", InstallPaths.InstallDirectory);
                 key.SetValue("DisplayIcon", executable);
@@ -1194,7 +1523,7 @@ namespace AirPlayReceiverSetup
             try
             {
                 using (RegistryKey run = Registry.CurrentUser.CreateSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Run"))
+                    RunKey))
                 {
                     bool enabled =
                         run.GetValue("AeroMirror") != null ||

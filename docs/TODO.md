@@ -76,6 +76,13 @@ sender, not merely the requested preset.
 
 ### Orientation and photo/video sizing
 
+Version 0.11 provides an interim path: a newly discovered renderer receives a
+provisional fit, then the first stable exact encoded size reported through the
+reviewed native log marker refines it. Later portrait/landscape changes preserve
+the user's manually chosen scale. The unchecked work below covers the richer
+metadata, versioned IPC, device matrix, and edge cases still required before
+this behavior is considered complete.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [ ] Distinguish an iPhone orientation change from an app displaying

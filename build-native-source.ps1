@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.10.0"
+    [string]$Version = "0.11.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,8 +18,8 @@ $artifactRoot = Join-Path $projectRoot "artifacts"
 $releaseRoot = Join-Path $artifactRoot ("release\" + $Version)
 $upstream = (Resolve-Path -LiteralPath $UpstreamRoot).Path
 $libuxplay = Join-Path $upstream "libuxplay"
-$expectedUpstream = "8cf3424b438424bc99a89155bd29a789f48a43c0"
-$expectedLibuxplay = "437f37514257d9cb513ac7fbdee743b4da85852e"
+$nativeRoot = Join-Path $projectRoot "native-core"
+$provenancePath = Join-Path $nativeRoot "source-provenance.json"
 $temporaryRoot = Join-Path $artifactRoot (
     "native-source-stage-" + [Guid]::NewGuid().ToString("N"))
 $bundleName = "AeroMirror-native-source-" + $Version
@@ -48,6 +48,41 @@ function Assert-ChildPath([string]$Parent, [string]$Child) {
     }
 }
 
+function Get-Sha256Lower([string]$Path) {
+    return (
+        Get-FileHash -Algorithm SHA256 -LiteralPath $Path
+    ).Hash.ToLowerInvariant()
+}
+
+function Assert-FileHash(
+    [string]$Path,
+    [string]$Expected,
+    [string]$Description
+) {
+    $actual = Get-Sha256Lower -Path $Path
+    if ($actual -ne $Expected.ToLowerInvariant()) {
+        throw (
+            "$Description does not match source-provenance.json. " +
+            "Expected $Expected, found $actual.")
+    }
+}
+
+if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+    throw "Native source provenance is missing: $provenancePath"
+}
+$provenance = Get-Content -LiteralPath $provenancePath -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+if ($provenance.schemaVersion -ne 1 -or
+    $provenance.uxplayWindowsCommit -notmatch '^[0-9a-f]{40}$' -or
+    $provenance.libuxplayCommit -notmatch '^[0-9a-f]{40}$' -or
+    $provenance.uxplayWindowsPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.libuxplayPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw "source-provenance.json is missing required pinned values."
+}
+$expectedUpstream = [string]$provenance.uxplayWindowsCommit
+$expectedLibuxplay = [string]$provenance.libuxplayCommit
+
 $upstreamCommit = (
     & git -c ("safe.directory=" + $upstream) -C $upstream rev-parse HEAD
 ).Trim()
@@ -64,6 +99,7 @@ $modified = @(
         status --short --untracked-files=no
 )
 $expectedModified = @(
+    " m libuxplay",
     " M src/airplayworker.cpp",
     " M src/main.cpp",
     " M src/mainwindow.cpp",
@@ -74,8 +110,22 @@ if ($statusDifferences.Count -ne 0) {
     throw "Upstream tree contains changes other than the reviewed headless patch."
 }
 
+$libModified = @(
+    & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
+        status --short --untracked-files=no
+)
+$expectedLibModified = @(" M renderers/video_renderer.c")
+$libStatusDifferences = @(
+    Compare-Object $libModified $expectedLibModified)
+if ($libStatusDifferences.Count -ne 0) {
+    throw "libuxplay contains changes other than the reviewed AeroMirror marker patch."
+}
+
 $reviewedPatch = Join-Path (
-    Join-Path $projectRoot "native-core") "uxplay-windows-headless.patch"
+    $nativeRoot) "uxplay-windows-headless.patch"
+Assert-FileHash -Path $reviewedPatch `
+    -Expected $provenance.uxplayWindowsPatchSha256 `
+    -Description "Reviewed uxplay-windows patch"
 $actualPatch = [IO.Path]::GetTempFileName()
 try {
     & git -c ("safe.directory=" + $upstream) -C $upstream `
@@ -88,10 +138,8 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to generate the current native source diff."
     }
-    $reviewedPatchHash = (
-        Get-FileHash -Algorithm SHA256 -LiteralPath $reviewedPatch).Hash
-    $actualPatchHash = (
-        Get-FileHash -Algorithm SHA256 -LiteralPath $actualPatch).Hash
+    $reviewedPatchHash = Get-Sha256Lower -Path $reviewedPatch
+    $actualPatchHash = Get-Sha256Lower -Path $actualPatch
     if ($reviewedPatchHash -ne $actualPatchHash) {
         throw (
             "The modified native source does not exactly match " +
@@ -103,6 +151,54 @@ finally {
         Remove-Item -LiteralPath $actualPatch -Force
     }
 }
+
+$reviewedLibPatch = Join-Path (
+    $nativeRoot) "libuxplay-aeromirror.patch"
+Assert-FileHash -Path $reviewedLibPatch `
+    -Expected $provenance.libuxplayPatchSha256 `
+    -Description "Reviewed libuxplay patch"
+$actualLibPatch = [IO.Path]::GetTempFileName()
+try {
+    & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
+        diff --binary --no-ext-diff `
+        ("--output=" + $actualLibPatch) -- `
+        "renderers/video_renderer.c"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to generate the current libuxplay source diff."
+    }
+    $reviewedLibPatchHash = Get-Sha256Lower -Path $reviewedLibPatch
+    $actualLibPatchHash = Get-Sha256Lower -Path $actualLibPatch
+    if ($reviewedLibPatchHash -ne $actualLibPatchHash) {
+        throw (
+            "The modified libuxplay source does not exactly match " +
+            "libuxplay-aeromirror.patch.")
+    }
+}
+finally {
+    if (Test-Path -LiteralPath $actualLibPatch) {
+        Remove-Item -LiteralPath $actualLibPatch -Force
+    }
+}
+
+foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
+    $sourcePath = Join-Path $upstream (
+        $sourceProperty.Name.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Pinned patched source is missing: $sourcePath"
+    }
+    Assert-FileHash -Path $sourcePath `
+        -Expected ([string]$sourceProperty.Value) `
+        -Description ("Patched source " + $sourceProperty.Name)
+}
+
+$bonjourHeader = Join-Path $upstream "Bonjour SDK\Include\dns_sd.h"
+$dnssdDefinition = Join-Path $nativeRoot "dnssd.def"
+Assert-FileHash -Path $bonjourHeader `
+    -Expected $provenance.buildInputs.'dns_sd.h' `
+    -Description "Bonjour interface header"
+Assert-FileHash -Path $dnssdDefinition `
+    -Expected $provenance.buildInputs.'dnssd.def' `
+    -Description "Bonjour import definition"
 
 Assert-ChildPath -Parent $artifactRoot -Child $temporaryRoot
 New-Item -ItemType Directory -Force -Path $bundleRoot | Out-Null
@@ -131,10 +227,17 @@ try {
         Copy-Item -LiteralPath (Join-Path $upstream $relative) `
             -Destination (Join-Path $sourceRoot $relative) -Force
     }
+    Copy-Item -LiteralPath (
+        Join-Path $libuxplay "renderers\video_renderer.c") `
+        -Destination (
+            Join-Path $sourceRoot "libuxplay\renderers\video_renderer.c") `
+        -Force
 
     New-Item -ItemType Directory -Force -Path $inputsRoot | Out-Null
     foreach ($name in @(
         "uxplay-windows-headless.patch",
+        "libuxplay-aeromirror.patch",
+        "source-provenance.json",
         "build-compatible-core.ps1",
         "BUILD_INFO.md",
         "README.md",
@@ -142,13 +245,13 @@ try {
         "build-headless-runtime.ps1",
         "gstreamer-features.txt"
     )) {
-        Copy-Item -LiteralPath (Join-Path $projectRoot "native-core\$name") `
+        Copy-Item -LiteralPath (Join-Path $nativeRoot $name) `
             -Destination $inputsRoot
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot "LICENSE") `
         -Destination (Join-Path $inputsRoot "AEROMIRROR-LICENSE")
     Copy-Item -LiteralPath (
-        Join-Path $upstream "Bonjour SDK\Include\dns_sd.h") `
+        $bonjourHeader) `
         -Destination $inputsRoot
 
     if (Test-Path -LiteralPath $output) {

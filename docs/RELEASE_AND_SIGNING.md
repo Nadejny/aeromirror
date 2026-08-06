@@ -59,8 +59,9 @@ update.
 
 For a working automatic update, every GitHub Release must include:
 
-- a semantic tag such as `v0.10.0`;
-- a setup asset whose name contains `Setup` and ends in `.exe`;
+- a semantic tag such as `v0.11.0`;
+- a setup asset named exactly
+  `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` for that release version;
 - GitHub's SHA-256 asset digest;
 - a short user-facing release body.
 
@@ -73,21 +74,32 @@ be changed before relying on GitHub's Pre-release flag.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.
+It does not accept a similarly named executable or fall back to the first
+`.exe` asset: the filename must exactly match the three-part version parsed
+from the Release tag.
 
 Recommended assets:
 
 ```text
-AeroMirror-Setup-0.10.0.exe
-AeroMirror-source-0.10.0.zip
-AeroMirror-native-source-0.10.0.zip
+AeroMirror-Setup-0.11.0.exe
+AeroMirror-source-0.11.0.zip
+AeroMirror-native-source-0.11.0.zip
 SHA256SUMS.txt
 ```
 
-Version 0.10 uses a network review installer. It downloads the unchanged,
+Version 0.11 uses a network review installer. It downloads the unchanged,
 pinned `uxplay-windows` runtime directly from the upstream GitHub Release and
 checks SHA-256 before extracting it. Do not attach the offline portable/full
 runtime until its complete per-file SBOM and corresponding-source set are
 published.
+
+The native source asset is a prepared corresponding-source tree. Both
+AeroMirror patches are included separately and already applied. Its
+`source-provenance.json` records the reviewed commits, patch hashes, modified
+source hashes, build-input hashes, and expected core hash. The included build
+script validates those values, generates the x64 `dnssd.lib` import library
+from the verified `dnssd.def`, and does not require Git metadata in the
+extracted archive.
 
 ## Release-note template
 

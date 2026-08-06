@@ -1,6 +1,6 @@
 param(
     [string]$PortableZip = "",
-    [string]$Version = "0.10.0"
+    [string]$Version = "0.11.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,6 +9,7 @@ $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $source = Join-Path $projectRoot "installer\AirPlayReceiverSetup.cs"
 $icon = Join-Path $projectRoot "assets\AirPlayReceiver.ico"
 $manifest = Join-Path $projectRoot "app.manifest"
+$provenancePath = Join-Path $projectRoot "native-core\source-provenance.json"
 $outputFolder = Join-Path $projectRoot "artifacts\installer"
 $output = Join-Path $outputFolder ("AeroMirror-Setup-" + $Version + ".exe")
 $uninstaller = Join-Path $outputFolder "Uninstall.exe"
@@ -35,6 +36,37 @@ function Get-PeMachine([string]$Path) {
     }
 }
 
+function Get-Sha256Lower([string]$Path) {
+    return (
+        Get-FileHash -Algorithm SHA256 -LiteralPath $Path
+    ).Hash.ToLowerInvariant()
+}
+
+function Assert-HashMapMatches(
+    [object]$Actual,
+    [object]$Expected,
+    [string]$Description
+) {
+    if ($null -eq $Actual -or $null -eq $Expected) {
+        throw "$Description is missing."
+    }
+    $expectedProperties = @($Expected.PSObject.Properties)
+    $actualProperties = @($Actual.PSObject.Properties)
+    if ($actualProperties.Count -ne $expectedProperties.Count) {
+        throw "$Description does not match source-provenance.json."
+    }
+    foreach ($property in $expectedProperties) {
+        $actualProperty = $Actual.PSObject.Properties[$property.Name]
+        if ($null -eq $actualProperty -or
+            ([string]$actualProperty.Value) -ne
+                ([string]$property.Value)) {
+            throw (
+                "$Description does not match source-provenance.json at " +
+                $property.Name + ".")
+        }
+    }
+}
+
 if (-not $PortableZip) {
     $PortableZip = Join-Path $projectRoot (
         "artifacts\AeroMirror-review-payload-x64-" + $Version + ".zip")
@@ -57,6 +89,28 @@ if (-not (Test-Path $icon)) {
 if (-not (Test-Path $manifest)) {
     throw "Application manifest was not found: $manifest"
 }
+if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+    throw "Native source provenance was not found: $provenancePath"
+}
+$provenance = Get-Content -LiteralPath $provenancePath `
+    -Raw -Encoding UTF8 | ConvertFrom-Json
+$provenanceHash = Get-Sha256Lower -Path $provenancePath
+$versionParts = @($Version.Split('.') | ForEach-Object { [int]$_ })
+$installerSource = Get-Content -LiteralPath $source -Raw -Encoding UTF8
+$requiredVersionLiterals = @(
+    ('[assembly: AssemblyVersion("' + $Version + '.0")]'),
+    ('[assembly: AssemblyFileVersion("' + $Version + '.0")]'),
+    ('new Version(' + ($versionParts -join ', ') + ')'),
+    ('"AeroMirror-Setup/' + $Version + '"'),
+    ('key.SetValue("DisplayVersion", "' + $Version + '")')
+)
+foreach ($literal in $requiredVersionLiterals) {
+    if (-not $installerSource.Contains($literal)) {
+        throw (
+            "Installer source version does not match requested release " +
+            "$Version. Missing literal: $literal")
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $outputFolder | Out-Null
 $validationRoot = Join-Path $outputFolder (
@@ -74,6 +128,7 @@ try {
         "AeroMirror/core/uxplay-windows.exe",
         "AeroMirror/core/resources/build-manifest.json",
         "AeroMirror/core/resources/runtime-delivery.json",
+        "AeroMirror/core/resources/source-provenance.json",
         "AeroMirror/docs/TROUBLESHOOTING.md"
     )
     $archive = [IO.Compression.ZipFile]::OpenRead(
@@ -106,11 +161,17 @@ try {
         "AeroMirror\core\resources\build-manifest.json")
     $payloadDelivery = Join-Path $validationRoot (
         "AeroMirror\core\resources\runtime-delivery.json")
+    $payloadProvenance = Join-Path $validationRoot (
+        "AeroMirror\core\resources\source-provenance.json")
     if (-not (Test-Path -LiteralPath $payloadShell -PathType Leaf) -or
         -not (Test-Path -LiteralPath $payloadCore -PathType Leaf) -or
         -not (Test-Path -LiteralPath $payloadManifest -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $payloadDelivery -PathType Leaf)) {
+        -not (Test-Path -LiteralPath $payloadDelivery -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $payloadProvenance -PathType Leaf)) {
         throw "Portable payload is incomplete or is not a reviewed headless package."
+    }
+    if ((Get-Sha256Lower -Path $payloadProvenance) -ne $provenanceHash) {
+        throw "Payload provenance does not match committed source provenance."
     }
     $payloadVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
         $payloadShell).FileVersion
@@ -121,27 +182,54 @@ try {
         -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($payloadBuild.shellMode -ne "headless" -or
         $payloadBuild.architecture -ne "x64" -or
-        $payloadBuild.qtBuildVersion -ne "6.10.1" -or
-        $payloadBuild.pinnedRuntimeRelease -ne "2.0.0.1736" -or
+        $payloadBuild.qtBuildVersion -ne $provenance.qtBuildVersion -or
+        $payloadBuild.pinnedRuntimeRelease -ne
+            $provenance.pinnedRuntimeRelease -or
         $payloadBuild.coreRuntimeCompatibility -ne
-            "uxplay-windows-2.0.0.1736") {
-        throw "Portable payload does not identify a headless x64 core."
+            $provenance.coreRuntimeCompatibility -or
+        $payloadBuild.provenanceSchemaVersion -ne
+            $provenance.schemaVersion -or
+        $payloadBuild.sourceProvenanceSha256 -ne $provenanceHash -or
+        $payloadBuild.headlessExecutableSha256 -ne
+            $provenance.headlessExecutableSha256 -or
+        $payloadBuild.uxplayWindowsCommit -ne
+            $provenance.uxplayWindowsCommit -or
+        $payloadBuild.libuxplayCommit -ne
+            $provenance.libuxplayCommit -or
+        $payloadBuild.uxplayWindowsPatchSha256 -ne
+            $provenance.uxplayWindowsPatchSha256 -or
+        $payloadBuild.libuxplayPatchSha256 -ne
+            $provenance.libuxplayPatchSha256) {
+        throw "Portable payload does not match committed source provenance."
     }
+    Assert-HashMapMatches -Actual $payloadBuild.patchedSources `
+        -Expected $provenance.patchedSources `
+        -Description "Patched source hashes"
+    Assert-HashMapMatches -Actual $payloadBuild.buildInputs `
+        -Expected $provenance.buildInputs `
+        -Description "Native build-input hashes"
     if ((Get-PeMachine $payloadShell) -ne 0x8664 -or
         (Get-PeMachine $payloadCore) -ne 0x8664) {
         throw "Portable payload contains a non-x64 executable."
     }
-    $payloadCoreHash = (Get-FileHash -Algorithm SHA256 `
-        -LiteralPath $payloadCore).Hash
-    if (-not $payloadBuild.headlessExecutableSha256 -or
-        $payloadCoreHash -ne $payloadBuild.headlessExecutableSha256) {
+    $payloadCoreHash = Get-Sha256Lower -Path $payloadCore
+    if ($payloadCoreHash -ne $provenance.headlessExecutableSha256) {
         throw "Portable core hash does not match its reviewed build manifest."
     }
     $payloadDeliveryData = Get-Content -LiteralPath $payloadDelivery `
         -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($payloadDeliveryData.deliveryMode -ne "upstream-download" -or
-        $payloadDeliveryData.url -notmatch '^https://' -or
-        $payloadDeliveryData.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+        $payloadDeliveryData.upstreamProject -ne
+            "leapbtw/uxplay-windows" -or
+        $payloadDeliveryData.upstreamRelease -ne "2.0.0.1736" -or
+        $payloadDeliveryData.asset -ne "uxplay-windows.zip" -or
+        $payloadDeliveryData.url -ne
+            "https://github.com/leapbtw/uxplay-windows/releases/download/2.0.0.1736/uxplay-windows.zip" -or
+        $payloadDeliveryData.sha256 -ne
+            "9d3a51c15fc9db857351195e7eb7bbb21700d9ae25d936a54bcf8536b62cca18" -or
+        $payloadDeliveryData.source -ne (
+            "https://github.com/leapbtw/uxplay-windows/tree/" +
+            $provenance.uxplayWindowsCommit)) {
         throw "Portable payload does not contain a valid pinned runtime delivery manifest."
     }
 }
@@ -162,6 +250,7 @@ finally {
     /reference:System.IO.Compression.FileSystem.dll `
     /reference:System.Web.Extensions.dll `
     /reference:System.Windows.Forms.dll `
+    "/resource:$provenancePath,AeroMirrorSourceProvenance" `
     $source
 
 if ($LASTEXITCODE -ne 0) {
@@ -174,6 +263,7 @@ if ($LASTEXITCODE -ne 0) {
     /win32manifest:$manifest `
     "/resource:$PortableZip,AirPlayReceiverPayload" `
     "/resource:$uninstaller,AirPlayReceiverUninstaller" `
+    "/resource:$provenancePath,AeroMirrorSourceProvenance" `
     /reference:System.dll `
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
@@ -185,6 +275,11 @@ if ($LASTEXITCODE -ne 0) {
 
 if ($LASTEXITCODE -ne 0) {
     throw "Installer compilation failed with exit code $LASTEXITCODE."
+}
+$builtVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+    $output).FileVersion
+if ($builtVersion -ne ($Version + ".0")) {
+    throw "Built installer version $builtVersion does not match $Version."
 }
 
 Write-Host "Built $output"

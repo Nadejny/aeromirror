@@ -21,8 +21,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("AeroMirror open-source project")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("0.10.0.0")]
-[assembly: AssemblyFileVersion("0.10.0.0")]
+[assembly: AssemblyVersion("0.11.0.0")]
+[assembly: AssemblyFileVersion("0.11.0.0")]
 
 namespace AirPlayReceiverMvp
 {
@@ -378,6 +378,24 @@ namespace AirPlayReceiverMvp
         private int coreSocketsReady;
         private long coreSocketsReadyDueTicks;
         private int activeCorePid;
+        private int mirrorSessionActive;
+        private int mirrorSessionEndedPending;
+        private long mirrorSessionEndedDueTicks;
+        private int settingsRestartDeferred;
+        private long idleDiscoveryRenewalDueTicks;
+        private int idleDiscoveryRenewalUsed;
+        private DateTime lastAutomaticDiscoveryRefreshUtc = DateTime.MinValue;
+        private readonly object videoSizeSync = new object();
+        private Size pendingVideoSize = Size.Empty;
+        private DateTime pendingVideoSizeDueUtc = DateTime.MinValue;
+        private int pendingVideoSizeGeneration;
+        private Size currentVideoSize = Size.Empty;
+        private int currentVideoSizeGeneration;
+        private int mirrorSessionGeneration;
+        private IntPtr videoSizeWindow = IntPtr.Zero;
+        private IntPtr initialFitPendingWindow = IntPtr.Zero;
+        private int exactVideoSizeFitGeneration = -1;
+        private int appliedVideoOrientation;
         private bool startAfterNetworkCheck;
         private bool resumeAfterSafeNetwork;
         private string receiverStateText = "Приёмник остановлен";
@@ -498,6 +516,22 @@ namespace AirPlayReceiverMvp
             get { return nonPhysicalProfileCount; }
         }
         public string ReceiverStateText { get { return receiverStateText; } }
+        public bool IsMirrorSessionActive
+        {
+            get
+            {
+                return Interlocked.CompareExchange(
+                    ref mirrorSessionActive, 0, 0) == 1;
+            }
+        }
+        public bool IsSettingsRestartDeferred
+        {
+            get
+            {
+                return Interlocked.CompareExchange(
+                    ref settingsRestartDeferred, 0, 0) == 1;
+            }
+        }
 
         public string CorePath
         {
@@ -553,7 +587,16 @@ namespace AirPlayReceiverMvp
                 if (wasRunning && IsCoreRunning &&
                     restartIfCoreArgumentsChanged && argumentsChanged)
                 {
-                    ScheduleRestart("settings changed", false, 1000);
+                    if (IsMirrorSessionActive)
+                    {
+                        Interlocked.Exchange(ref settingsRestartDeferred, 1);
+                        Log("Core argument changes were saved; restart deferred " +
+                            "until the current mirroring session ends.");
+                    }
+                    else
+                    {
+                        ScheduleRestart("settings changed", false, 1000);
+                    }
                     restarted = true;
                 }
                 else if (!IsCoreRunning)
@@ -619,6 +662,8 @@ namespace AirPlayReceiverMvp
             bool changed = previousSignature.Length > 0 &&
                 !string.Equals(previousSignature, networkSignature,
                     StringComparison.Ordinal);
+            if (changed)
+                ResetIdleDiscoveryRenewalLimit();
             if (previousSignature.Length == 0 || changed)
             {
                 Log("Physical network profile: " +
@@ -837,6 +882,8 @@ namespace AirPlayReceiverMvp
                         "UxPlay could not be isolated in a Windows Job Object.");
                 int processId = process.Id;
                 Interlocked.Exchange(ref activeCorePid, processId);
+                ResetCoreSessionTracking(true);
+                ArmIdleDiscoveryRenewalIfAvailable();
                 string processPinSnapshot = settings.FixedPin;
                 process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 {
@@ -853,6 +900,7 @@ namespace AirPlayReceiverMvp
                                 ref coreSocketsReadyDueTicks,
                                 DateTime.UtcNow.AddMilliseconds(1500).Ticks);
                         }
+                        ObserveCoreOutput(processId, e.Data);
                         Log("core[" + processId + "]/stdout: " +
                             RedactSensitiveText(e.Data, processPinSnapshot));
                     }
@@ -909,6 +957,7 @@ namespace AirPlayReceiverMvp
             startAfterNetworkCheck = false;
             resumeAfterSafeNetwork = false;
             restartPending = false;
+            ResetCoreSessionTracking(true);
             if (Interlocked.CompareExchange(
                     ref restartStopInProgress, 0, 0) == 1)
             {
@@ -925,6 +974,7 @@ namespace AirPlayReceiverMvp
             Process process = coreProcess;
             coreProcess = null;
             Interlocked.Exchange(ref activeCorePid, 0);
+            ResetCoreSessionTracking(true);
             IntPtr job = coreJob;
             coreJob = IntPtr.Zero;
             if (resetRapidExit)
@@ -975,6 +1025,7 @@ namespace AirPlayReceiverMvp
                 Process process = coreProcess;
                 coreProcess = null;
                 Interlocked.Exchange(ref activeCorePid, 0);
+                ResetCoreSessionTracking(true);
                 IntPtr job = coreJob;
                 coreJob = IntPtr.Zero;
                 fittedStreamWindow = IntPtr.Zero;
@@ -1042,8 +1093,197 @@ namespace AirPlayReceiverMvp
         {
             ResetRapidExitWindow();
             coreReadinessRecoveryAttempts = 0;
+            ResetIdleDiscoveryRenewalLimit();
             Log("Manual AirPlay discovery refresh requested.");
             ScheduleRestart("manual discovery refresh", false, 1200);
+        }
+
+        private void ObserveCoreOutput(int processId, string line)
+        {
+            if (Interlocked.CompareExchange(
+                    ref activeCorePid, 0, 0) != processId)
+                return;
+
+            if (line.IndexOf(
+                    "raop_rtp_mirror starting mirroring",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Interlocked.Exchange(ref mirrorSessionActive, 1);
+                Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
+                Interlocked.Increment(ref mirrorSessionGeneration);
+                lock (videoSizeSync)
+                {
+                    pendingVideoSize = Size.Empty;
+                    pendingVideoSizeDueUtc = DateTime.MinValue;
+                    pendingVideoSizeGeneration = 0;
+                    currentVideoSize = Size.Empty;
+                    currentVideoSizeGeneration = 0;
+                }
+                ResetIdleDiscoveryRenewalLimit();
+            }
+
+            Match videoSize = Regex.Match(
+                line,
+                @"^AEROMIRROR_VIDEO_SIZE source=(\d+)x(\d+) encoded=(\d+)x(\d+)$",
+                RegexOptions.CultureInvariant);
+            if (videoSize.Success)
+            {
+                int width;
+                int height;
+                if (int.TryParse(videoSize.Groups[3].Value, out width) &&
+                    int.TryParse(videoSize.Groups[4].Value, out height) &&
+                    width >= 64 && width <= 8192 &&
+                    height >= 64 && height <= 8192)
+                {
+                    lock (videoSizeSync)
+                    {
+                        pendingVideoSize = new Size(width, height);
+                        pendingVideoSizeGeneration =
+                            Interlocked.CompareExchange(
+                                ref mirrorSessionGeneration, 0, 0);
+                        pendingVideoSizeDueUtc =
+                            DateTime.UtcNow.AddMilliseconds(350);
+                    }
+                }
+            }
+
+            if (line.IndexOf(
+                    "raop_rtp_mirror->running is no longer true",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (Interlocked.Exchange(ref mirrorSessionActive, 0) == 1)
+                {
+                    Interlocked.Exchange(
+                        ref mirrorSessionEndedDueTicks,
+                        DateTime.UtcNow.AddSeconds(5).Ticks);
+                    Interlocked.Exchange(ref mirrorSessionEndedPending, 1);
+                    Interlocked.Exchange(
+                        ref idleDiscoveryRenewalDueTicks,
+                        DateTime.UtcNow.AddMinutes(10).Ticks);
+                    Log("Mirroring session ended; a bounded discovery renewal " +
+                        "will run if the iPhone does not reconnect.");
+                }
+            }
+        }
+
+        private void ResetCoreSessionTracking(bool clearDeferredRestart)
+        {
+            Interlocked.Exchange(ref mirrorSessionActive, 0);
+            Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
+            Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
+            Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+            if (clearDeferredRestart)
+                Interlocked.Exchange(ref settingsRestartDeferred, 0);
+            lock (videoSizeSync)
+            {
+                pendingVideoSize = Size.Empty;
+                pendingVideoSizeDueUtc = DateTime.MinValue;
+                pendingVideoSizeGeneration = 0;
+                currentVideoSize = Size.Empty;
+                currentVideoSizeGeneration = 0;
+            }
+            Interlocked.Exchange(ref mirrorSessionGeneration, 0);
+            videoSizeWindow = IntPtr.Zero;
+            initialFitPendingWindow = IntPtr.Zero;
+            exactVideoSizeFitGeneration = -1;
+            appliedVideoOrientation = 0;
+        }
+
+        private void ResetIdleDiscoveryRenewalLimit()
+        {
+            Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
+            Interlocked.Exchange(
+                ref idleDiscoveryRenewalDueTicks,
+                IsCoreRunning
+                    ? DateTime.UtcNow.AddMinutes(10).Ticks
+                    : 0);
+        }
+
+        private void ArmIdleDiscoveryRenewalIfAvailable()
+        {
+            if (Interlocked.CompareExchange(
+                    ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+            {
+                Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+                return;
+            }
+            Interlocked.Exchange(
+                ref idleDiscoveryRenewalDueTicks,
+                DateTime.UtcNow.AddMinutes(10).Ticks);
+        }
+
+        private void HandleAutomaticDiscoveryMaintenance()
+        {
+            if (!IsCoreRunning || coreReadyPending || restartPending ||
+                Interlocked.CompareExchange(
+                    ref restartStopInProgress, 0, 0) == 1)
+                return;
+
+            DateTime now = DateTime.UtcNow;
+            if (Interlocked.CompareExchange(
+                    ref mirrorSessionEndedPending, 0, 0) == 1)
+            {
+                long dueTicks = Interlocked.Read(
+                    ref mirrorSessionEndedDueTicks);
+                if (dueTicks > 0 && now.Ticks >= dueTicks)
+                {
+                    Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
+                    if (!IsMirrorSessionActive)
+                    {
+                        if (IsSettingsRestartDeferred)
+                        {
+                            Log("Current mirroring session ended; applying " +
+                                "the saved receiver settings.");
+                            lastAutomaticDiscoveryRefreshUtc = now;
+                            ScheduleRestart(
+                                "deferred settings change", false, 1000);
+                            return;
+                        }
+
+                        if ((now - lastAutomaticDiscoveryRefreshUtc).
+                                TotalSeconds >= 60)
+                        {
+                            Log("Renewing AirPlay discovery after the completed " +
+                                "mirroring session.");
+                            lastAutomaticDiscoveryRefreshUtc = now;
+                            ScheduleRestart(
+                                "post-session discovery renewal", false, 1200);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            long idleDueTicks = Interlocked.Read(
+                ref idleDiscoveryRenewalDueTicks);
+            if (idleDueTicks <= 0 || now.Ticks < idleDueTicks ||
+                IsMirrorSessionActive ||
+                Interlocked.CompareExchange(
+                    ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+                return;
+
+            if ((now - lastAutomaticDiscoveryRefreshUtc).TotalMinutes < 2)
+            {
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalDueTicks,
+                    now.AddMinutes(10).Ticks);
+                return;
+            }
+
+            if (Interlocked.CompareExchange(
+                    ref idleDiscoveryRenewalUsed, 1, 0) != 0)
+                return;
+            Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+            if (IsMirrorSessionActive)
+            {
+                ResetIdleDiscoveryRenewalLimit();
+                return;
+            }
+
+            Log("Renewing idle AirPlay discovery after ten minutes without " +
+                "a mirroring session.");
+            lastAutomaticDiscoveryRefreshUtc = now;
+            ScheduleRestart("idle discovery renewal", false, 1200);
         }
 
         private void ResetRapidExitWindow()
@@ -1289,12 +1529,12 @@ namespace AirPlayReceiverMvp
                 MaskSecrets(AppSettings.FilePath));
             text.AppendLine("Журнал: " + MaskSecrets(AppSettings.LogPath));
             text.AppendLine();
-            text.AppendLine("Исходники AeroMirror 0.10.0:");
+            text.AppendLine("Исходники AeroMirror 0.11.0:");
             text.AppendLine(
-                "https://github.com/Nadejny/aeromirror/tree/v0.10.0");
+                "https://github.com/Nadejny/aeromirror/tree/v0.11.0");
             text.AppendLine("Исходники изменённого GPL-ядра:");
             text.AppendLine(
-                "https://github.com/Nadejny/aeromirror/releases/download/v0.10.0/AeroMirror-native-source-0.10.0.zip");
+                "https://github.com/Nadejny/aeromirror/releases/download/v0.11.0/AeroMirror-native-source-0.11.0.zip");
             text.AppendLine("Неизменённый runtime загружается с:");
             text.AppendLine(
                 "https://github.com/leapbtw/uxplay-windows/releases/tag/2.0.0.1736");
@@ -1446,6 +1686,7 @@ namespace AirPlayReceiverMvp
                     }
                 }
             }
+            HandleAutomaticDiscoveryMaintenance();
             ApplyTopMost();
             if (form != null && !form.IsDisposed)
             {
@@ -1481,6 +1722,7 @@ namespace AirPlayReceiverMvp
                 }
                 coreProcess = null;
                 Interlocked.Exchange(ref activeCorePid, 0);
+                ResetCoreSessionTracking(true);
                 coreReadyPending = false;
                 Interlocked.Exchange(ref coreSocketsReady, 0);
                 Interlocked.Exchange(ref coreSocketsReadyDueTicks, 0);
@@ -1604,12 +1846,66 @@ namespace AirPlayReceiverMvp
             NativeMethods.SetWindowText(window, "iPhone · AeroMirror");
             NativeMethods.SetToolWindowStyle(
                 window, !settings.ShowStreamInTaskbar);
+            bool newWindow = previousWindow != window;
+            if (newWindow)
+            {
+                NativeMethods.SetImmersiveDarkMode(window, true);
+                videoSizeWindow = window;
+                initialFitPendingWindow = window;
+                exactVideoSizeFitGeneration = -1;
+                appliedVideoOrientation = 0;
+            }
+
+            int videoSizeGeneration;
+            Size videoSize = GetStableVideoSize(out videoSizeGeneration);
+            int orientation = VideoOrientation(videoSize);
             if (settings.AutoFitWindow &&
-                previousWindow != window &&
                 !NativeMethods.IsLeftMouseButtonDown())
             {
-                FitRendererWindow(window);
-                Log("Applied one-time renderer window fit.");
+                if (initialFitPendingWindow == window)
+                {
+                    if (FitRendererWindow(window, videoSize, false))
+                    {
+                        initialFitPendingWindow = IntPtr.Zero;
+                        exactVideoSizeFitGeneration = videoSize.IsEmpty
+                            ? -1 : videoSizeGeneration;
+                        appliedVideoOrientation = orientation != 0
+                            ? orientation : GetWindowOrientation(window);
+                        Log("Applied initial renderer window fit" +
+                            VideoSizeLogSuffix(videoSize) + ".");
+                    }
+                }
+                else if (videoSizeWindow == window &&
+                    !videoSize.IsEmpty &&
+                    exactVideoSizeFitGeneration != videoSizeGeneration)
+                {
+                    if (FitRendererWindow(window, videoSize, false))
+                    {
+                        exactVideoSizeFitGeneration = videoSizeGeneration;
+                        appliedVideoOrientation = orientation;
+                        Log("Refined renderer window fit for the first exact " +
+                            "video size " + videoSize.Width + "x" +
+                            videoSize.Height + ".");
+                    }
+                }
+                else if (videoSizeWindow == window &&
+                    orientation != 0 &&
+                    appliedVideoOrientation != 0 &&
+                    orientation != appliedVideoOrientation)
+                {
+                    if (FitRendererWindow(window, videoSize, true))
+                    {
+                        appliedVideoOrientation = orientation;
+                        Log("Adapted renderer window to " +
+                            (orientation == 1 ? "portrait" : "landscape") +
+                            " video " + videoSize.Width + "x" +
+                            videoSize.Height + ".");
+                    }
+                }
+                else if (appliedVideoOrientation == 0 && orientation != 0)
+                {
+                    appliedVideoOrientation = orientation;
+                }
             }
             NativeMethods.SetWindowPos(window,
                 settings.AlwaysOnTop
@@ -1642,9 +1938,25 @@ namespace AirPlayReceiverMvp
 
             if (window != IntPtr.Zero)
             {
-                FitRendererWindow(window);
-                fittedStreamWindow = window;
-                Log("Renderer window fitted manually.");
+                int videoSizeGeneration;
+                Size videoSize = GetStableVideoSize(
+                    out videoSizeGeneration);
+                if (FitRendererWindow(window, videoSize, false))
+                {
+                    fittedStreamWindow = window;
+                    videoSizeWindow = window;
+                    initialFitPendingWindow = IntPtr.Zero;
+                    exactVideoSizeFitGeneration = videoSize.IsEmpty
+                        ? -1 : videoSizeGeneration;
+                    int orientation = VideoOrientation(videoSize);
+                    appliedVideoOrientation = orientation != 0
+                        ? orientation : GetWindowOrientation(window);
+                    Log("Renderer window fitted manually" +
+                        VideoSizeLogSuffix(videoSize) + ".");
+                    return;
+                }
+                Log("Manual renderer window fit failed for the visible " +
+                    "renderer window.");
                 return;
             }
 
@@ -1664,13 +1976,60 @@ namespace AirPlayReceiverMvp
                 value.IndexOf("AeroMirror", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static void FitRendererWindow(IntPtr window)
+        private Size GetStableVideoSize(out int generation)
+        {
+            lock (videoSizeSync)
+            {
+                if (!pendingVideoSize.IsEmpty &&
+                    DateTime.UtcNow >= pendingVideoSizeDueUtc)
+                {
+                    currentVideoSize = pendingVideoSize;
+                    currentVideoSizeGeneration =
+                        pendingVideoSizeGeneration;
+                    pendingVideoSize = Size.Empty;
+                    pendingVideoSizeDueUtc = DateTime.MinValue;
+                    pendingVideoSizeGeneration = 0;
+                }
+                generation = currentVideoSizeGeneration;
+                return currentVideoSize;
+            }
+        }
+
+        private static int VideoOrientation(Size videoSize)
+        {
+            if (videoSize.Width <= 0 || videoSize.Height <= 0 ||
+                videoSize.Width == videoSize.Height)
+                return 0;
+            return videoSize.Height > videoSize.Width ? 1 : 2;
+        }
+
+        private static int GetWindowOrientation(IntPtr window)
+        {
+            NativeMethods.RECT client;
+            if (!NativeMethods.GetClientRect(window, out client))
+                return 0;
+            int width = client.Right - client.Left;
+            int height = client.Bottom - client.Top;
+            if (width <= 0 || height <= 0 || width == height)
+                return 0;
+            return height > width ? 1 : 2;
+        }
+
+        private static string VideoSizeLogSuffix(Size videoSize)
+        {
+            return videoSize.Width > 0 && videoSize.Height > 0
+                ? " for " + videoSize.Width + "x" + videoSize.Height
+                : " using the iPhone fallback aspect";
+        }
+
+        private static bool FitRendererWindow(
+            IntPtr window, Size videoSize, bool preserveClientArea)
         {
             NativeMethods.RECT outer;
             NativeMethods.RECT client;
             if (!NativeMethods.GetWindowRect(window, out outer) ||
                 !NativeMethods.GetClientRect(window, out client))
-                return;
+                return false;
 
             int outerWidth = outer.Right - outer.Left;
             int outerHeight = outer.Bottom - outer.Top;
@@ -1678,33 +2037,46 @@ namespace AirPlayReceiverMvp
             int clientHeight = client.Bottom - client.Top;
             if (outerWidth <= 0 || outerHeight <= 0 ||
                 clientWidth <= 0 || clientHeight <= 0)
-                return;
+                return false;
 
-            // Modern iPhones are close to 9:19.5. Resizing the client area to
-            // this ratio removes the large side bars without stretching or
-            // cropping the mirrored image.
             const double phoneAspect = 9.0 / 19.5;
-            bool portrait = clientHeight >= clientWidth;
+            double aspect = videoSize.Width > 0 && videoSize.Height > 0
+                ? (double)videoSize.Width / videoSize.Height
+                : (clientHeight >= clientWidth
+                    ? phoneAspect : 1.0 / phoneAspect);
             int targetClientWidth;
             int targetClientHeight;
-            if (portrait)
+            if (preserveClientArea)
+            {
+                double area = Math.Max(
+                    1.0, (double)clientWidth * clientHeight);
+                targetClientWidth = Math.Max(
+                    1, (int)Math.Round(Math.Sqrt(area * aspect)));
+                targetClientHeight = Math.Max(
+                    1, (int)Math.Round(targetClientWidth / aspect));
+            }
+            else if (aspect <= 1.0)
             {
                 targetClientHeight = clientHeight;
-                targetClientWidth = (int)Math.Round(targetClientHeight * phoneAspect);
+                targetClientWidth =
+                    (int)Math.Round(targetClientHeight * aspect);
                 if (targetClientWidth < 280)
                 {
                     targetClientWidth = 280;
-                    targetClientHeight = (int)Math.Round(targetClientWidth / phoneAspect);
+                    targetClientHeight =
+                        (int)Math.Round(targetClientWidth / aspect);
                 }
             }
             else
             {
                 targetClientWidth = clientWidth;
-                targetClientHeight = (int)Math.Round(targetClientWidth * phoneAspect);
+                targetClientHeight =
+                    (int)Math.Round(targetClientWidth / aspect);
                 if (targetClientHeight < 280)
                 {
                     targetClientHeight = 280;
-                    targetClientWidth = (int)Math.Round(targetClientHeight / phoneAspect);
+                    targetClientWidth =
+                        (int)Math.Round(targetClientHeight * aspect);
                 }
             }
 
@@ -1729,12 +2101,34 @@ namespace AirPlayReceiverMvp
             }
             if (Math.Abs(targetClientWidth - clientWidth) <= 4 &&
                 Math.Abs(targetClientHeight - clientHeight) <= 4)
-                return;
-            NativeMethods.SetWindowPos(window, IntPtr.Zero, 0, 0,
-                targetClientWidth + borderWidth,
-                targetClientHeight + borderHeight,
-                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOZORDER |
-                NativeMethods.SWP_NOACTIVATE);
+                return true;
+
+            int targetOuterWidth = targetClientWidth + borderWidth;
+            int targetOuterHeight = targetClientHeight + borderHeight;
+            int x = outer.Left;
+            int y = outer.Top;
+            uint flags = NativeMethods.SWP_NOZORDER |
+                NativeMethods.SWP_NOACTIVATE;
+            if (preserveClientArea)
+            {
+                int centerX = outer.Left + outerWidth / 2;
+                int centerY = outer.Top + outerHeight / 2;
+                x = centerX - targetOuterWidth / 2;
+                y = centerY - targetOuterHeight / 2;
+                x = Math.Max(
+                    workArea.Left,
+                    Math.Min(x, workArea.Right - targetOuterWidth));
+                y = Math.Max(
+                    workArea.Top,
+                    Math.Min(y, workArea.Bottom - targetOuterHeight));
+            }
+            else
+            {
+                flags |= NativeMethods.SWP_NOMOVE;
+            }
+            return NativeMethods.SetWindowPos(
+                window, IntPtr.Zero, x, y,
+                targetOuterWidth, targetOuterHeight, flags);
         }
 
         private void ApplyAutostart(bool enabled)
@@ -2058,16 +2452,17 @@ namespace AirPlayReceiverMvp
         private readonly Panel advancedPage;
         private readonly Panel updatesPage;
         private readonly Label status;
+        private readonly Label statusDot;
         private readonly Panel networkCard;
         private readonly Label networkTitle;
-        private readonly Label networkText;
+        private readonly Label networkHelp;
         private readonly Panel trustCard;
         private readonly Button refreshDiscovery;
         private readonly Button settingsButton;
         private readonly Button updatesButton;
         private readonly LinkLabel reportProblem;
-        private readonly Label homeFooter;
         private readonly Label homeQuality;
+        private readonly ToolTip toolTips;
         private readonly TextBox receiverName;
         private readonly ComboBox quality;
         private readonly ComboBox pairing;
@@ -2103,6 +2498,7 @@ namespace AirPlayReceiverMvp
         private bool suppressDirty;
         private bool? appliedDarkTheme;
         private DateTime nextThemeCheck;
+        private bool homePageSelected;
 
         public SettingsForm(ReceiverContext context)
         {
@@ -2122,6 +2518,12 @@ namespace AirPlayReceiverMvp
             homePage.BackColor = BackColor;
             Controls.Add(homePage);
 
+            toolTips = new ToolTip();
+            toolTips.AutoPopDelay = 12000;
+            toolTips.InitialDelay = 350;
+            toolTips.ReshowDelay = 100;
+            toolTips.ShowAlways = true;
+
             var homeHeader = new Panel();
             homeHeader.Dock = DockStyle.Top;
             homeHeader.Height = 96;
@@ -2139,37 +2541,51 @@ namespace AirPlayReceiverMvp
             title.Font = new Font("Segoe UI Semibold", 19F);
             homeHeader.Controls.Add(title);
 
-            status = MakeLabel("", 94, 53);
+            statusDot = MakeLabel("●", 92, 51);
+            statusDot.AutoSize = false;
+            statusDot.Size = new Size(16, 24);
+            statusDot.Font = new Font("Segoe UI", 11F);
+            statusDot.AccessibleName = "Состояние приёмника";
+            homeHeader.Controls.Add(statusDot);
+
+            status = MakeLabel("", 112, 53);
             status.AutoSize = false;
-            status.Size = new Size(450, 24);
+            status.Size = new Size(420, 24);
             status.AutoEllipsis = true;
             status.Font = new Font("Segoe UI Semibold", 10.5F);
             homeHeader.Controls.Add(status);
 
             settingsButton = MakeButton(
-                "⚙", 552, 28, 44, 36, false);
-            settingsButton.Font = new Font("Segoe UI Symbol", 14F);
+                "\uE713", 552, 28, 44, 36, false);
+            settingsButton.Font = new Font("Segoe MDL2 Assets", 14F);
             settingsButton.AccessibleName = "Настройки";
             settingsButton.Click += delegate { ShowSettingsPage(false); };
+            toolTips.SetToolTip(settingsButton, "Настройки");
             homeHeader.Controls.Add(settingsButton);
 
             networkCard = new Panel();
             networkCard.Location = new Point(24, 112);
-            networkCard.Size = new Size(572, 76);
+            networkCard.Size = new Size(572, 50);
             homePage.Controls.Add(networkCard);
 
             networkTitle = MakeLabel("", 15, 10);
+            networkTitle.AutoSize = false;
+            networkTitle.Size = new Size(505, 27);
+            networkTitle.AutoEllipsis = true;
             networkTitle.Font = new Font("Segoe UI Semibold", 9.5F);
             networkCard.Controls.Add(networkTitle);
 
-            networkText = new Label();
-            networkText.AutoSize = false;
-            networkText.Location = new Point(15, 34);
-            networkText.Size = new Size(540, 34);
-            networkCard.Controls.Add(networkText);
+            networkHelp = MakeLabel("?", 533, 10);
+            networkHelp.AutoSize = false;
+            networkHelp.Size = new Size(24, 24);
+            networkHelp.TextAlign = ContentAlignment.MiddleCenter;
+            networkHelp.Font = new Font("Segoe UI Semibold", 10F);
+            networkHelp.Cursor = Cursors.Help;
+            networkHelp.AccessibleName = "Подробнее о проверке сети";
+            networkCard.Controls.Add(networkHelp);
 
             trustCard = new Panel();
-            trustCard.Location = new Point(24, 202);
+            trustCard.Location = new Point(24, 178);
             trustCard.Size = new Size(572, 94);
             trustCard.BackColor = Color.FromArgb(242, 247, 253);
             homePage.Controls.Add(trustCard);
@@ -2231,14 +2647,6 @@ namespace AirPlayReceiverMvp
             homeQuality.Size = new Size(570, 22);
             homeQuality.ForeColor = Color.DimGray;
             homePage.Controls.Add(homeQuality);
-
-            homeFooter = MakeLabel(
-                "Один раз настройте — дальше AeroMirror запускается в трее.",
-                26, 398);
-            homeFooter.AutoSize = false;
-            homeFooter.Size = new Size(410, 22);
-            homeFooter.ForeColor = Color.DimGray;
-            homePage.Controls.Add(homeFooter);
 
             reportProblem = new LinkLabel();
             reportProblem.Text = "Сообщить о проблеме";
@@ -2334,7 +2742,7 @@ namespace AirPlayReceiverMvp
             settingsContent.Controls.Add(topMost);
 
             autoFit = MakeCheckBox(
-                "Подгонять окно один раз при открытии трансляции", 24, 438);
+                "Автоматически подгонять окно при открытии и повороте iPhone", 24, 438);
             settingsContent.Controls.Add(autoFit);
 
             showStreamInTaskbar = MakeCheckBox(
@@ -2393,10 +2801,7 @@ namespace AirPlayReceiverMvp
             theme.SelectedIndexChanged += delegate
             {
                 if (!suppressDirty)
-                {
-                    ApplyTheme();
                     MarkDirty();
-                }
             };
             settingsContent.Controls.Add(theme);
 
@@ -2434,13 +2839,18 @@ namespace AirPlayReceiverMvp
             advancedButton.Click += delegate { ShowAdvancedPage(); };
             settingsContent.Controls.Add(advancedButton);
 
-            savedLabel = MakeLabel("", 264, 990);
+            savedLabel = MakeLabel("", 24, 976);
+            savedLabel.AutoSize = false;
+            savedLabel.Size = new Size(552, 22);
+            savedLabel.TextAlign = ContentAlignment.MiddleRight;
             savedLabel.ForeColor = Color.FromArgb(42, 122, 74);
             settingsContent.Controls.Add(savedLabel);
 
-            saveButton = MakeButton("Сохранить", 426, 976, 150, 40, true);
+            saveButton = MakeButton("Сохранить", 426, 1008, 150, 40, true);
             saveButton.Click += OnSave;
             settingsContent.Controls.Add(saveButton);
+
+            advancedButton.Location = new Point(24, 1010);
 
             advancedPage = new Panel();
             advancedPage.Dock = DockStyle.Fill;
@@ -2629,25 +3039,35 @@ namespace AirPlayReceiverMvp
                 context.CurrentSettings.PairingMode == "none";
             bool dark = appliedDarkTheme ??
                 ThemeHelper.IsDark(context.CurrentSettings.ThemeMode);
-            if (context.IsCoreRunning)
+            bool receiverReady = context.IsCoreRunning &&
+                context.ReceiverStateText.IndexOf(
+                    "включён", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (receiverReady)
             {
-                status.Text = context.ReceiverStateText.IndexOf(
-                    "ожидание подключения",
-                    StringComparison.OrdinalIgnoreCase) >= 0
-                    ? "Приёмник включён — можно подключаться"
-                    : context.ReceiverStateText;
+                status.Text = "Приёмник включён";
                 status.ForeColor = dark
                     ? Color.FromArgb(94, 204, 126)
                     : Color.FromArgb(31, 122, 67);
+                statusDot.ForeColor = status.ForeColor;
+                startStop.Text = "Остановить";
+            }
+            else if (context.IsCoreRunning)
+            {
+                status.Text = "Приёмник запускается";
+                status.ForeColor = dark
+                    ? Color.FromArgb(255, 197, 92)
+                    : Color.FromArgb(154, 92, 0);
+                statusDot.ForeColor = status.ForeColor;
                 startStop.Text = "Остановить";
             }
             else if (!context.IsNetworkProfileKnown &&
                 context.CurrentSettings.PairingMode == "none")
             {
-                status.Text = context.ReceiverStateText;
+                status.Text = "Проверяем сеть";
                 status.ForeColor = dark
                     ? Color.FromArgb(255, 197, 92)
                     : Color.FromArgb(154, 92, 0);
+                statusDot.ForeColor = status.ForeColor;
                 startStop.Text = "Проверить";
             }
             else if (unsafeAccess)
@@ -2656,6 +3076,7 @@ namespace AirPlayReceiverMvp
                 status.ForeColor = dark
                     ? Color.FromArgb(255, 197, 92)
                     : Color.FromArgb(154, 92, 0);
+                statusDot.ForeColor = status.ForeColor;
                 startStop.Text = "Включить";
             }
             else
@@ -2664,20 +3085,27 @@ namespace AirPlayReceiverMvp
                 status.ForeColor = dark
                     ? Color.FromArgb(225, 126, 126)
                     : Color.FromArgb(128, 70, 70);
+                statusDot.ForeColor = dark
+                    ? Color.FromArgb(238, 92, 92)
+                    : Color.FromArgb(196, 43, 43);
                 startStop.Text = "Включить";
             }
+            toolTips.SetToolTip(status, context.ReceiverStateText);
+            toolTips.SetToolTip(statusDot, context.ReceiverStateText);
 
+            string networkDetails;
             if (unsafeAccess)
             {
                 networkCard.BackColor = dark
                     ? Color.FromArgb(73, 57, 24)
                     : Color.FromArgb(255, 244, 215);
-                networkTitle.Text = "Windows считает сеть «" +
-                    DisplayNetworkName() + "» публичной — требуется PIN";
-                networkText.Text = context.HasNetworkOverlay
-                    ? "VPN или виртуальная сеть найдены, но доверие определяется по физическому Wi-Fi/Ethernet. " +
-                      "Отключите VPN и повторите проверку либо включите PIN."
-                    : "Без PIN приёмник приостановлен. Откройте настройки подключения.";
+                networkTitle.Text = "Сеть «" + DisplayNetworkName() +
+                    "» · публичная · требуется PIN" +
+                    (context.HasNetworkOverlay
+                        ? " · VPN/виртуальная сеть" : "");
+                networkDetails = context.HasNetworkOverlay
+                    ? "Проверен именно физический Wi-Fi или Ethernet. VPN и виртуальный профиль не меняют режим защиты. Windows считает физическую сеть публичной, поэтому для подключения нужен PIN."
+                    : "Windows считает это физическое подключение публичной сетью. Без PIN приёмник приостановлен.";
                 networkTitle.ForeColor = dark
                     ? Color.FromArgb(255, 197, 92)
                     : Color.FromArgb(133, 78, 0);
@@ -2689,40 +3117,46 @@ namespace AirPlayReceiverMvp
                     : Color.FromArgb(237, 246, 255);
                 if (!context.IsNetworkProfileKnown)
                 {
-                    networkTitle.Text = "Проверяем профиль Wi-Fi или Ethernet…";
-                    networkText.Text =
-                        "Компьютер и iPhone должны находиться в одной локальной сети.";
+                    networkTitle.Text = "Проверяем физическую сеть…";
+                    networkDetails =
+                        "Компьютер и iPhone должны находиться в одной локальной сети. VPN и виртуальные адаптеры не используются для определения режима защиты.";
                 }
                 else if (context.IsPublicNetwork)
                 {
                     networkTitle.Text = "Сеть «" + DisplayNetworkName() +
-                        "» публичная — PIN включён";
-                    networkText.Text = context.HasNetworkOverlay
-                        ? "VPN или виртуальная сеть исключены из классификации. " +
-                          "Знакомый iPhone проверяется по сохранённому ключу."
-                        : "Знакомый iPhone проверяется по сохранённому ключу.";
+                        "» · публичная · PIN включён" +
+                        (context.HasNetworkOverlay
+                            ? " · VPN/виртуальная сеть" : "");
+                    networkDetails = context.HasNetworkOverlay
+                        ? "Проверен именно физический Wi-Fi или Ethernet. VPN и виртуальный профиль не меняют режим защиты. Знакомый iPhone проверяется по сохранённому ключу."
+                        : "PIN защищает первое подключение. Знакомый iPhone затем проверяется по сохранённому ключу.";
                 }
                 else
                 {
                     networkTitle.Text = "Сеть «" + DisplayNetworkName() +
-                        "» частная" +
-                        (context.HasNetworkOverlay ? " · VPN/виртуальная сеть" : "");
-                    networkText.Text = context.HasNetworkOverlay
-                        ? "Проверен именно физический Wi-Fi/Ethernet; виртуальный профиль не меняет режим защиты."
-                        : "Можно подключаться без PIN; дополнительную защиту можно включить.";
+                        "» · частная" +
+                        (context.HasNetworkOverlay
+                            ? " · VPN/виртуальная сеть" : "");
+                    networkDetails = context.HasNetworkOverlay
+                        ? "Проверен именно физический Wi-Fi или Ethernet. VPN и виртуальный профиль не меняют режим защиты. В частной сети PIN необязателен, но его можно включить."
+                        : "Windows пометила физическое подключение как частную сеть. PIN необязателен, но его можно включить.";
                 }
                 networkTitle.ForeColor = dark
                     ? Color.FromArgb(111, 190, 255)
                     : Color.FromArgb(0, 80, 145);
             }
+            networkHelp.ForeColor = networkTitle.ForeColor;
+            toolTips.SetToolTip(networkHelp, networkDetails);
+            toolTips.SetToolTip(networkTitle, networkDetails);
 
             homeQuality.Text = "Качество: " +
                 QualityDisplayName(context.CurrentSettings.QualityPreset) +
                 "   ·   Имя приёмника: " + context.CurrentSettings.ReceiverName;
-            trustCard.Visible =
+            bool showTrustCard =
                 context.CurrentSettings.PairingMode != "pin" &&
                 !context.CurrentSettings.DismissPinSuggestion;
-            LayoutHome();
+            trustCard.Visible = showTrustCard;
+            LayoutHome(showTrustCard);
             UpdateAccessNote();
         }
 
@@ -2733,9 +3167,7 @@ namespace AirPlayReceiverMvp
 
         public void SyncTheme()
         {
-            string mode = theme == null
-                ? context.CurrentSettings.ThemeMode
-                : SelectedValue(theme);
+            string mode = context.CurrentSettings.ThemeMode;
             if (string.Equals(mode, "system", StringComparison.OrdinalIgnoreCase) &&
                 DateTime.UtcNow < nextThemeCheck)
                 return;
@@ -2747,9 +3179,7 @@ namespace AirPlayReceiverMvp
 
         private void ApplyTheme()
         {
-            string mode = theme == null
-                ? context.CurrentSettings.ThemeMode
-                : SelectedValue(theme);
+            string mode = context.CurrentSettings.ThemeMode;
             bool dark = ThemeHelper.IsDark(mode);
             Point settingsScroll = settingsPage == null
                 ? Point.Empty : settingsPage.AutoScrollPosition;
@@ -2769,6 +3199,7 @@ namespace AirPlayReceiverMvp
         private void ShowHomePage()
         {
             CloseOpenDropDowns();
+            homePageSelected = true;
             settingsPage.Visible = false;
             advancedPage.Visible = false;
             updatesPage.Visible = false;
@@ -2777,26 +3208,25 @@ namespace AirPlayReceiverMvp
             SyncStatus();
         }
 
-        private void LayoutHome()
+        private void LayoutHome(bool showTrustCard)
         {
             int actionTop;
-            if (trustCard.Visible)
+            if (showTrustCard)
             {
-                trustCard.Location = new Point(24, 202);
-                actionTop = 314;
+                trustCard.Location = new Point(24, 178);
+                actionTop = 286;
             }
             else
             {
-                actionTop = 206;
+                actionTop = 178;
             }
             refreshDiscovery.Location = new Point(24, actionTop);
             startStop.Location = new Point(260, actionTop);
             updatesButton.Location = new Point(417, actionTop);
             homeQuality.Location = new Point(26, actionTop + 51);
-            homeFooter.Location = new Point(26, actionTop + 84);
-            reportProblem.Location = new Point(452, actionTop + 84);
-            if (homePage.Visible)
-                ClientSize = new Size(620, actionTop + 122);
+            reportProblem.Location = new Point(452, actionTop + 82);
+            if (homePageSelected)
+                ClientSize = new Size(620, actionTop + 112);
         }
 
         private void CloseOpenDropDowns()
@@ -2829,6 +3259,7 @@ namespace AirPlayReceiverMvp
         private void ShowSettingsPage(bool focusPin)
         {
             CloseOpenDropDowns();
+            homePageSelected = false;
             ClientSize = new Size(620, 700);
             homePage.Visible = false;
             advancedPage.Visible = false;
@@ -2845,6 +3276,7 @@ namespace AirPlayReceiverMvp
         private void ShowAdvancedPage()
         {
             CloseOpenDropDowns();
+            homePageSelected = false;
             ClientSize = new Size(620, 570);
             homePage.Visible = false;
             settingsPage.Visible = false;
@@ -2858,6 +3290,7 @@ namespace AirPlayReceiverMvp
         private void ShowUpdatesPage()
         {
             CloseOpenDropDowns();
+            homePageSelected = false;
             ClientSize = new Size(620, 570);
             homePage.Visible = false;
             settingsPage.Visible = false;
@@ -3305,20 +3738,25 @@ namespace AirPlayReceiverMvp
             bool qualityChanged =
                 updated.QualityPreset != context.CurrentSettings.QualityPreset;
             bool restarted = context.SaveSettings(updated, true);
-            savedLabel.Text = restarted && qualityChanged
-                ? "Сохранено · переподключите iPhone"
+            bool deferred = context.IsSettingsRestartDeferred;
+            SetDirty(false);
+            UpdateAdvancedDirty();
+            ApplyTheme();
+            savedLabel.ForeColor = ThemeHelper.IsDark(
+                    context.CurrentSettings.ThemeMode)
+                ? Color.FromArgb(94, 204, 126)
+                : Color.FromArgb(42, 122, 74);
+            savedLabel.Text = deferred
+                ? "Сохранено · применится после отключения iPhone"
+                : restarted && qualityChanged
+                ? "Сохранено · применяется для нового подключения"
                 : restarted
                 ? "Сохранено · приёмник перезапускается"
                 : "Сохранено";
-            SetDirty(false);
-            UpdateAdvancedDirty();
             SyncStatus();
-            BeginInvoke((MethodInvoker)delegate
-            {
-                settingsPage.AutoScrollPosition = new Point(
-                    Math.Max(0, -scrollPosition.X),
-                    Math.Max(0, -scrollPosition.Y));
-            });
+            settingsPage.AutoScrollPosition = new Point(
+                Math.Max(0, -scrollPosition.X),
+                Math.Max(0, -scrollPosition.Y));
             return true;
         }
 
@@ -4551,15 +4989,19 @@ namespace AirPlayReceiverMvp
     {
         private const int WmMouseWheel = 0x020A;
         private int wheelPixelRemainder;
+        private DropDownGlyph dropDownGlyph;
 
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == WmMouseWheel)
             {
+                if (DroppedDown)
+                {
+                    base.WndProc(ref m);
+                    return;
+                }
                 int delta = unchecked((short)(
                     (m.WParam.ToInt64() >> 16) & 0xFFFF));
-                if (DroppedDown)
-                    DroppedDown = false;
                 ScrollParent(delta);
                 m.Result = IntPtr.Zero;
                 return;
@@ -4570,8 +5012,136 @@ namespace AirPlayReceiverMvp
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             if (DroppedDown)
-                DroppedDown = false;
+            {
+                base.OnMouseWheel(e);
+                return;
+            }
             ScrollParent(e.Delta);
+        }
+
+        protected override void OnCreateControl()
+        {
+            base.OnCreateControl();
+            if (dropDownGlyph == null)
+            {
+                dropDownGlyph = new DropDownGlyph(this);
+                Controls.Add(dropDownGlyph);
+            }
+            LayoutDropDownGlyph();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            LayoutDropDownGlyph();
+        }
+
+        protected override void OnBackColorChanged(EventArgs e)
+        {
+            base.OnBackColorChanged(e);
+            if (dropDownGlyph != null)
+                dropDownGlyph.BackColor = BackColor;
+            Invalidate();
+        }
+
+        protected override void OnForeColorChanged(EventArgs e)
+        {
+            base.OnForeColorChanged(e);
+            if (dropDownGlyph != null)
+                dropDownGlyph.ForeColor = ForeColor;
+            Invalidate();
+        }
+
+        private void LayoutDropDownGlyph()
+        {
+            if (dropDownGlyph == null ||
+                DropDownStyle != ComboBoxStyle.DropDownList)
+                return;
+            int width = Math.Max(24, Font.Height + 9);
+            dropDownGlyph.Bounds = new Rectangle(
+                Math.Max(0, ClientSize.Width - width - 1),
+                1,
+                Math.Min(width, ClientSize.Width),
+                Math.Max(1, ClientSize.Height - 2));
+            dropDownGlyph.BackColor = BackColor;
+            dropDownGlyph.ForeColor = ForeColor;
+            dropDownGlyph.Visible = true;
+            dropDownGlyph.BringToFront();
+        }
+
+        private sealed class DropDownGlyph : Control
+        {
+            private readonly WheelSafeComboBox owner;
+            private bool hovered;
+
+            internal DropDownGlyph(WheelSafeComboBox owner)
+            {
+                this.owner = owner;
+                SetStyle(
+                    ControlStyles.AllPaintingInWmPaint |
+                    ControlStyles.OptimizedDoubleBuffer |
+                    ControlStyles.UserPaint, true);
+                TabStop = false;
+                AccessibleName = "Открыть список";
+                MouseEnter += delegate
+                {
+                    hovered = true;
+                    Invalidate();
+                };
+                MouseLeave += delegate
+                {
+                    hovered = false;
+                    Invalidate();
+                };
+                MouseDown += delegate
+                {
+                    if (!owner.Enabled)
+                        return;
+                    owner.Focus();
+                    owner.DroppedDown = !owner.DroppedDown;
+                };
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                Color fill = hovered && owner.Enabled
+                    ? Blend(BackColor, ForeColor, 0.08F)
+                    : BackColor;
+                using (var background = new SolidBrush(fill))
+                using (var divider = new Pen(
+                    Color.FromArgb(90, ForeColor), 1F))
+                using (var chevron = new Pen(owner.Enabled
+                    ? ForeColor : SystemColors.GrayText, 1.6F))
+                {
+                    e.Graphics.FillRectangle(background, ClientRectangle);
+                    e.Graphics.DrawLine(
+                        divider, 0, 3, 0, Math.Max(3, Height - 4));
+                    float centerX = Width / 2F;
+                    float centerY = Height / 2F + 1F;
+                    float half =
+                        Math.Max(3F, Math.Min(5F, Width / 6F));
+                    e.Graphics.SmoothingMode =
+                        System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    e.Graphics.DrawLines(chevron, new[]
+                    {
+                        new PointF(centerX - half, centerY - half / 2F),
+                        new PointF(centerX, centerY + half / 2F),
+                        new PointF(centerX + half, centerY - half / 2F)
+                    });
+                }
+            }
+
+            private static Color Blend(
+                Color background, Color foreground, float amount)
+            {
+                return Color.FromArgb(
+                    (int)(background.R * (1F - amount) +
+                        foreground.R * amount),
+                    (int)(background.G * (1F - amount) +
+                        foreground.G * amount),
+                    (int)(background.B * (1F - amount) +
+                        foreground.B * amount));
+            }
         }
 
         private void ScrollParent(int delta)
@@ -4968,6 +5538,11 @@ namespace AirPlayReceiverMvp
             {
                 control.ForeColor = IsSecondary(currentFore)
                     ? secondaryColor : textColor;
+            }
+            else if (control.Parent is WheelSafeComboBox)
+            {
+                control.BackColor = control.Parent.BackColor;
+                control.ForeColor = control.Parent.ForeColor;
             }
             else
             {

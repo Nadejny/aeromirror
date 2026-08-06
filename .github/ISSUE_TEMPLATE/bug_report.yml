@@ -19,7 +19,7 @@ body:
     attributes:
       label: AeroMirror version
       description: Find this in Diagnostics or Installed apps.
-      placeholder: "For example: 0.10.0"
+      placeholder: "For example: 0.11.0"
     validations:
       required: true
 

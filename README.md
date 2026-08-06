@@ -39,14 +39,19 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
 - keeps latency and audio controls in the normal settings, with Balanced
   latency selected by default; renderer selection and raw UxPlay arguments
   remain under Advanced settings;
-- renames the stream window, applies a one-time initial iPhone-shaped fit,
-  then leaves later resizing and orientation changes to the renderer and user;
-  it can stay on top and remains on the taskbar by default;
+- renames the stream window, gives a newly found renderer a provisional fit,
+  refines it when the native core reports the first exact video size, and
+  adapts it on later portrait/landscape changes while preserving manual
+  resizing between rotations; it can stay on top and remains on the taskbar
+  by default;
 - debounces Windows network events, refreshes discovery only after an actual
-  physical network change, and provides a full manual receiver restart;
+  physical network change, performs one bounded renewal after a completed
+  mirroring session and during long idle periods, and provides a full manual
+  receiver restart;
 - checks a configured public GitHub Release channel only when requested,
-  displays curated release notes, and verifies the setup SHA-256 before
-  launching an update;
+  requires the exact versioned asset name
+  `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe`, displays curated release notes,
+  and verifies the setup SHA-256 before launching an update;
 - provides a basic diagnostic report, a local log, and a **Report a problem**
   action that prepares a separately redacted log snapshot and opens a
   pre-filled GitHub Issue; the user reviews and attaches the file manually;
@@ -78,7 +83,7 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.10.0.exe
+AeroMirror-Setup-0.11.0.exe
 ```
 
 The installer:
@@ -94,8 +99,9 @@ The installer:
 - creates a Start menu shortcut and can optionally create a desktop shortcut;
 - closes the setup window before launching the receiver when installation
   finishes;
-- updates an existing installed version in place with rollback if replacing
-  the application files fails;
+- updates an existing installed version in place, preserves the current
+  shortcut choices, and rolls back application files plus installer metadata
+  if replacement fails;
 - keeps the exact pinned upstream runtime in a content-addressed local cache
   after SHA-256 verification, so a reinstall or later update using the same
   runtime does not download the 100+ MB archive again;
@@ -114,9 +120,9 @@ an accidental mismatch; until Authenticode publisher verification is added,
 they are not a substitute for a signed release if the repository account
 itself were compromised.
 
-## Portable build: local testing only in 0.10
+## Portable build: local testing only in 0.11
 
-The offline portable package is intentionally **not attached** to the 0.10
+The offline portable package is intentionally **not attached** to the 0.11
 review Release. It contains the full Qt/GStreamer/FFmpeg/MSYS2 DLL closure,
 whose per-file source and license inventory is still being completed. Use the
 network installer for review distribution.
@@ -197,31 +203,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.10.0 `
+  -Version 0.11.0 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.10.0 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.10.0.zip
+  -Version 0.11.0 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.11.0.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.10.0.exe
+artifacts\installer\AeroMirror-Setup-0.11.0.exe
 ```
 
-Public release names use three-part semantic versions such as `0.10.0`.
+Public release names use three-part semantic versions such as `0.11.0`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.10.0.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.10.0`.
+show `0.11.0.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.11.0`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.10.0 `
+  -Version 0.11.0 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -229,8 +235,36 @@ both explicit inputs:
 `package.ps1` now rejects a runtime without the reviewed headless build
 manifest, requires the patched executable explicitly, verifies its hash after
 staging, and writes a versioned local ZIP. Do not attach that offline ZIP to
-the 0.10 review Release. The network installer instead downloads the unchanged
+the 0.11 review Release. The network installer instead downloads the unchanged
 pinned upstream asset at install time and verifies the locked SHA-256.
+
+### Rebuild the reviewed native core
+
+`AeroMirror-native-source-0.11.0.zip` is a prepared corresponding-source
+archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
+do not apply them a second time. After providing the pinned Qt 6.10.1 and
+MSYS2 toolchains listed in
+`AeroMirror-build-inputs\BUILD_INFO.md`, run from the extracted archive:
+
+```powershell
+# Use a short extraction path: the MinGW/CMake object tree can exceed the
+# Windows filename limit under a deeply nested Downloads/workspace folder.
+$source = Resolve-Path .\AeroMirror-native-source-0.11.0\uxplay-windows
+& "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
+  -UpstreamRoot $source `
+  -Qt610Prefix C:\path\to\Qt-6.10.1 `
+  -MsysRoot C:\path\to\msys64
+```
+
+The script validates both reviewed patch files, every modified source file,
+the bundled Bonjour header and `dnssd.def` against
+`source-provenance.json`. It copies the verified header into the prepared
+Bonjour SDK layout, generates the x64 `dnssd.lib` import library with MSYS2
+`dlltool`, and rejects a resulting executable whose SHA-256 differs from the
+reviewed core hash. It fails early with a clear instruction if the extraction
+path is too long for the MinGW/CMake object layout. Git metadata is not
+required in the prepared archive; when building from Git checkouts, the same
+script additionally verifies both pinned commits.
 
 ## Source layout
 
@@ -259,7 +293,9 @@ native-core/
   dnssd.def                import definition for the bundled mDNS library
   gstreamer-features.txt   exact plug-ins staged for this build
   build-headless-runtime.ps1
+  source-provenance.json   reviewed commits, patches, sources, and core hash
   uxplay-windows-headless.patch
+  libuxplay-aeromirror.patch
 installer/
   AirPlayReceiverSetup.cs  per-user installer and uninstaller
 docs/
@@ -283,11 +319,12 @@ docs/
   by UxPlay. The renderer should follow the iPhone automatically; iPhone
   Rotation Lock naturally prevents source rotation. This still requires
   device-by-device testing.
-- Renderer-window detection is heuristic. Automatic fitting assumes the
-  common modern iPhone 9:19.5 screen ratio, but runs only once when a new
-  renderer window appears. Later orientation changes and user resizing are
-  not overridden. The **Fit window to iPhone screen** tray command remains a
-  deliberate manual one-shot action.
+- Renderer-window detection is heuristic. AeroMirror gives a newly opened
+  renderer a provisional fit, then applies the first exact video size reported
+  by the reviewed native core. Later real portrait/landscape changes reshape
+  the client area while manual resizing is preserved between rotations. The
+  **Fit window to iPhone screen** tray command remains a deliberate manual
+  one-shot action.
 - Arbitrary window proportions cannot both fill the window and preserve the
   whole phone image: the alternatives would be black bars, stretching, or
   cropping. This MVP preserves the whole image and changes the window shape.
@@ -369,16 +406,17 @@ The current license inventory is an engineering review, not legal advice.
 
 ## Sharing a build
 
-For the 0.10 review, share the GitHub Release page or its network Setup—not a
+For the 0.11 review, share the GitHub Release page or its network Setup—not a
 loose `AeroMirror.exe`. The Release must keep these assets together:
 
-- `AeroMirror-Setup-0.10.0.exe`;
-- `AeroMirror-source-0.10.0.zip`;
-- `AeroMirror-native-source-0.10.0.zip`;
+- `AeroMirror-Setup-0.11.0.exe`;
+- `AeroMirror-source-0.11.0.zip`;
+- `AeroMirror-native-source-0.11.0.zip`;
 - `SHA256SUMS.txt`.
 
-The native source archive contains the exact `uxplay-windows` and `libuxplay`
-trees, the AeroMirror headless patch both separately and applied, the actual
-Bonjour interface header, and the build recipe. The offline portable/full
-runtime remains unpublished until its complete runtime SBOM and corresponding
-source set are ready.
+The native source archive contains the exact prepared `uxplay-windows` and
+`libuxplay` trees, both AeroMirror patches separately and already applied,
+`source-provenance.json`, the actual Bonjour interface header, `dnssd.def`,
+and the hash-validating build recipe that generates `dnssd.lib`. The offline
+portable/full runtime remains unpublished until its complete runtime SBOM and
+corresponding source set are ready.

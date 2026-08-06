@@ -5,12 +5,13 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$HeadlessCorePath,
 
-    [string]$Version = "0.10.0"
+    [string]$Version = "0.11.0"
 )
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceExe = Join-Path $projectRoot "artifacts\Release\AeroMirror.exe"
+$provenancePath = Join-Path $projectRoot "native-core\source-provenance.json"
 $stageRoot = Join-Path $projectRoot (
     "artifacts\package-stage-" + [Guid]::NewGuid().ToString("N"))
 $stage = Join-Path $stageRoot "AeroMirror"
@@ -50,6 +51,90 @@ function Get-PeMachine([string]$Path) {
     }
 }
 
+function Get-Sha256Lower([string]$Path) {
+    return (
+        Get-FileHash -Algorithm SHA256 -LiteralPath $Path
+    ).Hash.ToLowerInvariant()
+}
+
+function Assert-HashMapMatches(
+    [object]$Actual,
+    [object]$Expected,
+    [string]$Description
+) {
+    if ($null -eq $Actual -or $null -eq $Expected) {
+        throw "$Description is missing."
+    }
+    $expectedProperties = @($Expected.PSObject.Properties)
+    $actualProperties = @($Actual.PSObject.Properties)
+    if ($actualProperties.Count -ne $expectedProperties.Count) {
+        throw "$Description does not match source-provenance.json."
+    }
+    foreach ($property in $expectedProperties) {
+        $actualProperty = $Actual.PSObject.Properties[$property.Name]
+        if ($null -eq $actualProperty -or
+            ([string]$actualProperty.Value) -ne
+                ([string]$property.Value)) {
+            throw (
+                "$Description does not match source-provenance.json at " +
+                $property.Name + ".")
+        }
+    }
+}
+
+function Assert-RuntimeBundle([string]$RuntimeRoot) {
+    $bundleManifest = Join-Path $RuntimeRoot "resources\bundle-files.json"
+    if (-not (Test-Path -LiteralPath $bundleManifest -PathType Leaf)) {
+        throw "The runtime bundle file manifest is missing: $bundleManifest"
+    }
+    $parsedEntries = Get-Content -LiteralPath $bundleManifest `
+        -Raw -Encoding UTF8 | ConvertFrom-Json
+    $entries = @($parsedEntries)
+    if ($entries.Count -eq 0) {
+        throw "The runtime bundle file manifest is empty."
+    }
+
+    $expected = @{}
+    foreach ($entry in $entries) {
+        $relative = ([string]$entry.path).Replace('\', '/')
+        if ([string]::IsNullOrWhiteSpace($relative) -or
+            [IO.Path]::IsPathRooted($relative) -or
+            $relative -match '(^|/)\.\.(/|$)' -or
+            $entry.sha256 -notmatch '^[0-9a-f]{64}$') {
+            throw "The runtime bundle manifest contains an unsafe entry."
+        }
+        $key = $relative.ToLowerInvariant()
+        if ($expected.ContainsKey($key)) {
+            throw "Duplicate runtime bundle manifest entry: $relative"
+        }
+        $expected[$key] = $entry
+        $file = Join-Path $RuntimeRoot $relative.Replace('/', '\')
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or
+            (Get-Item -LiteralPath $file).Length -ne [long]$entry.bytes -or
+            (Get-Sha256Lower -Path $file) -ne [string]$entry.sha256) {
+            throw "Runtime file does not match bundle-files.json: $relative"
+        }
+    }
+
+    $actualFiles = @(
+        Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
+            Where-Object {
+                $_.FullName -ne [IO.Path]::GetFullPath($bundleManifest)
+            }
+    )
+    foreach ($file in $actualFiles) {
+        $relative = $file.FullName.Substring(
+            [IO.Path]::GetFullPath($RuntimeRoot).TrimEnd('\').Length + 1
+        ).Replace('\', '/').ToLowerInvariant()
+        if (-not $expected.ContainsKey($relative)) {
+            throw "Unmanifested runtime file would enter the portable ZIP: $relative"
+        }
+    }
+    if ($actualFiles.Count -ne $expected.Count) {
+        throw "Runtime file count does not match bundle-files.json."
+    }
+}
+
 & (Join-Path $projectRoot "build.ps1")
 
 if (-not (Test-Path (Join-Path $UxPlayPortablePath "uxplay-windows.exe"))) {
@@ -60,26 +145,55 @@ if (-not (Test-Path -LiteralPath $resolvedHeadlessCore -PathType Leaf)) {
     throw "Headless core executable was not found: $resolvedHeadlessCore"
 }
 $runtimeManifest = Join-Path $UxPlayPortablePath "resources\build-manifest.json"
-if (-not (Test-Path -LiteralPath $runtimeManifest -PathType Leaf)) {
-    throw "The reviewed headless runtime manifest is missing: $runtimeManifest"
+$runtimeProvenance = Join-Path (
+    $UxPlayPortablePath) "resources\source-provenance.json"
+if (-not (Test-Path -LiteralPath $runtimeManifest -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $runtimeProvenance -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+    throw "The reviewed headless runtime manifest or provenance is missing."
+}
+$provenance = Get-Content -LiteralPath $provenancePath -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+$provenanceHash = Get-Sha256Lower -Path $provenancePath
+if ((Get-Sha256Lower -Path $runtimeProvenance) -ne $provenanceHash) {
+    throw "Runtime source provenance does not match the committed release provenance."
 }
 $manifestData = Get-Content -LiteralPath $runtimeManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 if ($manifestData.shellMode -ne "headless" -or
-    $manifestData.architecture -ne "x64") {
-    throw "The runtime manifest does not identify a headless x64 build."
+    $manifestData.architecture -ne "x64" -or
+    $manifestData.qtBuildVersion -ne $provenance.qtBuildVersion -or
+    $manifestData.pinnedRuntimeRelease -ne $provenance.pinnedRuntimeRelease -or
+    $manifestData.coreRuntimeCompatibility -ne
+        $provenance.coreRuntimeCompatibility -or
+    $manifestData.provenanceSchemaVersion -ne $provenance.schemaVersion -or
+    $manifestData.sourceProvenanceSha256 -ne $provenanceHash -or
+    $manifestData.headlessExecutableSha256 -ne
+        $provenance.headlessExecutableSha256 -or
+    $manifestData.uxplayWindowsCommit -ne
+        $provenance.uxplayWindowsCommit -or
+    $manifestData.libuxplayCommit -ne $provenance.libuxplayCommit -or
+    $manifestData.uxplayWindowsPatchSha256 -ne
+        $provenance.uxplayWindowsPatchSha256 -or
+    $manifestData.libuxplayPatchSha256 -ne
+        $provenance.libuxplayPatchSha256) {
+    throw "The runtime manifest does not match committed source provenance."
 }
-if (-not $manifestData.headlessExecutableSha256) {
-    throw "The runtime manifest is not bound to a headless executable hash."
-}
+Assert-HashMapMatches -Actual $manifestData.patchedSources `
+    -Expected $provenance.patchedSources `
+    -Description "Patched source hashes"
+Assert-HashMapMatches -Actual $manifestData.buildInputs `
+    -Expected $provenance.buildInputs `
+    -Description "Native build-input hashes"
 if ((Get-PeMachine $resolvedHeadlessCore) -ne 0x8664) {
     throw "The requested headless core is not an x64 PE executable."
 }
-$requestedCoreHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (
-    $resolvedHeadlessCore)).Hash
-if ($requestedCoreHash -ne $manifestData.headlessExecutableSha256) {
+$requestedCoreHash = Get-Sha256Lower -Path $resolvedHeadlessCore
+if ($requestedCoreHash -ne $provenance.headlessExecutableSha256) {
     throw "The requested core hash does not match the reviewed runtime manifest."
 }
+Assert-RuntimeBundle -RuntimeRoot (
+    [IO.Path]::GetFullPath($UxPlayPortablePath))
 
 Assert-ChildPath -Parent $projectRoot -Child $stageRoot
 New-Item -ItemType Directory -Force -Path $core | Out-Null
@@ -88,8 +202,8 @@ Copy-Item -LiteralPath $sourceExe -Destination $stage
 Copy-Item -Path (Join-Path $UxPlayPortablePath "*") -Destination $core -Recurse -Force
 Copy-Item -LiteralPath $resolvedHeadlessCore `
     -Destination (Join-Path $core "uxplay-windows.exe") -Force
-$packagedCoreHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (
-    Join-Path $core "uxplay-windows.exe")).Hash
+$packagedCoreHash = Get-Sha256Lower -Path (
+    Join-Path $core "uxplay-windows.exe")
 if ($packagedCoreHash -ne $requestedCoreHash) {
     throw "The packaged core does not match the requested headless executable."
 }

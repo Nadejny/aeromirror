@@ -1,7 +1,7 @@
 # AeroMirror native build information
 
 This file documents the patched native executable shipped by AeroMirror
-0.10.0. The source bundle also contains the complete upstream trees and the
+0.11.0. The source bundle also contains the complete upstream trees and the
 patch both separately and applied in place.
 
 ## Exact inputs
@@ -10,9 +10,11 @@ patch both separately and applied in place.
   `8cf3424b438424bc99a89155bd29a789f48a43c0`
 - `leapbtw/libuxplay`:
   `437f37514257d9cb513ac7fbdee743b4da85852e`
-- AeroMirror patch: `uxplay-windows-headless.patch`
+- AeroMirror patches: `uxplay-windows-headless.patch` and
+  `libuxplay-aeromirror.patch`
 - Patched files: `src/airplayworker.cpp`, `src/main.cpp`,
-  `src/mainwindow.cpp`, and `src/mainwindow.h`
+  `src/mainwindow.cpp`, `src/mainwindow.h`, and
+  `libuxplay/renderers/video_renderer.c`
 - Architecture: x64, MSYS2 UCRT64
 - Compiler recorded in the binary:
   `gcc.exe (Rev6, Built by MSYS2 project) 16.1.0`
@@ -26,7 +28,7 @@ patch both separately and applied in place.
   `5F944B027F7FE2091985AA2EFA11531AA0AA7F57`
 - GStreamer: 1.28.5
 - Resulting patched executable SHA-256:
-  `2A7708704A1344C85A909D5F549DC74E500DE0A552290812DE490692A5187E09`
+  `B8A0C3687249CDC9925D54DC42DB539F6B6186F955DFE78F5A0A4033DCC405E6`
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.
@@ -35,12 +37,14 @@ The `uxplay-windows` tree contains its exact `ucrt_x64_dependencies.txt`,
 Python requirements, CMake files, Bluetooth beacon recipe, Bonjour build
 script, packaging scripts, and verification scripts.
 
-The AeroMirror patch adds the headless launcher integration and `--loader-test`.
-It also keeps the receiver process arguments alive for the full native
-startup call, avoiding invalid `char*` pointers when the argument storage
-grows. The source packaging script accepts only the four files listed above
-and verifies that their complete binary Git diff exactly matches the reviewed
-patch.
+The AeroMirror patches add the headless launcher integration,
+`--loader-test`, and one stable log marker with the source and encoded video
+dimensions. The shell uses that marker to adapt the renderer window when the
+iPhone changes orientation. The launcher patch also keeps the receiver process
+arguments alive for the full native startup call, avoiding invalid `char*`
+pointers when the argument storage grows. The source packaging script accepts
+only the five files listed above and verifies that both complete binary Git
+diffs exactly match the reviewed patches.
 
 The resulting x64 PE imports `qt_version_tag_6_10`, does not import
 `qt_version_tag_6_11`, and its `--loader-test` passed with the unchanged
@@ -50,10 +54,12 @@ runtime from pinned `uxplay-windows` release `2.0.0.1736`. It contains no
 ## Rebuild from this source bundle
 
 The source files in this archive are already checked out at the pinned
-upstream revisions and the AeroMirror patch is already applied. Do not run
-`git checkout` or apply the patch again. Extract the exact Qt package listed
-above to an isolated prefix. From an x64 Windows PowerShell prompt with MSYS2
-installed, open the bundled `uxplay-windows` directory and run:
+upstream revisions and both AeroMirror patches are already applied. Do not run
+`git checkout` or apply either patch again. Extract the exact Qt package listed
+above to an isolated prefix. Extract the source archive under a short path such
+as `C:\src\aeromirror`; deeply nested Downloads/workspace paths can exceed the
+MinGW/CMake object-file limit. From an x64 Windows PowerShell prompt with
+MSYS2 installed, open the bundled `uxplay-windows` directory and run:
 
 ```powershell
 .\AeroMirror-build-inputs\build-compatible-core.ps1 `
@@ -74,6 +80,7 @@ Set-Location .\uxplay-windows
 git checkout 8cf3424b438424bc99a89155bd29a789f48a43c0
 git -C .\libuxplay checkout 437f37514257d9cb513ac7fbdee743b4da85852e
 git apply C:\path\to\uxplay-windows-headless.patch
+git -C .\libuxplay apply C:\path\to\libuxplay-aeromirror.patch
 C:\path\to\build-compatible-core.ps1 `
     -UpstreamRoot . `
     -Qt610Prefix C:\inputs\qt610\ucrt64 `
@@ -96,7 +103,7 @@ The actual `dns_sd.h` used for the interface and AeroMirror's `dnssd.def` are
 included in the source bundle. The Bluetooth beacon is reused unchanged from
 the pinned upstream runtime.
 
-The full offline runtime is not published by AeroMirror 0.10.0. The review
+The full offline runtime is not published by AeroMirror 0.11.0. The review
 installer downloads the unchanged, pinned upstream runtime asset directly
 from the upstream GitHub release and verifies its SHA-256 before installing
 it.

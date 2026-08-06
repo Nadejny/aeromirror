@@ -23,11 +23,16 @@ AeroMirror.exe
 
 ## Integration contract
 
-The shell only depends on three behaviors:
+The current shell depends on these native integration behaviors:
 
 1. The core executable is located at `core/uxplay-windows.exe`.
 2. The shell starts it with `--headless --uxplay <arguments>`.
 3. Renderer windows belong to the core process.
+4. Existing native log lines provide heuristic socket-ready and mirroring
+   start/stop observations.
+5. The reviewed libuxplay patch writes a stable
+   `AEROMIRROR_VIDEO_SIZE source=<w>x<h> encoded=<w>x<h>` line when the
+   incoming video size changes.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -37,6 +42,37 @@ This deliberately keeps protocol code out of the shell. A later native build
 can replace the binary boundary with a dedicated `receiver-core.exe` or stable
 local IPC API while preserving the settings UX.
 
+## Renderer-window fitting
+
+Renderer-window discovery is still a heuristic Win32 boundary. When a new
+renderer is found, the shell applies a provisional iPhone-aspect fit if the
+native size marker has not arrived yet. The first stable exact encoded size
+then replaces that provisional fit. Later changes between portrait and
+landscape reshape the client area while preserving the user's manually chosen
+scale between rotations. Holding the left mouse button postpones an automatic
+fit instead of discarding it.
+
+The marker reports the encoded stream dimensions; it is not remote-control
+input, pixel-aspect metadata, or a guarantee that an iPhone application itself
+has not letterboxed content inside the video frame. A future versioned IPC
+contract should replace stdout parsing and expose explicit stream and
+orientation events.
+
+## Native build provenance
+
+`native-core/source-provenance.json` binds the reviewed uxplay-windows and
+libuxplay commits, both patch hashes, every modified source hash, the Bonjour
+header and `dnssd.def`, and the expected patched executable hash. Release
+packaging accepts only a runtime manifest that reproduces those values.
+
+The published native source ZIP is a prepared tree without required Git
+metadata: both patches are already applied. Its build script validates the
+prepared files against the same provenance document, places the bundled
+`dns_sd.h` into the Bonjour SDK layout, generates the x64 `dnssd.lib` import
+library from the verified `dnssd.def` with MSYS2 `dlltool`, and rejects an
+output executable whose hash differs from the reviewed value. For a build from
+Git checkouts, it additionally verifies both pinned commits.
+
 ## Quality changes during an active session
 
 Source inspection of the bundled UxPlay core confirms that the requested
@@ -45,12 +81,13 @@ display-capability response during session setup. The current core exposes no
 runtime command or IPC method that renegotiates those fields with an already
 connected iPhone.
 
-Version 0.10 therefore saves the new preset and restarts the receiver process,
-but the iPhone must reconnect before the new session is guaranteed to use the
-new capabilities. Pretending that the existing stream changed quality would
-only change the UI, not the incoming encoded video. True live switching needs
-a native-core change: an AirPlay renegotiation path plus an IPC command from
-the Windows shell.
+Version 0.11 therefore saves the new preset and restarts the receiver process.
+If an iPhone is currently streaming, the restart is deferred until that
+session ends instead of interrupting it. The iPhone must reconnect before the
+new session is guaranteed to use the new capabilities. Pretending that the
+existing stream changed quality would only change the UI, not the incoming
+encoded video. True live switching needs a native-core change: an AirPlay
+renegotiation path plus an IPC command from the Windows shell.
 
 ## Recommended next iteration
 

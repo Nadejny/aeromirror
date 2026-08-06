@@ -3,9 +3,11 @@
 This MVP combines a Windows launcher/settings shell with a minimally patched
 build of `leapbtw/uxplay-windows`. The patch adds a headless mode, direct
 argument passing, stable native `argv` storage, and a non-streaming loader
-compatibility check.
+compatibility check. AeroMirror 0.11 also adds a diagnostic video-size marker
+used by the shell to adapt the stream window when the iPhone orientation
+changes.
 
-The AeroMirror 0.10 network review installer does **not** mirror the full
+The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
 asset directly from GitHub and verifies it before extraction:
 
@@ -17,8 +19,14 @@ asset directly from GitHub and verifies it before extraction:
   `https://github.com/leapbtw/uxplay-windows/tree/8cf3424b438424bc99a89155bd29a789f48a43c0`
 
 The exact AeroMirror and patched native corresponding source are attached
-beside Setup as `AeroMirror-source-0.10.0.zip` and
-`AeroMirror-native-source-0.10.0.zip`.
+beside Setup as `AeroMirror-source-0.11.0.zip` and
+`AeroMirror-native-source-0.11.0.zip`. The native archive is a prepared source
+tree with both AeroMirror patches included separately and already applied.
+Its `source-provenance.json` records the reviewed patch, modified-source,
+Bonjour-header, `dnssd.def`, and resulting-core hashes. The included build
+script validates those inputs and generates the x64 `dnssd.lib` import library
+from `dnssd.def`; no prebuilt import library is supplied as corresponding
+source.
 
 ## UxPlay
 

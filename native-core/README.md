@@ -12,7 +12,9 @@ Upstream pins:
 `dnssd.def` is generated from the export table of the bundled x64 `dnssd.dll`
 and is used to create a MinGW import library for local builds.
 
-The source changes are recorded in `uxplay-windows-headless.patch`.
+The source changes are recorded in `uxplay-windows-headless.patch` and
+`libuxplay-aeromirror.patch`. The latter adds only a stable video-size log
+marker used by the Windows shell for automatic portrait/landscape adaptation.
 
 ## Compatible Qt input
 
@@ -38,7 +40,8 @@ the normal MSYS2 prefix for this build.
    `ucrt_x64_dependencies.txt`, except that the Qt build input is the isolated
    package above.
 2. Check out the pinned `uxplay-windows` and `libuxplay` commits.
-3. Apply `uxplay-windows-headless.patch`.
+3. Apply `uxplay-windows-headless.patch`, then apply
+   `libuxplay-aeromirror.patch` inside the `libuxplay` submodule.
 4. Provide the Bonjour SDK header and import library. `dnssd.def` can generate
    the x64 MinGW import library from the redistributed `dnssd.dll`:
 

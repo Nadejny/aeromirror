@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.10.0",
+    [string]$Version = "0.11.0",
 
     [string]$RuntimePath = ".\artifacts\headless-runtime",
 
@@ -17,6 +17,11 @@ Set-StrictMode -Version Latest
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Version must use the numeric MAJOR.MINOR.PATCH format."
+}
+if ($SkipBuild) {
+    throw (
+        "-SkipBuild is disabled for public releases because same-version " +
+        "stale binaries cannot be proven to match SourceRef.")
 }
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -44,29 +49,54 @@ function Assert-ChildPath([string]$Parent, [string]$Child) {
 }
 
 Assert-ChildPath -Parent $artifactRoot -Child $releaseRoot
+if ($SourceRef -ne ("v" + $Version)) {
+    throw "SourceRef must be the exact release tag v$Version."
+}
+$sourceCommitOutput = @(
+    & git -C $projectRoot rev-parse ($SourceRef + "^{commit}")
+)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to resolve release source ref $SourceRef."
+}
+$sourceCommit = ($sourceCommitOutput -join "").Trim()
+$headCommitOutput = @(& git -C $projectRoot rev-parse HEAD)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to resolve the current HEAD."
+}
+$headCommit = ($headCommitOutput -join "").Trim()
+if ($sourceCommit -ne $headCommit) {
+    throw "Release tag $SourceRef must point at the current HEAD."
+}
+$worktreeChanges = @(
+    & git -C $projectRoot status --porcelain --untracked-files=all
+)
+if ($LASTEXITCODE -ne 0 -or $worktreeChanges.Count -ne 0) {
+    throw "The release worktree must be clean before packaging."
+}
+if (Test-Path -LiteralPath $releaseRoot) {
+    Remove-Item -LiteralPath $releaseRoot -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 
-if (-not $SkipBuild) {
-    & (Join-Path $projectRoot "package-review.ps1") `
-        -Version $Version `
-        -HeadlessRuntimePath $RuntimePath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Review payload packaging failed with exit code $LASTEXITCODE."
-    }
+& (Join-Path $projectRoot "package-review.ps1") `
+    -Version $Version `
+    -HeadlessRuntimePath $RuntimePath
+if ($LASTEXITCODE -ne 0) {
+    throw "Review payload packaging failed with exit code $LASTEXITCODE."
+}
 
-    & (Join-Path $projectRoot "build-installer.ps1") `
-        -Version $Version `
-        -PortableZip $reviewPayload
-    if ($LASTEXITCODE -ne 0) {
-        throw "Installer build failed with exit code $LASTEXITCODE."
-    }
+& (Join-Path $projectRoot "build-installer.ps1") `
+    -Version $Version `
+    -PortableZip $reviewPayload
+if ($LASTEXITCODE -ne 0) {
+    throw "Installer build failed with exit code $LASTEXITCODE."
+}
 
-    & (Join-Path $projectRoot "build-native-source.ps1") `
-        -Version $Version `
-        -UpstreamRoot $UpstreamRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native source packaging failed with exit code $LASTEXITCODE."
-    }
+& (Join-Path $projectRoot "build-native-source.ps1") `
+    -Version $Version `
+    -UpstreamRoot $UpstreamRoot
+if ($LASTEXITCODE -ne 0) {
+    throw "Native source packaging failed with exit code $LASTEXITCODE."
 }
 
 if (-not (Test-Path -LiteralPath $setup -PathType Leaf) -or
@@ -106,5 +136,23 @@ $checksumLines = foreach ($file in $releaseFiles) {
     $checksums,
     $checksumLines,
     [Text.UTF8Encoding]::new($false))
+
+$expectedReleaseFiles = @(
+    "AeroMirror-Setup-" + $Version + ".exe",
+    "AeroMirror-source-" + $Version + ".zip",
+    "AeroMirror-native-source-" + $Version + ".zip",
+    "SHA256SUMS.txt"
+)
+$actualReleaseFiles = @(
+    Get-ChildItem -LiteralPath $releaseRoot -File |
+        Select-Object -ExpandProperty Name
+)
+$releaseDifferences = @(
+    Compare-Object $expectedReleaseFiles $actualReleaseFiles
+)
+if ($actualReleaseFiles.Count -ne $expectedReleaseFiles.Count -or
+    $releaseDifferences.Count -ne 0) {
+    throw "Release directory contains unexpected or missing public assets."
+}
 
 Write-Host "Release artifacts are ready in $releaseRoot"

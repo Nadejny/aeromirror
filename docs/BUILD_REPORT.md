@@ -1,4 +1,4 @@
-# Build report — 0.10.0 review build
+# Build report — 0.11.0 review build
 
 Build date: 2026-08-06
 Target: Windows 10 1809+ / Windows 11, x64
@@ -29,51 +29,55 @@ third-party runtime has a complete, release-grade SBOM and license audit.
 
 ### Public installer
 
-`AeroMirror-Setup-0.10.0.exe`
+`AeroMirror-Setup-0.11.0.exe`
 
-- size: 1,200,128 bytes;
-- SHA-256:
-  `9618C661FC191BE052FA0BEF40FA6F24A8E8766DA376751FF2876939B0054AA9`.
+- embedded setup version: `0.11.0`;
+- executable file version: `0.11.0.0`;
+- final size and SHA-256: recorded in the release asset metadata and the
+  adjacent `SHA256SUMS.txt`.
 
 ### Application shell
 
 `AeroMirror.exe`
 
-- size: 685,568 bytes;
-- SHA-256:
-  `6EF3050AA4925C79E93C05053B85509D02B6300B9E1D86D7E809903016BEEB46`.
+- executable file version: `0.11.0.0`;
+- architecture: x64;
+- the shell is embedded in Setup rather than published as a loose executable.
 
 ### Patched native receiver
 
 `uxplay-windows.exe`
 
-- stripped size: 867,614 bytes;
+- stripped size: 867,677 bytes;
 - SHA-256:
-  `2A7708704A1344C85A909D5F549DC74E500DE0A552290812DE490692A5187E09`.
+  `B8A0C3687249CDC9925D54DC42DB539F6B6186F955DFE78F5A0A4033DCC405E6`.
 
 ### Native source archive
 
-`AeroMirror-native-source-0.10.0.zip`
+`AeroMirror-native-source-0.11.0.zip`
 
-- compressed size: 681,168 bytes;
-- SHA-256:
-  `DB5304A8146CDC58471FCA9B46469DAF21A1C346443EBD979211DC253B6E9400`.
+- final size and SHA-256: recorded in `SHA256SUMS.txt`.
 
-The archive contains the pinned upstream source trees, the exact AeroMirror
-patch, native build scripts and inputs, and the applicable source licenses.
+The archive contains prepared pinned upstream source trees with the exact
+AeroMirror launcher and libuxplay marker patches both separately and already
+applied, `source-provenance.json`, native build scripts and inputs, and the
+applicable source licenses. Its rebuild entrypoint does not require Git
+metadata: it verifies both patch hashes, all reviewed modified-source and
+build-input hashes, generates the x64 `dnssd.lib` import library from the
+verified `dnssd.def`, and requires the resulting core to match the reviewed
+SHA-256.
 
 ### Local review payload
 
-`AeroMirror-review-payload-x64-0.10.0.zip`
+`AeroMirror-review-payload-x64-0.11.0.zip`
 
-- compressed size: 1,014,751 bytes;
-- SHA-256:
-  `AE92E35DE7B76E3C10B6F531C7D2DA143F3584EF84809FC2E9939372CC4D2AD6`;
 - publication status: local build input only; not a public release asset.
 
-The repository source archive and final release checksum manifest are produced
-from the tagged commit. Their hashes are deliberately not recorded in this
-pre-tag build report.
+The final installer, repository source archive, native source archive, and
+checksum manifest are produced only from the clean tagged commit. Their
+artifact hashes are deliberately kept in the generated `SHA256SUMS.txt`
+instead of copied into this pre-tag source document: rebuilding the C#
+executables changes PE timestamps even when the source is identical.
 
 ## Reliability and diagnostics changes
 
@@ -93,6 +97,12 @@ pre-tag build report.
 - Made startup network handling fail closed: PIN-free discovery is allowed
   only on a private Windows network, while public or unknown profiles pause the
   receiver until the network is safe or PIN protection is enabled.
+- Added one bounded discovery renewal after a completed mirroring session and
+  one renewal after ten idle minutes. A reconnect cancels the pending renewal,
+  and cooldowns prevent a restart loop.
+- Core-argument changes made during mirroring are saved immediately but the
+  receiver restart is deferred until the iPhone disconnects, so changing PIN
+  or quality no longer terminates the active picture without warning.
 
 The supplied tester log showed repeated timed/network-triggered restarts, but
 it did not contain evidence of a confirmed uxplay-windows process crash. The
@@ -109,14 +119,23 @@ were removed.
   the settings page is being scrolled.
 - Made the Save state track the effective settings, including returning a
   changed value to its original value.
-- Compacted the main page, moved receiver status beside the product heading,
-  and improved dark-theme contrast and typography.
+- Compacted the main page, replaced the long status with a coloured state dot,
+  and moved detailed physical-network/VPN explanations into a help tooltip.
+- Removed the marketing footer and replaced the settings glyph with the
+  Windows Segoe MDL2 settings icon.
+- Made theme selection transactional: the running UI changes only after
+  **Save**, and returning to the original choice disables **Save** again.
+- Replaced the native bright ComboBox arrow surface with a theme-aware glyph,
+  while keeping normal keyboard and open-list wheel behaviour.
 - Made the first-run PIN guidance dismissible and hide it automatically after
   PIN setup.
 - Intercepted native mouse-wheel messages before WinForms can change a
   ComboBox value, and close any open popup when its scrolling page moves.
 - Reused the cached renderer HWND for manual window fitting, with bounded
-  retries when the renderer window is being recreated.
+  retries when the renderer window is being recreated. A new renderer receives
+  a provisional fit, the first stable exact size from the reviewed native
+  marker refines it, and later real portrait/landscape changes preserve the
+  manually chosen scale between rotations.
 - Moved Updates into the main action row, replaced the large Settings button
   with a compact gear, and added the set-up-once/tray value proposition.
 - Added a Report a problem action that prepares a separately redacted local
@@ -126,7 +145,11 @@ were removed.
 ## Checks completed
 
 - The shell and installer C# sources compile successfully for x64.
-- The thin setup contains exactly 12 entries and no bundled Qt or GStreamer
+- A reflection-based UI smoke probe verified save/revert state, deferred theme
+  application, closed/open ComboBox wheel routing, popup closure when the
+  settings page scrolls, non-overlapping save feedback, compact network
+  summary, native size-marker parsing, and 16:9 renderer fitting.
+- The thin setup contains exactly 13 entries and no bundled Qt or GStreamer
   runtime DLLs.
 - The pinned upstream runtime URL and SHA-256 were verified.
 - Setup `/verify-runtime` completed with exit code 0, including archive
@@ -141,16 +164,28 @@ were removed.
   SHA-256 shown above.
 - The stripped native core contains no debug sections or embedded local build
   path.
-- The exact native patch gate passed, and the native source ZIP was generated
-  from the gated source trees and build inputs.
+- Both exact native patch gates passed, and the prepared native source ZIP was
+  generated from the gated source trees and build inputs. The archive includes
+  the provenance document and the verified inputs needed for its rebuild
+  script to generate `dnssd.lib` without a pre-bundled import library.
+- The prepared native source ZIP was extracted without Git metadata and built
+  from a short Windows temporary path. The rebuilt stripped executable matched
+  the reviewed core SHA-256 exactly. The script now fails early with a clear
+  short-path instruction before MinGW/CMake can hit Windows object-file path
+  limits.
 - Silent installation and in-place upgrade over a running shell and receiver
-  completed with exit code 0 after the process-wait fix.
+  completed with exit code 0. Upgrade from installed `0.10.0.0` to
+  `0.11.0.0` preserved the settings file byte-for-byte. A final same-version
+  reinstall also preserved both the settings hash and the existing shortcut
+  selection.
 - An installed `--startup` launch reached `Bonjour Running` and
-  `sockets ready: True`; the native receiver remained alive afterward.
+  `sockets ready: True`; both the 0.11 shell and patched native receiver
+  remained alive afterward.
 - An installer run blocked by a still-closing receiver left the previous
   installation intact; after adding an explicit process-exit wait, the
   following retry completed successfully. The post-move transactional
-  rollback paths were reviewed in source.
+  rollback paths for the application directory, shortcuts, uninstall entry,
+  and owned autostart values were reviewed in source.
 - Job Object cleanup was exercised in an earlier 0.10.0 validation run.
 - Log redaction tests covered PINs, passwords, tokens, secrets, MAC addresses,
   PEM blocks, and cryptographic material.
@@ -172,8 +207,10 @@ were removed.
 - AirPlay discovery, PIN trust, rotation, video scaling, audio, and quality
   still require end-to-end testing with real iPhones and different networks;
   there is no automated iPhone integration test.
-- A quality preset changed during an active stream may require reconnecting
-  the iPhone before the new negotiation takes effect.
+- Quality, PIN, renderer, and latency changes made during an active stream are
+  applied by a deferred receiver restart after the iPhone disconnects; UxPlay
+  cannot renegotiate these launch arguments inside the existing AirPlay
+  session.
 - Managed, guest, or client-isolated Wi-Fi networks may block mDNS discovery
   even when both devices appear to use the same network.
 - Remote touch control, AirDrop-compatible file transfer, and phone-call

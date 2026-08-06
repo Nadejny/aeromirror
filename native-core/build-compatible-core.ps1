@@ -16,11 +16,6 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$expectedUpstream = "8cf3424b438424bc99a89155bd29a789f48a43c0"
-$expectedLibuxplay = "437f37514257d9cb513ac7fbdee743b4da85852e"
-$expectedQtVersion = "6.10.1"
-$sourceDateEpoch = "1786008050"
-
 function Invoke-Native {
     param(
         [Parameter(Mandatory = $true)]
@@ -64,6 +59,37 @@ function Assert-ChildPath {
     }
 }
 
+function Get-Sha256Lower {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    return (
+        Get-FileHash -Algorithm SHA256 -LiteralPath $Path
+    ).Hash.ToLowerInvariant()
+}
+
+function Assert-FileHash {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Expected,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $actual = Get-Sha256Lower -Path $Path
+    if ($actual -ne $Expected.ToLowerInvariant()) {
+        throw (
+            "$Description does not match source-provenance.json. " +
+            "Expected $Expected, found $actual at $Path.")
+    }
+}
+
 $upstream = (Resolve-Path -LiteralPath $UpstreamRoot).Path
 $qtPrefix = (Resolve-Path -LiteralPath $Qt610Prefix).Path
 $msys = (Resolve-Path -LiteralPath $MsysRoot).Path
@@ -81,9 +107,32 @@ $compiler = Join-Path $msysBin "c++.exe"
 $cCompiler = Join-Path $msysBin "gcc.exe"
 $objdump = Join-Path $msysBin "objdump.exe"
 $strip = Join-Path $msysBin "strip.exe"
+$dlltool = Join-Path $msysBin "dlltool.exe"
 $bonjourSdk = Join-Path $upstream "Bonjour SDK"
+$bonjourHeader = Join-Path $bonjourSdk "Include\dns_sd.h"
+$bonjourImportLibrary = Join-Path $bonjourSdk "Lib\x64\dnssd.lib"
+$temporaryImportLibraryName = "aeromirror-dnssd.lib"
+$temporaryImportLibrary = Join-Path $upstream $temporaryImportLibraryName
+$provenancePath = Join-Path $PSScriptRoot "source-provenance.json"
+$uxplayPatch = Join-Path $PSScriptRoot "uxplay-windows-headless.patch"
+$libuxplayPatch = Join-Path $PSScriptRoot "libuxplay-aeromirror.patch"
+$bundledHeader = Join-Path $PSScriptRoot "dns_sd.h"
+$sourceHeader = if (Test-Path -LiteralPath $bundledHeader -PathType Leaf) {
+    $bundledHeader
+}
+else {
+    $bonjourHeader
+}
+$definitionFile = Join-Path $PSScriptRoot "dnssd.def"
 $buildDir = Join-Path $upstream "out\headless-x64-qt610"
 $output = Join-Path $buildDir "uxplay-windows.exe"
+
+if ($buildDir.Length -gt 170) {
+    throw (
+        "The native source path is too long for the MinGW/CMake object " +
+        "layout. Extract or move the source bundle to a short path such " +
+        "as C:\src\aeromirror and run the build again.")
+}
 
 $required = @(
     (Join-Path $upstream "CMakeLists.txt"),
@@ -97,8 +146,12 @@ $required = @(
     $cCompiler,
     $objdump,
     $strip,
-    (Join-Path $bonjourSdk "Include\dns_sd.h"),
-    (Join-Path $bonjourSdk "Lib\x64\dnssd.lib")
+    $dlltool,
+    $provenancePath,
+    $uxplayPatch,
+    $libuxplayPatch,
+    $sourceHeader,
+    $definitionFile
 )
 $missing = @($required | Where-Object {
     -not (Test-Path -LiteralPath $_)
@@ -107,25 +160,123 @@ if ($missing.Count -ne 0) {
     throw "Missing compatible-core inputs:`n$($missing -join [Environment]::NewLine)"
 }
 
-$upstreamCommit = (
-    & git -c ("safe.directory=" + $upstream) -C $upstream rev-parse HEAD
-).Trim()
-if ($LASTEXITCODE -ne 0 -or $upstreamCommit -ne $expectedUpstream) {
-    throw "uxplay-windows is not at the pinned commit $expectedUpstream."
+$provenance = Get-Content -LiteralPath $provenancePath -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+if ($provenance.schemaVersion -ne 1 -or
+    $provenance.uxplayWindowsCommit -notmatch '^[0-9a-f]{40}$' -or
+    $provenance.libuxplayCommit -notmatch '^[0-9a-f]{40}$' -or
+    $provenance.uxplayWindowsPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.libuxplayPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw "source-provenance.json is missing required pinned values."
 }
-$libuxplayCommit = (
-    & git -c ("safe.directory=" + $libuxplay) -C $libuxplay rev-parse HEAD
-).Trim()
-if ($LASTEXITCODE -ne 0 -or $libuxplayCommit -ne $expectedLibuxplay) {
-    throw "libuxplay is not at the pinned commit $expectedLibuxplay."
+
+$expectedUpstream = [string]$provenance.uxplayWindowsCommit
+$expectedLibuxplay = [string]$provenance.libuxplayCommit
+$expectedQtVersion = [string]$provenance.qtBuildVersion
+$sourceDateEpoch = [string]$provenance.sourceDateEpoch
+
+Assert-FileHash -Path $uxplayPatch `
+    -Expected $provenance.uxplayWindowsPatchSha256 `
+    -Description "uxplay-windows patch"
+Assert-FileHash -Path $libuxplayPatch `
+    -Expected $provenance.libuxplayPatchSha256 `
+    -Description "libuxplay patch"
+Assert-FileHash -Path $sourceHeader `
+    -Expected $provenance.buildInputs.'dns_sd.h' `
+    -Description "Bonjour interface header"
+Assert-FileHash -Path $definitionFile `
+    -Expected $provenance.buildInputs.'dnssd.def' `
+    -Description "Bonjour import definition"
+
+foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
+    $relative = $sourceProperty.Name.Replace('/', '\')
+    $sourcePath = Join-Path $upstream $relative
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Pinned patched source is missing: $sourcePath"
+    }
+    Assert-FileHash -Path $sourcePath `
+        -Expected ([string]$sourceProperty.Value) `
+        -Description ("Patched source " + $sourceProperty.Name)
+}
+
+$upstreamHasGit = Test-Path -LiteralPath (Join-Path $upstream ".git")
+$libuxplayHasGit = Test-Path -LiteralPath (Join-Path $libuxplay ".git")
+if ($upstreamHasGit -ne $libuxplayHasGit) {
+    throw "Prepared source must contain either both Git repositories or neither."
+}
+if ($upstreamHasGit) {
+    $upstreamCommit = (
+        & git -c ("safe.directory=" + $upstream) -C $upstream rev-parse HEAD
+    ).Trim()
+    if ($LASTEXITCODE -ne 0 -or $upstreamCommit -ne $expectedUpstream) {
+        throw "uxplay-windows is not at the pinned commit $expectedUpstream."
+    }
+    $libuxplayCommit = (
+        & git -c ("safe.directory=" + $libuxplay) -C $libuxplay rev-parse HEAD
+    ).Trim()
+    if ($LASTEXITCODE -ne 0 -or $libuxplayCommit -ne $expectedLibuxplay) {
+        throw "libuxplay is not at the pinned commit $expectedLibuxplay."
+    }
+}
+else {
+    Write-Host (
+        "No Git metadata found; verified the prepared source tree by " +
+        "source-provenance.json hashes.")
 }
 
 $qtFileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
     $qtCore).FileVersion
-if ($qtFileVersion -notmatch '^6\.10\.1(?:\.0)?$') {
+if ($qtFileVersion -notmatch (
+        '^' + [Regex]::Escape($expectedQtVersion) + '(?:\.0)?$')) {
     throw (
-        "Qt6Core.dll must be 6.10.1; '$qtFileVersion' was found at " +
+        "Qt6Core.dll must be $expectedQtVersion; " +
+        "'$qtFileVersion' was found at " +
         "$qtCore.")
+}
+
+New-Item -ItemType Directory -Force -Path (
+    Split-Path -Parent $bonjourHeader) | Out-Null
+New-Item -ItemType Directory -Force -Path (
+    Split-Path -Parent $bonjourImportLibrary) | Out-Null
+if (-not [IO.Path]::GetFullPath($sourceHeader).Equals(
+        [IO.Path]::GetFullPath($bonjourHeader),
+        [StringComparison]::OrdinalIgnoreCase)) {
+    Copy-Item -LiteralPath $sourceHeader -Destination $bonjourHeader -Force
+}
+$previousDlltoolSourceDateEpoch = $env:SOURCE_DATE_EPOCH
+if (Test-Path -LiteralPath $temporaryImportLibrary) {
+    Remove-Item -LiteralPath $temporaryImportLibrary -Force
+}
+try {
+    $env:SOURCE_DATE_EPOCH = $sourceDateEpoch
+    # Keep the output argument short. GNU dlltool derives temporary
+    # assembler filenames from it and otherwise exceeds Windows' filename
+    # limit when the corresponding-source ZIP is extracted under a long path.
+    Invoke-Native `
+        -FilePath $dlltool `
+        -WorkingDirectory $upstream `
+        -Arguments @(
+            "-d", $definitionFile,
+            "-D", "dnssd.dll",
+            "-l", $temporaryImportLibraryName
+        )
+    if (-not (Test-Path -LiteralPath $temporaryImportLibrary -PathType Leaf) -or
+        (Get-Item -LiteralPath $temporaryImportLibrary).Length -le 0) {
+        throw "dlltool did not create the Bonjour x64 import library."
+    }
+    Copy-Item -LiteralPath $temporaryImportLibrary `
+        -Destination $bonjourImportLibrary -Force
+}
+finally {
+    $env:SOURCE_DATE_EPOCH = $previousDlltoolSourceDateEpoch
+    if (Test-Path -LiteralPath $temporaryImportLibrary) {
+        Remove-Item -LiteralPath $temporaryImportLibrary -Force
+    }
+}
+if (-not (Test-Path -LiteralPath $bonjourImportLibrary -PathType Leaf) -or
+    (Get-Item -LiteralPath $bonjourImportLibrary).Length -le 0) {
+    throw "dlltool did not create the Bonjour x64 import library."
 }
 
 $previousPath = $env:PATH
@@ -226,8 +377,13 @@ try {
         throw "Compatible core still exposes the local source checkout path."
     }
 
-    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $output).Hash
-    Write-Host "Compatible Qt 6.10.1 core built at $output"
+    $hash = Get-Sha256Lower -Path $output
+    if ($hash -ne $provenance.headlessExecutableSha256) {
+        throw (
+            "Built core does not match the reviewed reproducible SHA-256. " +
+            "Expected $($provenance.headlessExecutableSha256), found $hash.")
+    }
+    Write-Host "Compatible Qt $expectedQtVersion core built at $output"
     Write-Host "SHA-256: $hash"
 }
 finally {

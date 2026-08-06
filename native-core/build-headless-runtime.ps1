@@ -20,6 +20,10 @@ $artifactRoot = Join-Path $projectRoot "artifacts"
 $stage = Join-Path $artifactRoot "headless-runtime"
 $prefix = Join-Path $MsysRoot "ucrt64"
 $runtimeBin = Join-Path $prefix "bin"
+$provenancePath = Join-Path $nativeRoot "source-provenance.json"
+$uxplayPatch = Join-Path $nativeRoot "uxplay-windows-headless.patch"
+$libuxplayPatch = Join-Path $nativeRoot "libuxplay-aeromirror.patch"
+$dnssdDefinition = Join-Path $nativeRoot "dnssd.def"
 
 function Assert-ChildPath([string]$Parent, [string]$Child) {
     $parentFull = [System.IO.Path]::GetFullPath($Parent).TrimEnd('\') + '\'
@@ -29,16 +33,43 @@ function Assert-ChildPath([string]$Parent, [string]$Child) {
     }
 }
 
+function Get-Sha256Lower([string]$Path) {
+    return (
+        Get-FileHash -Algorithm SHA256 -LiteralPath $Path
+    ).Hash.ToLowerInvariant()
+}
+
+function Assert-FileHash(
+    [string]$Path,
+    [string]$Expected,
+    [string]$Description
+) {
+    $actual = Get-Sha256Lower -Path $Path
+    if ($actual -ne $Expected.ToLowerInvariant()) {
+        throw (
+            "$Description does not match source-provenance.json. " +
+            "Expected $Expected, found $actual.")
+    }
+}
+
 $upstream = (Resolve-Path -LiteralPath $UpstreamRoot).Path
 $original = (Resolve-Path -LiteralPath $OriginalRuntime).Path
 $headless = (Resolve-Path -LiteralPath $HeadlessExecutable).Path
+$libuxplay = Join-Path $upstream "libuxplay"
+$bonjourHeader = Join-Path $upstream "Bonjour SDK\Include\dns_sd.h"
 
 $required = @(
     $headless,
+    $provenancePath,
+    $uxplayPatch,
+    $libuxplayPatch,
+    $dnssdDefinition,
+    $bonjourHeader,
     (Join-Path $original "uxplay-bluetooth-beacon.exe"),
     (Join-Path $original "Qt6Core.dll"),
     (Join-Path $original "dnssd.dll"),
     (Join-Path $original "mDNSResponder.exe"),
+    (Join-Path $original "LICENSE.rtf"),
     (Join-Path $runtimeBin "windeployqt.exe"),
     (Join-Path $runtimeBin "python.exe"),
     (Join-Path $runtimeBin "objdump.exe")
@@ -46,6 +77,67 @@ $required = @(
 $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
 if ($missing) {
     throw "Missing build inputs:`n$($missing -join [Environment]::NewLine)"
+}
+
+$provenance = Get-Content -LiteralPath $provenancePath -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+if ($provenance.schemaVersion -ne 1 -or
+    $provenance.uxplayWindowsCommit -notmatch '^[0-9a-f]{40}$' -or
+    $provenance.libuxplayCommit -notmatch '^[0-9a-f]{40}$' -or
+    $provenance.uxplayWindowsPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.libuxplayPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw "source-provenance.json is missing required pinned values."
+}
+$provenanceHash = Get-Sha256Lower -Path $provenancePath
+
+Assert-FileHash -Path $uxplayPatch `
+    -Expected $provenance.uxplayWindowsPatchSha256 `
+    -Description "uxplay-windows patch"
+Assert-FileHash -Path $libuxplayPatch `
+    -Expected $provenance.libuxplayPatchSha256 `
+    -Description "libuxplay patch"
+Assert-FileHash -Path $headless `
+    -Expected $provenance.headlessExecutableSha256 `
+    -Description "Headless executable"
+Assert-FileHash -Path $bonjourHeader `
+    -Expected $provenance.buildInputs.'dns_sd.h' `
+    -Description "Bonjour interface header"
+Assert-FileHash -Path $dnssdDefinition `
+    -Expected $provenance.buildInputs.'dnssd.def' `
+    -Description "Bonjour import definition"
+
+foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
+    $sourcePath = Join-Path $upstream (
+        $sourceProperty.Name.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Pinned patched source is missing: $sourcePath"
+    }
+    Assert-FileHash -Path $sourcePath `
+        -Expected ([string]$sourceProperty.Value) `
+        -Description ("Patched source " + $sourceProperty.Name)
+}
+
+$upstreamHasGit = Test-Path -LiteralPath (Join-Path $upstream ".git")
+$libuxplayHasGit = Test-Path -LiteralPath (Join-Path $libuxplay ".git")
+if ($upstreamHasGit -ne $libuxplayHasGit) {
+    throw "Prepared source must contain either both Git repositories or neither."
+}
+if ($upstreamHasGit) {
+    $upstreamCommit = (
+        & git -c ("safe.directory=" + $upstream) -C $upstream rev-parse HEAD
+    ).Trim()
+    if ($LASTEXITCODE -ne 0 -or
+        $upstreamCommit -ne $provenance.uxplayWindowsCommit) {
+        throw "uxplay-windows commit does not match source-provenance.json."
+    }
+    $libuxplayCommit = (
+        & git -c ("safe.directory=" + $libuxplay) -C $libuxplay rev-parse HEAD
+    ).Trim()
+    if ($LASTEXITCODE -ne 0 -or
+        $libuxplayCommit -ne $provenance.libuxplayCommit) {
+        throw "libuxplay commit does not match source-provenance.json."
+    }
 }
 
 $objdump = Join-Path $runtimeBin "objdump.exe"
@@ -67,9 +159,11 @@ if ($coreImports -match '\bqt_version_tag_6_11\b') {
 }
 $runtimeQtVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
     (Join-Path $original "Qt6Core.dll")).FileVersion
-if ($runtimeQtVersion -notmatch '^6\.10\.1(?:\.0)?$') {
+if ($runtimeQtVersion -notmatch (
+        '^' + [Regex]::Escape($provenance.qtBuildVersion) + '(?:\.0)?$')) {
     throw (
-        "The pinned runtime must contain Qt6Core 6.10.1; found " +
+        "The pinned runtime must contain Qt6Core " +
+        "$($provenance.qtBuildVersion); found " +
         "'$runtimeQtVersion'.")
 }
 
@@ -93,6 +187,8 @@ Copy-Item -LiteralPath (Join-Path $upstream "stuff\uxplay_arguments_list.txt") `
     -Destination (Join-Path $stage "resources\uxplay_arguments_list.txt")
 Copy-Item -LiteralPath (Join-Path $nativeRoot "gstreamer-features.txt") `
     -Destination (Join-Path $stage "resources\gstreamer-features.txt")
+Copy-Item -LiteralPath $provenancePath `
+    -Destination (Join-Path $stage "resources\source-provenance.json")
 
 $env:MSYSTEM = "UCRT64"
 $env:PATH = "$runtimeBin;$(Join-Path $MsysRoot 'usr\bin');$env:PATH"
@@ -147,18 +243,22 @@ $buildManifest = [ordered]@{
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
     architecture = "x64"
     shellMode = "headless"
-    qtBuildVersion = "6.10.1"
-    pinnedRuntimeRelease = "2.0.0.1736"
-    coreRuntimeCompatibility = "uxplay-windows-2.0.0.1736"
+    qtBuildVersion = [string]$provenance.qtBuildVersion
+    pinnedRuntimeRelease = [string]$provenance.pinnedRuntimeRelease
+    coreRuntimeCompatibility = [string]$provenance.coreRuntimeCompatibility
     qtImportedVersionTag = "qt_version_tag_6_10"
     qtRejectedVersionTag = "qt_version_tag_6_11"
     loaderTest = "required-by-installer"
-    headlessExecutableSha256 = (
-        Get-FileHash -Algorithm SHA256 -LiteralPath (
-            Join-Path $stage "uxplay-windows.exe")
-    ).Hash.ToLowerInvariant()
-    uxplayWindowsCommit = "8cf3424b438424bc99a89155bd29a789f48a43c0"
-    libuxplayCommit = "437f37514257d9cb513ac7fbdee743b4da85852e"
+    headlessExecutableSha256 = Get-Sha256Lower -Path (
+        Join-Path $stage "uxplay-windows.exe")
+    sourceProvenanceSha256 = $provenanceHash
+    provenanceSchemaVersion = [int]$provenance.schemaVersion
+    uxplayWindowsCommit = [string]$provenance.uxplayWindowsCommit
+    libuxplayCommit = [string]$provenance.libuxplayCommit
+    uxplayWindowsPatchSha256 = [string]$provenance.uxplayWindowsPatchSha256
+    libuxplayPatchSha256 = [string]$provenance.libuxplayPatchSha256
+    patchedSources = $provenance.patchedSources
+    buildInputs = $provenance.buildInputs
     compiler = (& (Join-Path $runtimeBin "gcc.exe") --version |
         Select-Object -First 1)
     cmake = (& (Join-Path $runtimeBin "cmake.exe") --version |
@@ -166,7 +266,7 @@ $buildManifest = [ordered]@{
     ninja = (& (Join-Path $runtimeBin "ninja.exe") --version |
         Select-Object -First 1)
 }
-$buildManifest | ConvertTo-Json |
+$buildManifest | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath (Join-Path $stage "resources\build-manifest.json") -Encoding utf8
 
 & (Join-Path $upstream "scripts\collect-runtime-dependencies.ps1") `
