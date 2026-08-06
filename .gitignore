@@ -1,0 +1,29 @@
+# Generated build and packaging output
+/artifacts/
+/vendor/
+
+# Local runtime and user data
+/data/
+*.log
+*.log.1
+*.pem
+settings.ini
+trusted-clients.txt
+
+# IDE and compiler output
+/.vs/
+/.vscode/
+bin/
+obj/
+*.user
+*.suo
+
+# Signing material must never be committed
+*.pfx
+*.p12
+*.cer
+*.key
+
+# Windows metadata
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,145 @@
+diff --git a/src/airplayworker.cpp b/src/airplayworker.cpp
+index 6cc919a..766eb42 100644
+--- a/src/airplayworker.cpp
++++ b/src/airplayworker.cpp
+@@ -11,15 +11,18 @@ void AirPlayWorker::setArgs(const QStringList &args) {
+ 
+ void AirPlayWorker::run() {
+     std::vector<QByteArray> argBytes;
+-    std::vector<char *> argv;
+-    
++    argBytes.reserve(static_cast<std::size_t>(m_args.size()) + 1);
+     argBytes.push_back(QByteArray("uxplay"));
+-    argv.push_back(argBytes.back().data());
+ 
+     for (const auto &arg : m_args) {
+         if (arg.trimmed().isEmpty()) continue;
+         argBytes.push_back(arg.toUtf8());
+-        argv.push_back(argBytes.back().data());
++    }
++
++    std::vector<char *> argv;
++    argv.reserve(argBytes.size());
++    for (auto &arg : argBytes) {
++        argv.push_back(arg.data());
+     }
+ 
+     qDebug() << "Starting UxPlay engine with arguments:" << m_args;
+@@ -43,4 +46,4 @@ void AirPlayWorker::run() {
+ 
+ void AirPlayWorker::stopAirplay() {
+     stop_uxplay();
+-}
+\ No newline at end of file
++}
+diff --git a/src/main.cpp b/src/main.cpp
+index d659491..4f5d8ad 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -140,14 +140,30 @@ int main(int argc, char *argv[]) {
+     if (app.arguments().contains("--self-test")) {
+         return runRuntimeSelfTest(appPath);
+     }
++    if (app.arguments().contains("--loader-test")) {
++        fprintf(stdout, "LOADER-TEST OK: native runtime is compatible\n");
++        return 0;
++    }
+ 
+     app.setQuitOnLastWindowClosed(false);
+ 
+-    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
++    const QStringList applicationArguments = app.arguments();
++    const bool headless = applicationArguments.contains("--headless");
++    QStringList uxplayArguments;
++    const int uxplayMarker = applicationArguments.indexOf("--uxplay");
++    if (uxplayMarker >= 0) {
++        for (int index = uxplayMarker + 1;
++             index < applicationArguments.size();
++             ++index) {
++            uxplayArguments << applicationArguments.at(index);
++        }
++    }
++
++    if (!headless && !QSystemTrayIcon::isSystemTrayAvailable()) {
+         QMessageBox::critical(nullptr, "Error", "System tray not available.");
+         return 1;
+     }
+ 
+-    MainWindow window;
++    MainWindow window(headless, uxplayArguments);
+     return app.exec();
+ }
+diff --git a/src/mainwindow.cpp b/src/mainwindow.cpp
+index aeb732d..c8038a9 100644
+--- a/src/mainwindow.cpp
++++ b/src/mainwindow.cpp
+@@ -54,9 +54,17 @@ BOOL CALLBACK EnumWindowsProcRename(HWND hwnd, LPARAM lParam) {
+     return TRUE;
+ }
+ 
+-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
++MainWindow::MainWindow(
++    bool headless,
++    const QStringList &argumentOverride,
++    QWidget *parent
++) : QMainWindow(parent),
++    m_headless(headless),
++    m_argumentOverride(argumentOverride) {
+     ensureSettingsFileExists();
+-    setupTray();
++    if (!m_headless) {
++        setupTray();
++    }
+     setupUI();
+ 
+     // If Bonjour Service is missing, we must install it; otherwise we exit.
+@@ -125,6 +133,12 @@ void MainWindow::ensureSettingsFileExists() {
+ }
+ 
+ QStringList MainWindow::getArgumentsFromFile() {
++    if (!m_argumentOverride.isEmpty()) {
++        qInfo() << "[arguments] Using command-line override:"
++                << m_argumentOverride;
++        return m_argumentOverride;
++    }
++
+     const QString userPath = userArgumentsPath();
+     const QString machinePath = machineArgumentsPath();
+     const QString selectedPath = activeArgumentsPath();
+@@ -432,7 +446,11 @@ void MainWindow::onAirplayStopped() {
+ }
+ 
+ void MainWindow::onAirplayError(const QString &message) {
+-    m_tray->showMessage("uxplay-windows", message, QSystemTrayIcon::Warning, 3000);
++    if (m_tray) {
++        m_tray->showMessage("uxplay-windows", message, QSystemTrayIcon::Warning, 3000);
++    } else {
++        qWarning().noquote() << "[headless]" << message;
++    }
+ }
+ 
+ void MainWindow::toggleAutostart(bool checked) {
+diff --git a/src/mainwindow.h b/src/mainwindow.h
+index 163521f..1dd8163 100644
+--- a/src/mainwindow.h
++++ b/src/mainwindow.h
+@@ -19,7 +19,11 @@ class MainWindow : public QMainWindow {
+     Q_OBJECT
+ 
+ public:
+-    explicit MainWindow(QWidget *parent = nullptr);
++    explicit MainWindow(
++        bool headless = false,
++        const QStringList &argumentOverride = {},
++        QWidget *parent = nullptr
++    );
+     ~MainWindow() override;
+ 
+ protected:
+@@ -82,4 +86,6 @@ private:
+ 
+     bool m_running = false;
+     bool m_quitting = false;
++    bool m_headless = false;
++    QStringList m_argumentOverride;
+ };

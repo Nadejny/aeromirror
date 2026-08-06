@@ -1,0 +1,200 @@
+name: Bug report
+description: Report a receiver, discovery, streaming, crash, or interface problem
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing AeroMirror. Before submitting, read the
+        [troubleshooting and log-sharing guide](https://github.com/Nadejny/aeromirror/blob/main/docs/TROUBLESHOOTING.md).
+
+        Review builds keep diagnostics locally. Please attach the relevant
+        `receiver.log` after masking PINs, passwords, user names, network names,
+        addresses, and other private identifiers.
+
+  - type: input
+    id: version
+    attributes:
+      label: AeroMirror version
+      description: Find this in Diagnostics or Installed apps.
+      placeholder: "For example: 0.10.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package type
+      options:
+        - Official network installer
+        - Local development build
+        - I am not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: failure_phase
+    attributes:
+      label: When did the problem happen?
+      options:
+        - First start immediately after installation
+        - First automatic start after a Windows reboot
+        - Manual receiver start
+        - iPhone connection or reconnection
+        - During an active stream
+        - After changing or saving settings
+        - After a network change or sleep/wake
+        - Application update
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: State which component disappeared or stopped working.
+      placeholder: |
+        The tray application remained open, but AeroMirror disappeared from
+        Screen Mirroring. The stream window did not open.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a short numbered list starting from application launch.
+      placeholder: |
+        1. Install and start AeroMirror.
+        2. Wait 60 seconds without restarting the receiver.
+        3. Open Screen Mirroring on the iPhone.
+        4. Select AeroMirror.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+
+  - type: input
+    id: failure_time
+    attributes:
+      label: Exact failure time and time zone
+      description: Use the PC clock; this is needed to correlate the report with the log.
+      placeholder: "2026-08-06 10:23:26 Europe/Moscow (UTC+3)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Restart workaround result
+      description: Test Restart receiver and, separately, Stop receiver / wait five seconds / Start receiver.
+      placeholder: |
+        Restart receiver: no change.
+        Stop, wait five seconds, start: receiver became visible and connected.
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2, OS build 26100.x, x64"
+    validations:
+      required: true
+
+  - type: input
+    id: iphone
+    attributes:
+      label: iPhone and iOS version
+      placeholder: "iPhone 15 Pro, iOS 19.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: PC network connection
+      options:
+        - Ethernet, Private profile
+        - Ethernet, Public profile
+        - Wi-Fi, Private profile
+        - Wi-Fi, Public profile
+        - Windows Mobile Hotspot
+        - Other or unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: network_tools
+    attributes:
+      label: Network-related software and adapters
+      description: Mention active VPN, Hyper-V, WSL, Docker, virtual adapters, or security software.
+      placeholder: "For example: WSL 2 enabled; inactive WireGuard adapter present."
+
+  - type: dropdown
+    id: bonjour
+    attributes:
+      label: Bonjour status
+      description: Copy the status from AeroMirror Diagnostics if available.
+      options:
+        - Running
+        - Installed but stopped
+        - Missing
+        - Access denied or status unavailable
+        - I did not check
+    validations:
+      required: true
+
+  - type: textarea
+    id: receiver_settings
+    attributes:
+      label: Receiver settings
+      description: Include quality, latency, renderer, audio, and PIN mode. Never include the PIN itself.
+      placeholder: "1080p60; Balanced; Automatic renderer; Default audio; PIN enabled."
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Masked receiver log
+      description: |
+        Drag the reviewed `receiver.log` here, or paste only the relevant
+        section in a code block. Do not attach receiver-key.pem,
+        trusted-clients.txt, or settings.ini.
+      placeholder: "Attach the reviewed file here. Replace PINs and secrets with ****."
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add screenshots, a short screen recording, or other observations if useful.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy and diagnostic confirmation
+      options:
+        - label: I inspected the log and masked every PIN, password, user name, private network name, address, and other secret or identifier I do not want to publish.
+          required: true
+        - label: I did not attach receiver-key.pem, trusted-clients.txt, settings.ini, an Apple ID, or any credential.
+          required: true
+        - label: I included the exact failure time and tested the stop/wait/start workaround where possible.
+          required: true
