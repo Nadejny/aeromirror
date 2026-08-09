@@ -8,9 +8,9 @@ step changes.
 
 ## Current release
 
-- Latest public release: `v0.11.1`
+- Latest public release: `v0.11.2`
 - Release type: normal GitHub Release labelled as a review candidate
-- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.11.1
+- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.11.2
 - Supported target: Windows 10 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
 - Update channel: `Nadejny/aeromirror` through GitHub `releases/latest`
@@ -18,20 +18,20 @@ step changes.
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.11.1` tag is immutable project history. Any correction discovered
-after publication must use `0.11.2` or a later version; do not replace the
-published 0.11.1 files.
+The `v0.11.2` tag is immutable project history. Any correction discovered
+after publication must use `0.11.3` or a later version; do not replace the
+published 0.11.2 files.
 
-## Pending 0.11.2 patch
+## Published 0.11.2 review patch
 
-- Candidate version: `0.11.2` (local development; not yet public)
-- Confirmed blocker: an update launched from AeroMirror 0.11.0 or 0.11.1 can
+- Release commit: `f9fd5c48ef24435a08da5c6ee438410fd6e19aed`
+- Root cause: an update launched from AeroMirror 0.11.0 or 0.11.1 could
   start Setup with the installed application directory as its inherited
   working directory. Setup then fails while moving that directory with a
   "file is being used by another process" error.
 - Failure point: before the old installation is replaced; the existing
   installation remains intact.
-- Patch scope: move Setup's working directory outside the installation before
+- Fix: move Setup's working directory outside the installation before
   replacement, launch future Setup versions with an explicit safe working
   directory, bound path-scoped process shutdown, and retry short-lived
   directory locks.
@@ -58,20 +58,20 @@ published 0.11.1 files.
 - UI smoke and renderer-sizing probes;
 - exact public asset names, sizes, and GitHub SHA-256 digests.
 
-See `docs/BUILD_REPORT_0.11.1.md` for the candidate build record.
+See `docs/BUILD_REPORT_0.11.2.md` for the release build record.
 
 The 0.11.2 shell build, receiver resilience checks, installer build, shortcut
 selection verifier, update-lifecycle verifier, and an explicit candidate run
 with Setup's inherited working directory inside the installed AeroMirror tree
-all pass locally on Windows 11. Final release-asset verification and the
-physical Windows 10 acceptance run remain pending.
+all pass locally on Windows 11. GitHub `releases/latest` returns `v0.11.2`, and
+all four downloaded public assets match the files built from the release tag.
+The physical Windows 10 acceptance run remains pending.
 
 ## Manual acceptance still required
 
-Publish 0.11.2 only as a review patch after its automated and local candidate
-checks pass, then follow `docs/TEST_PLAN_0.11.2.md` on at least one physical
-Windows 10 PC and one physical Windows 11 PC before considering the patch
-fully accepted. The broader receiver acceptance in `docs/TEST_PLAN_0.11.1.md`
+Follow `docs/TEST_PLAN_0.11.2.md` on at least one physical Windows 10 PC and
+one physical Windows 11 PC before considering the published review patch fully
+accepted. The broader receiver acceptance in `docs/TEST_PLAN_0.11.1.md`
 remains required before 1.0. The highest-priority scenarios are:
 
 1. Windows/AeroMirror starts before Wi-Fi becomes available.
@@ -85,18 +85,17 @@ documented bound blocks the 1.0 designation and should include a redacted log.
 
 ## Immediate next steps
 
-1. Complete and automatically verify the focused 0.11.2 updater fix.
-2. Run in-app updates from 0.11.0 and 0.11.1 on physical Windows 10 and
+1. Run the public in-app update from the user's installed 0.11.0 to 0.11.2 and
+   preserve shortcuts and per-user state.
+2. Run in-app updates from 0.11.0 and 0.11.1 on a physical Windows 10 PC and
    Windows 11 PCs, preserving shortcuts and per-user state.
-3. Publish a new immutable `v0.11.2` release only after the focused update
-   plan passes; never replace the existing `v0.11.1` assets.
-4. Collect and record the remaining receiver-stability results for 0.11.1.
-5. If the stability gate passes, begin 0.12 development with an explicit
+3. Collect and record the remaining receiver-stability results.
+4. If the stability gate passes, begin 0.12 development with an explicit
    repository-structure plan before moving files.
-6. Introduce resource-based UI localization in 0.12: follow the Windows
+5. Introduce resource-based UI localization in 0.12: follow the Windows
    display language by default and offer `System / English / Russian` in
    settings.
-7. Keep AirDrop-style transfer and iPhone remote control as later, separate
+6. Keep AirDrop-style file transfer and iPhone remote control as later, separate
    research tracks after the receiver is reliable.
 
 ## Where information belongs
