@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.12.0 — safer persisted settings and maintainable managed source
+
+### Fixed
+
+- Persisted pairing and selector values are normalized before use. Only the
+  supported `none` mode or `pin` with exactly four ASCII digits remains valid;
+  obsolete, unknown, or malformed values become unprotected so the existing
+  Public/Unknown physical-network policy fails closed instead of starting a
+  receiver under a misleading protection mode.
+- Settings are written to a temporary file in the same directory and then
+  replaced atomically. An interrupted save can no longer expose a partially
+  written `settings.ini` as the new configuration.
+- A stale end marker from the previous AirPlay session no longer clears a
+  newer connection-request or PIN-entry grace period. Deferred settings and
+  physical-network maintenance wait for that reconnect attempt instead of
+  interrupting its handshake.
+- The updater accepts only exact three-part public release tags such as
+  `v0.12.0`. Two-part, four-part, suffixed, or otherwise malformed tags are
+  rejected rather than interpreted as AeroMirror update versions.
+
+### Changed
+
+- The managed Windows shell is split into focused source files for startup,
+  configuration, receiver supervision, rendering, diagnostics, UI, updates,
+  network policy, and Win32 interop. These files still compile into the same
+  `AeroMirror.exe` assembly and retain the existing namespace, persistence,
+  autostart, update, and native-core contracts.
+- Three unreachable legacy settings forms were removed after the active UI
+  path was separated. No user-facing settings page was intentionally removed.
+- The managed build and resilience checks discover all C# files below `src/`
+  instead of assuming a single monolithic source file.
+
+### Verification status
+
+- The integrated shell build, resilience suite, review packaging, Setup
+  build and lifecycle verifiers, native corresponding-source validation, and
+  whitespace checks pass locally. Exact-tag release packaging and public
+  asset verification run during publication.
+- Physical Windows/iPhone acceptance remains pending for the review candidate.
+- The pinned native UxPlay core and third-party runtime are unchanged.
+
 ## 0.11.3 — faster reconnects without needless receiver restarts
 
 ### Fixed

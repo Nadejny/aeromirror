@@ -1,9 +1,9 @@
 # AeroMirror native build information
 
 This file documents the patched native executable first shipped by AeroMirror
-0.11.1 and reused unchanged by 0.11.2 and 0.11.3. The source bundle also
-contains the complete upstream trees and the patch both separately and
-applied in place.
+0.11.1 and reused unchanged by 0.11.2, 0.11.3, and 0.12.0. The source
+bundle also contains the complete upstream trees and the patch both separately
+and applied in place.
 
 ## Exact inputs
 

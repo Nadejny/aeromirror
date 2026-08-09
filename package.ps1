@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$HeadlessCorePath,
 
-    [string]$Version = "0.11.3"
+    [string]$Version = "0.12.0"
 )
 
 $ErrorActionPreference = "Stop"

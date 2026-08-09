@@ -3,138 +3,110 @@
 Last updated: 2026-08-09
 
 This is the single current-state handoff for AeroMirror. Keep it concise and
-update it when release status, accepted tests, blockers, or the immediate next
-step changes.
+update it whenever release status, accepted tests, blockers, or the immediate
+next step changes.
 
-## Current release
+## Public release
 
 - Latest public release: `v0.11.3`
-- Release type: normal GitHub Release labelled as a review candidate
 - Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.11.3
-- Supported target: Windows 10 1809+ x64 and Windows 11 x64
+- Channel: normal GitHub Release labelled as a review candidate
+- Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
-- Update channel: `Nadejny/aeromirror` through GitHub `releases/latest`
+- Update source: `Nadejny/aeromirror` through GitHub `releases/latest`
 - Public assets: Setup, AeroMirror source, prepared native corresponding
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.11.3` tag points to commit
-`aba4c98277f965ce8cf52cea46ff08c26605a03f` and is immutable project history.
-Any correction discovered after publication must use `0.11.4` or a later
-version; do not move the tag or replace the published 0.11.3 files.
+The immutable `v0.11.3` tag points to commit
+`aba4c98277f965ce8cf52cea46ff08c26605a03f`. Its public asset verification is
+recorded in `docs/BUILD_REPORT_0.11.3.md`. Corrections must use a later version;
+never move that tag or replace its assets.
 
-## Published 0.11.2 review patch
+## Local 0.12.0 review candidate
 
-- Release commit: `f9fd5c48ef24435a08da5c6ee438410fd6e19aed`
-- Root cause: an update launched from AeroMirror 0.11.0 or 0.11.1 could
-  start Setup with the installed application directory as its inherited
-  working directory. Setup then fails while moving that directory with a
-  "file is being used by another process" error.
-- Failure point: before the old installation is replaced; the existing
-  installation remains intact.
-- Fix: move Setup's working directory outside the installation before
-  replacement, launch future Setup versions with an explicit safe working
-  directory, bound path-scoped process shutdown, and retry short-lived
-  directory locks.
-- Acceptance plan: `docs/TEST_PLAN_0.11.2.md`
+Status: integrated local review candidate; pre-tag automated gates pass; not
+tagged, published, or physically accepted.
 
-## Published 0.11.3 reconnect review patch
+The candidate scope is:
 
-- Release commit: `aba4c98277f965ce8cf52cea46ff08c26605a03f`
-- Channel status: normal latest GitHub Release; `draft=false` and
-  `prerelease=false`
-- Confirmed blocker: after a normal disconnect, or after iPhone Wi-Fi is
-  turned off and on, the first reconnect can wait for 20–30 seconds and fail
-  while a second attempt succeeds.
-- Root cause: the shell schedules a full native-core restart after session
-  completion even when the receiver has already recovered and is healthy.
-  Restarting changes the listening endpoints while the iPhone may still hold
-  the previous DNS-SD advertisement.
-- Patch scope: keep a healthy receiver registered across normal disconnects;
-  re-arm its single bounded ten-minute idle-discovery fallback and postpone
-  deferred settings maintenance on a high-level AirPlay request; cancel
-  pending post-session maintenance when mirroring actually starts; retain
-  bounded recovery for confirmed fatal failures; and retain a separate,
-  at-most-once ten-minute idle discovery renewal.
-- Native core: the reviewed 0.11.1 executable and pinned runtime are reused
-  unchanged.
-- Acceptance plan: `docs/TEST_PLAN_0.11.3.md`; physical Windows 11 + iPhone
-  results remain pending.
+- normalize persisted pairing values so unknown, obsolete, and malformed PIN
+  states become unprotected and therefore fail closed on a Public or Unknown
+  physical Windows network;
+- normalize unsupported quality, renderer, latency, audio, and theme values
+  to documented safe defaults;
+- replace `settings.ini` atomically rather than exposing a partially written
+  new configuration;
+- preserve a newer AirPlay request or PIN-entry grace period when a stale end
+  marker arrives from the previous session;
+- accept only exact three-part GitHub update tags;
+- split the managed shell into focused source files while keeping one
+  `AeroMirror.exe` assembly and all runtime identities and boundaries intact;
+- remove three unreachable legacy settings forms after the active UI path is
+  separated.
 
-## What 0.11.1 addresses
+The native UxPlay executable, its reviewed patches, runtime pins, provenance,
+installed `core/uxplay-windows.exe` path, and process boundary are unchanged.
 
-- bounded recovery after a lost or stalled iPhone mirroring session;
-- bounded native process-tree shutdown instead of indefinite waits;
-- delayed startup until a physical Wi-Fi/Ethernet IPv4 is usable;
-- BLE discovery bound to the physical LAN rather than a VPN route;
-- explicit DNS-SD/BLE diagnostics and deferred discovery refresh;
-- stable receiver identity across starts;
-- clearer Report a problem flow and smaller tooltip hit areas;
-- preservation of existing shortcut choices during Setup updates.
+## Automated verification status
 
-## Verified automatically
+The integrated local 0.12.0 candidate passes:
 
-- C# shell build;
-- native loader/self tests and reviewed core provenance;
-- receiver resilience checks, including lost-session recovery and network
-  event handling;
-- installer shortcut-selection scenarios;
-- UI smoke and renderer-sizing probes;
-- exact public asset names, sizes, and GitHub SHA-256 digests.
+1. the managed x64 shell build;
+2. receiver resilience checks, including settings normalization, atomic save,
+   strict update tags, stale-end reconnect ordering, and the recursive source
+   layout;
+3. review-payload packaging and the 0.12.0 Setup build, including the
+   installer's shortcut and update-lifecycle verifiers;
+4. native provenance and corresponding-source archive validation with the
+   unchanged pinned core;
+5. PE version checks for both shell and Setup (`0.12.0.0`);
+6. `git diff --check`.
 
-See `docs/BUILD_REPORT_0.11.3.md` for the current release build record and
-`docs/BUILD_REPORT_0.11.2.md` for the previous update-fix release.
+Exact-tag release packaging and public-download verification remain pending
+until the candidate is committed, tagged, and published.
 
-The 0.11.3 shell build, receiver resilience checks, package review, installer
-build, native corresponding-source provenance checks, and `git diff --check`
-pass. GitHub `releases/latest` returns the normal `v0.11.3` Release with
-`draft=false` and `prerelease=false`. All four re-downloaded public assets
-match the published byte sizes and SHA-256 digests recorded in the build
-report. These checks accept the release for review distribution only; the
-physical Windows 11 + iPhone reconnect cases remain pending.
+No 0.12.0 build report, public asset sizes, SHA-256 digests, re-download
+results, or accepted release commit exist yet. Add
+`docs/releases/0.12.0/BUILD_REPORT.md` only after publication and public-asset
+verification.
 
-## Manual acceptance still required
+## Physical verification status
 
-Use the published 0.11.3 review candidate to run
-`docs/TEST_PLAN_0.11.3.md` on a physical Windows 11 PC before accepting the
-reconnect patch, then repeat it on a physical Windows 10 PC before 1.0. The
-published 0.11.2 update regression plan and the broader receiver acceptance in
-`docs/TEST_PLAN_0.11.1.md` also remain required. The highest-priority scenarios
-are:
+All physical-device gates for 0.12.0 are **pending**. Automated checks cannot
+establish Windows/iPhone interoperability.
 
-1. Five clean disconnect/immediate-reconnect cycles without a core restart.
-2. First-attempt recovery after iPhone Wi-Fi is turned off and on.
-3. Weak Wi-Fi without a false full-core reset.
-4. Discovery after ten minutes idle, before and after a completed session.
-5. Private/Public physical-network and optional/required PIN behavior, with
-   VPN enabled and disabled.
-6. In-app updates without the 0.11.2 installed-directory lock regression.
+The focused plan is `docs/releases/0.12.0/TEST_PLAN.md`. At minimum it must be
+run on:
 
-A crash, missing rediscovery, or recovery substantially slower than the
-documented bound blocks the 1.0 designation and should include a redacted log.
+- a physical Windows 11 x64 PC with an iPhone;
+- a physical Windows 10 1809+ x64 PC with an iPhone before a 1.0 designation;
+- Private and Public physical network profiles, with VPN enabled and disabled;
+- an in-place update from the latest public review release.
+
+A settings regression, incomplete or corrupted save, receiver exposure on a
+Public/Unknown network, reconnect interruption, updater misclassification,
+crash, or missing discovery blocks acceptance.
 
 ## Immediate next steps
 
-1. Run `docs/TEST_PLAN_0.11.3.md` with the user's iPhone on physical Windows
-   11, including exact reconnect timings and a redacted log.
-2. Repeat the plan on physical Windows 10 and complete the remaining 0.11.2
-   in-place-update acceptance cases before 1.0.
-3. If a defect is found in the immutable public 0.11.3 files, prepare 0.11.4
-   or a later patch; never move the tag or replace an asset.
-4. If the stability gate passes, begin 0.12 development with an explicit
-   repository-structure plan before moving files.
-5. Introduce resource-based UI localization in 0.12: follow the Windows
-   display language by default and offer `System / English / Russian` in
-   settings.
-6. Keep AirDrop-style file transfer and iPhone remote control as later, separate
-   research tracks after the receiver is reliable.
+1. Commit and tag the reviewed 0.12.0 candidate without changing published
+   0.11.3 history.
+2. Build the exact-tag release assets, publish the explicitly authorized
+   review candidate, re-download every asset, and add the versioned build
+   report.
+3. Install/update through the public channel and complete the Windows 11 +
+   iPhone scenarios, then record timings and redacted logs.
+4. Complete the Windows 10 physical plan before describing the project as 1.0.
 
 ## Where information belongs
 
+- mandatory patch documentation: `docs/DOCUMENTATION_POLICY.md`;
 - current handoff and immediate next step: this file;
 - durable technical/product decisions: `docs/DECISIONS.md`;
 - implementation backlog and acceptance targets: `docs/TODO.md`;
 - component boundaries: `docs/ARCHITECTURE.md`;
 - release/update/signing rules: `docs/RELEASE_AND_SIGNING.md`;
 - user-visible release history: `CHANGELOG.md`;
+- versioned release text and acceptance: `docs/releases/<version>/`;
 - troubleshooting and log collection: `docs/TROUBLESHOOTING.md`.

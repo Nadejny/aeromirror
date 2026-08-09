@@ -95,3 +95,23 @@ Automated tests cannot prove AirPlay interoperability. A 1.0 designation
 requires the current manual test plan to pass on at least one physical
 Windows 10 PC and one physical Windows 11 PC, including delayed Wi-Fi, VPN,
 sequential sessions, and connection loss.
+
+## D-009 — Keep one managed assembly and organize stateful classes with partial source files
+
+**Status:** accepted for 0.12
+
+The managed shell remains one .NET Framework `AeroMirror.exe` assembly. Source
+is grouped by responsibility, and the stateful `ReceiverContext` is divided
+across partial-class files for core lifecycle, rendering, and diagnostics while
+retaining one private state owner.
+
+This keeps the 0.12 move mechanical: it does not introduce another managed
+process, plugin model, public API, serialization boundary, dependency-injection
+container, or new runtime requirement. Existing namespace, mutex/event names,
+settings and log paths, autostart and update identities, receiver key and trust
+state, native process contract, and installed core path remain unchanged.
+
+The active `SettingsForm` stays in one file during this pass because splitting
+its tightly coupled WinForms construction and navigation at the same time would
+add review risk without changing product behavior. Further service extraction
+or UI decomposition requires a separate design, tests, and migration plan.

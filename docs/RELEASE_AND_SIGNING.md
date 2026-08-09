@@ -66,11 +66,16 @@ update.
 
 For a working automatic update, every GitHub Release must include:
 
-- a semantic tag such as `v0.11.3`;
+- a semantic tag such as `v0.12.0`;
 - a setup asset named exactly
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` for that release version;
 - GitHub's SHA-256 asset digest;
 - a short user-facing release body.
+
+The updater accepts only an exact three-part numeric tag with an optional
+leading `v`, for example `0.12.0` or `v0.12.0`. It rejects two-part,
+four-part, suffixed, or otherwise malformed values. Do not rely on a tag such
+as `v0.12.0-beta` being normalized into the public update channel.
 
 The current application checks GitHub's `releases/latest` endpoint. A release
 that should be found by installed AeroMirror clients must therefore be
@@ -85,16 +90,14 @@ a tag and stores its own downloadable assets. Publishing or replacing a
 Release asset does not update `main`; push the reviewed release commit to
 `main` before creating the matching tag and Release.
 
-Version 0.11.3 is a focused review patch for immediate reconnect and discovery
-reliability after 0.11.2. After the automated release gates and native
-corresponding-source validation pass, and with explicit user authorization,
-it may be published as a normal GitHub Release explicitly labelled as a review
-candidate so installed clients can participate in physical testing. Complete
-the Windows 11 baseline in [TEST_PLAN_0.11.3.md](TEST_PLAN_0.11.3.md) before
-describing the patch as accepted. The 0.11.2 update regression plan and the
-broader Windows 10/11 scenarios in
-[TEST_PLAN_0.11.1.md](TEST_PLAN_0.11.1.md) remain required before labelling
-the project 1.0.
+Each candidate must pass its versioned automated release gates and native
+corresponding-source validation before publication, and publication still
+requires explicit user authorization. A normal Release may be labelled as a
+review candidate so installed clients can participate in physical testing,
+but it must not be described as accepted until its versioned physical plan
+passes. For 0.12.0, use
+[`releases/0.12.0/TEST_PLAN.md`](releases/0.12.0/TEST_PLAN.md). Historical 0.11
+plans remain part of the evidence required before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.
@@ -105,9 +108,9 @@ from the Release tag.
 Recommended assets:
 
 ```text
-AeroMirror-Setup-0.11.3.exe
-AeroMirror-source-0.11.3.zip
-AeroMirror-native-source-0.11.3.zip
+AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe
+AeroMirror-source-<MAJOR.MINOR.PATCH>.zip
+AeroMirror-native-source-<MAJOR.MINOR.PATCH>.zip
 SHA256SUMS.txt
 ```
 

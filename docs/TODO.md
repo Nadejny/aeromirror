@@ -7,6 +7,87 @@ upstream licenses, and applicable platform rules before implementation.
 
 ## Reliability foundation
 
+### 0.12 repository restructure
+
+The 0.12 cleanup must be a sequence of reviewable, behavior-preserving
+changes. Do not combine directory moves with AirPlay lifecycle fixes or native
+protocol work. Preserve the installed executable name, persistent per-user
+paths and registry identities, receiver key and trust state, native runtime
+layout, public asset names, and source-provenance checks throughout the move.
+
+#### Phase 1: managed application source
+
+- [x] Record a clean build and resilience-test baseline before moving source.
+- [x] Split the single managed shell source into focused files for program
+  startup, settings, receiver supervision, discovery and recovery, renderer
+  policy, networking, updates, diagnostics, UI controls, theming, and Win32
+  interop.
+- [x] Keep the existing namespace and runtime identifiers during the
+  mechanical split; rename or redesign them only in a separate reviewed
+  change with migration coverage.
+- [x] Update the build to compile all managed source files deterministically.
+- [x] Update resilience checks so they no longer assume one source filename.
+- [x] Remove unreachable legacy forms only after the split passes the same
+  build and tests, as a separately reviewed cleanup step.
+
+Acceptance target: the shell is behaviorally unchanged, its executable still
+targets Windows 10 1809+ x64 and Windows 11 x64, and existing settings,
+autostart, pairing identity, logs, and update behavior remain compatible.
+
+#### Phase 2: installer and packaging source
+
+- [ ] Split installer UI, paths, logging, runtime acquisition, transaction,
+  process shutdown, shortcuts, registry, and verification logic into focused
+  files without changing embedded resource names or upgrade identity.
+- [ ] Consolidate duplicated PowerShell helpers for safe child paths, PE
+  inspection, hashes, manifests, and version validation.
+- [ ] Keep stable root build and release entry points as thin wrappers while
+  moving implementation scripts into a documented `scripts/` layout.
+- [ ] Separate final deliverables, reusable downloaded caches, and temporary
+  staging so failed builds cannot leave ambiguous release inputs.
+- [ ] Add bounded, preview-first cleanup for generated output; cache deletion
+  must remain an explicit separate choice.
+
+Acceptance target: setup and in-place update verification pass with exactly
+the same installed paths, registry identity, shortcuts, payload contract, and
+rollback behavior.
+
+#### Phase 3: version and documentation enforcement
+
+- [ ] Introduce one checked-in public-version source and generate the required
+  four-part Windows assembly versions during build.
+- [ ] Make every build, installer, packaging, and release command reject a
+  requested version that differs from the checked-in version.
+- [ ] Add an automated documentation gate implementing
+  `docs/DOCUMENTATION_POLICY.md`.
+- [ ] Move historical build reports and test plans into
+  `docs/releases/<version>/` with link-preserving documentation updates.
+- [ ] Keep curated release notes in the repository and use them as the GitHub
+  Release body instead of relying on an ignored local artifact.
+
+Acceptance target: a patch cannot reach the release step with inconsistent
+app, installer, asset, changelog, project-state, release-note, or test-plan
+versions.
+
+#### Phase 4: continuous verification
+
+- [ ] Add `.editorconfig` and explicit UTF-8/LF rules compatible with Windows
+  PowerShell and the current compiler.
+- [ ] Add a single local command that runs the shell build, resilience checks,
+  installer logic checks where inputs are available, documentation policy,
+  and `git diff --check`.
+- [ ] Add an isolated temporary-profile integration test that exercises the
+  complete `AppSettings.Load()` and `Save()` wiring, including first save and
+  an injected replacement failure, without touching a user's real settings.
+- [ ] Add a Windows CI workflow for network-free build and test gates; keep
+  native/runtime download and public release jobs pinned and separately
+  authorized.
+- [ ] Document which gates are automated and which still require physical
+  Windows and iPhone hardware.
+
+Acceptance target: local and CI checks use the same entry point and cannot
+publish, sign, or mutate a GitHub Release as a side effect.
+
 ### Native core IPC and a real ready state
 
 Version 0.11.1 adds explicit DNS-SD/BLE stdout markers, listening-socket

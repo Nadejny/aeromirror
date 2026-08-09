@@ -21,6 +21,39 @@ AeroMirror.exe
   └─ always-on-top policy
 ```
 
+## Managed shell organization
+
+The C# source is divided by responsibility but still compiles into one .NET
+Framework `AeroMirror.exe` assembly:
+
+- `Application` owns process startup, single-instance activation, and display
+  version access;
+- `Configuration` owns persisted settings, migration, normalization, and
+  atomic replacement of `settings.ini`;
+- `Receiver` owns the tray application context, native process lifecycle,
+  discovery and reconnect supervision, renderer-window policy, diagnostics,
+  and logging;
+- `UI` owns the active settings window, diagnostic viewer, theme helpers,
+  application icon, and custom controls;
+- `Updates` owns release parsing, update metadata, download, and digest
+  verification;
+- `Network` owns physical-adapter selection and Private/Public/Unknown trust
+  classification while excluding virtual overlays;
+- `Interop` contains the Win32 declarations shared by receiver supervision and
+  renderer-window handling.
+
+`ReceiverContext` uses partial-class source files so its private lifecycle
+state remains inside one object while unrelated code is no longer stored in a
+single monolithic file. This is a compile-time organization only: it adds no
+new process, assembly, public API, serialization format, or IPC boundary. The
+current `SettingsForm` intentionally remains intact during this conservative
+split. Three legacy form implementations with no reachable construction path
+were removed; the active settings form was not replaced.
+
+The build discovers C# files recursively below `src/` in stable path order.
+Tests must target behavior and the complete source set rather than depend on a
+single historical filename.
+
 ## Integration contract
 
 The current shell depends on these native integration behaviors:
@@ -38,6 +71,10 @@ The current shell depends on these native integration behaviors:
 6. The reviewed libuxplay patch writes a stable
    `AEROMIRROR_VIDEO_SIZE source=<w>x<h> encoded=<w>x<h>` line when the
    incoming video size changes.
+7. A high-level connection request or PIN prompt establishes a bounded client
+   activity grace. A later end marker belonging to the previous session must
+   not erase that newer grace or allow deferred settings/network maintenance
+   to interrupt the new handshake.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -91,7 +128,7 @@ display-capability response during session setup. The current core exposes no
 runtime command or IPC method that renegotiates those fields with an already
 connected iPhone.
 
-Version 0.11 therefore saves the new preset and restarts the receiver process.
+AeroMirror therefore saves the new preset and restarts the receiver process.
 If an iPhone is currently streaming, the restart is deferred until that
 session ends instead of interrupting it. The iPhone must reconnect before the
 new session is guaranteed to use the new capabilities. Pretending that the
@@ -123,6 +160,12 @@ renegotiation path plus an IPC command from the Windows shell.
   four-digit PIN is enabled.
 - This gate depends on Windows network classification and is not a substitute
   for correctly scoped firewall rules or network isolation.
+- Persisted pairing mode is untrusted input. Only no-PIN mode or PIN mode with
+  exactly four ASCII digits is canonical; unknown, obsolete, or malformed
+  values become unprotected so a Public/Unknown physical profile fails closed.
+- Settings are published through same-directory atomic replacement. Receiver
+  keys and trusted-client state remain separate files and are not transaction
+  members of an ordinary settings save.
 - Advanced arguments are written as plain text. Do not place a reusable secret
   there.
 - Logs intentionally avoid video/audio content, but may contain local paths,

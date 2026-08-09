@@ -4,7 +4,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$sourcePath = Join-Path $projectRoot "src\AirPlayReceiverMvp.cs"
+$sourceRoot = Join-Path $projectRoot "src"
+$sourcePaths = @(
+    Get-ChildItem -LiteralPath $sourceRoot -Recurse -Filter "*.cs" -File |
+        Sort-Object -Property FullName |
+        ForEach-Object { $_.FullName }
+)
 if ([string]::IsNullOrWhiteSpace($AssemblyPath)) {
     $AssemblyPath = Join-Path $projectRoot "artifacts\Release\AeroMirror.exe"
 }
@@ -15,10 +20,14 @@ function Assert-True([bool]$Condition, [string]$Message) {
     }
 }
 
-Assert-True (Test-Path -LiteralPath $sourcePath) "receiver source exists"
+Assert-True ($sourcePaths.Count -gt 0) "receiver sources exist"
 Assert-True (Test-Path -LiteralPath $AssemblyPath) "compiled AeroMirror assembly exists"
 
-$source = [IO.File]::ReadAllText($sourcePath)
+$source = [string]::Join(
+    [Environment]::NewLine,
+    @($sourcePaths | ForEach-Object {
+        [IO.File]::ReadAllText($_)
+    }))
 Assert-True (-not $source.Contains("GetOrCreateReceiverDeviceId")) `
     "an upgrade must not invent a replacement AirPlay device ID"
 Assert-True ($source.Contains("GetSavedReceiverDeviceId")) `
@@ -67,6 +76,8 @@ Assert-True (-not $source.Contains(
 
 $assembly = [Reflection.Assembly]::LoadFrom(
     [IO.Path]::GetFullPath($AssemblyPath))
+$settingsType = $assembly.GetType(
+    "AirPlayReceiverMvp.AppSettings", $true)
 $contextType = $assembly.GetType(
     "AirPlayReceiverMvp.ReceiverContext", $true)
 $context = [Runtime.Serialization.FormatterServices]::GetUninitializedObject(
@@ -77,6 +88,108 @@ $instanceFlags = [Reflection.BindingFlags]::Instance -bor `
 $staticFlags = [Reflection.BindingFlags]::Static -bor `
     [Reflection.BindingFlags]::NonPublic -bor `
     [Reflection.BindingFlags]::Public
+
+$normalizeSettings = $settingsType.GetMethod(
+    "NormalizePersistedValues", $instanceFlags)
+Assert-True ($null -ne $normalizeSettings) `
+    "persisted settings normalization exists"
+$settingsProbe = [Activator]::CreateInstance($settingsType, $true)
+$settingsProbe.PairingMode = "garbage"
+$settingsProbe.FixedPin = "1234"
+$settingsProbe.QualityPreset = "unknown-quality"
+$settingsProbe.Renderer = "vulkan"
+$settingsProbe.LatencyProfile = "turbo"
+$settingsProbe.AudioOutput = "custom"
+$settingsProbe.ThemeMode = "sepia"
+$normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
+Assert-True ($settingsProbe.PairingMode -eq "none") `
+    "an unknown pairing mode becomes unprotected so network policy fails closed"
+Assert-True ($settingsProbe.FixedPin -eq "") `
+    "an invalid pairing mode does not retain a misleading PIN"
+Assert-True ($settingsProbe.QualityPreset -eq "1080p60") `
+    "an unknown quality preset receives the stable default"
+Assert-True ($settingsProbe.Renderer -eq "auto") `
+    "an unknown renderer receives the automatic default"
+Assert-True ($settingsProbe.LatencyProfile -eq "balanced") `
+    "an unknown latency profile receives the balanced default"
+Assert-True ($settingsProbe.AudioOutput -eq "default") `
+    "an unknown audio output receives the system default"
+Assert-True ($settingsProbe.ThemeMode -eq "system") `
+    "an unknown theme follows Windows"
+
+$settingsProbe.PairingMode = "password"
+$settingsProbe.FixedPin = "1234"
+$normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
+Assert-True ($settingsProbe.PairingMode -eq "none") `
+    "the obsolete password mode migrates to the fail-closed unprotected state"
+$settingsProbe.PairingMode = "pin"
+$settingsProbe.FixedPin = -join @(
+    [char]0xFF11, [char]0xFF12, [char]0xFF13, [char]0xFF14)
+$normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
+Assert-True ($settingsProbe.PairingMode -eq "none") `
+    "PIN protection requires four ASCII digits"
+$settingsProbe.PairingMode = " PIN "
+$settingsProbe.FixedPin = " 0427 "
+$normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
+Assert-True ($settingsProbe.PairingMode -eq "pin" -and
+    $settingsProbe.FixedPin -eq "0427") `
+    "a valid persisted PIN is canonicalized and preserved"
+
+$atomicWriter = $settingsType.GetMethod(
+    "WriteAllLinesAtomically", $staticFlags)
+Assert-True ($null -ne $atomicWriter) "atomic settings writer exists"
+$atomicRoot = Join-Path ([IO.Path]::GetTempPath()) (
+    "AeroMirror-settings-atomic-test-" + [Guid]::NewGuid().ToString("N"))
+$atomicPath = Join-Path $atomicRoot "settings.ini"
+try {
+    [IO.Directory]::CreateDirectory($atomicRoot) | Out-Null
+    [IO.File]::WriteAllText($atomicPath, "old=value")
+    $atomicLines = [Array]::CreateInstance([string], 2)
+    $atomicLines.SetValue("SettingsVersion=9", 0)
+    $atomicLines.SetValue("PairingMode=none", 1)
+    $atomicArguments = [Array]::CreateInstance([object], 2)
+    $atomicArguments.SetValue([string]$atomicPath, 0)
+    $atomicArguments.SetValue($atomicLines, 1)
+    $atomicWriter.Invoke($null, $atomicArguments) | Out-Null
+    $atomicText = [IO.File]::ReadAllText($atomicPath)
+    Assert-True ($atomicText.Contains("SettingsVersion=9") -and
+        $atomicText.Contains("PairingMode=none")) `
+        "atomic settings replacement publishes the complete new file"
+    Assert-True (([IO.Directory]::GetFiles(
+        $atomicRoot, "*.tmp")).Count -eq 0) `
+        "atomic settings replacement leaves no temporary file"
+}
+finally {
+    if ([IO.Directory]::Exists($atomicRoot)) {
+        [IO.Directory]::Delete($atomicRoot, $true)
+    }
+}
+
+$updateType = $assembly.GetType(
+    "AirPlayReceiverMvp.UpdateService", $true)
+$tryParseVersion = $updateType.GetMethod("TryParseVersion", $staticFlags)
+Assert-True ($null -ne $tryParseVersion) `
+    "release version parser exists"
+function Invoke-VersionParse([string]$Value) {
+    $arguments = [Array]::CreateInstance([object], 2)
+    $arguments.SetValue([string]$Value, 0)
+    $arguments.SetValue($null, 1)
+    $parsed = [bool]$tryParseVersion.Invoke($null, $arguments)
+    return [pscustomobject]@{
+        Success = $parsed
+        Version = $arguments[1]
+    }
+}
+$threePartVersion = Invoke-VersionParse "v0.11.4"
+Assert-True ($threePartVersion.Success -and
+    $threePartVersion.Version.ToString() -eq "0.11.4") `
+    "an exact three-part release version is accepted"
+Assert-True (-not (Invoke-VersionParse "v0.11").Success) `
+    "a two-part release version is rejected"
+Assert-True (-not (Invoke-VersionParse "v0.11.4.1").Success) `
+    "a four-part release version is rejected"
+Assert-True (-not (Invoke-VersionParse "v0.11.4-beta").Success) `
+    "a suffixed release version is rejected"
 
 function Field([string]$Name) {
     $field = $contextType.GetField($Name, $instanceFlags)
@@ -576,6 +689,60 @@ Assert-True ([int]$physicalNetworkRestartDeferred.GetValue($context) -eq 1) `
 Assert-True (-not [bool]$deferDisruptive.Invoke(
         $null, [object[]]@($false, [long]0, [DateTime]::UtcNow.Ticks))) `
     "deferred network maintenance becomes eligible after session end"
+$physicalNetworkRestartDeferred.SetValue($context, 0)
+$sessionEndedPending.SetValue($context, 0)
+$sessionEndedDue.SetValue($context, [long]0)
+$settingsRestartDeferred.SetValue($context, 0)
+
+$mirrorActive.SetValue($context, 1)
+$settingsRestartDeferred.SetValue($context, 1)
+$physicalNetworkRestartDeferred.SetValue($context, 1)
+$clientGraceDue.SetValue($context, [long]0)
+$staleEndRequestBefore = [DateTime]::UtcNow
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "connection request from reconnecting iPhone")) |
+    Out-Null
+$staleEndRequestGrace = [long]$clientGraceDue.GetValue($context)
+Assert-True ($staleEndRequestGrace -ge
+    $staleEndRequestBefore.AddSeconds(29).Ticks) `
+    "a reconnect request establishes grace before old-session cleanup"
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "raop_rtp_mirror->running is no longer true")) |
+    Out-Null
+Assert-True ([int]$mirrorActive.GetValue($context) -eq 0) `
+    "the stale end marker can close the old active-session state"
+Assert-True ([long]$clientGraceDue.GetValue($context) -ge
+    $staleEndRequestGrace) `
+    "a stale end marker preserves the newer reconnect grace"
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 1) `
+    "deferred settings remain pending after stale old-session cleanup"
+Assert-True ([long]$sessionEndedDue.GetValue($context) -ge
+    $staleEndRequestGrace) `
+    "deferred settings cannot interrupt the newer reconnect handshake"
+Assert-True ([int]$physicalNetworkRestartDeferred.GetValue($context) -eq 1) `
+    "deferred network maintenance remains guarded by reconnect grace"
+Assert-True ([bool]$deferDisruptive.Invoke(
+        $null,
+        [object[]]@(
+            $false,
+            [long]$clientGraceDue.GetValue($context),
+            [DateTime]::UtcNow.Ticks))) `
+    "automatic maintenance remains blocked between stale end and new start"
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "raop_rtp_mirror starting mirroring")) | Out-Null
+Assert-True ([int]$mirrorActive.GetValue($context) -eq 1) `
+    "the reconnecting stream starts after stale old-session cleanup"
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
+    "new mirroring cancels stale post-session maintenance"
+Assert-True ([long]$clientGraceDue.GetValue($context) -eq 0) `
+    "new mirroring replaces reconnect grace with active-session state"
+Assert-True ([int]$settingsRestartDeferred.GetValue($context) -eq 1) `
+    "new mirroring preserves the user's deferred settings change"
+Assert-True ([int]$physicalNetworkRestartDeferred.GetValue($context) -eq 1) `
+    "new mirroring keeps deferred network maintenance queued"
 $physicalNetworkRestartDeferred.SetValue($context, 0)
 $sessionEndedPending.SetValue($context, 0)
 $sessionEndedDue.SetValue($context, [long]0)

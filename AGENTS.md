@@ -52,6 +52,13 @@ coding agents and maintainers; volatile project status belongs in
   publication receives a new patch version.
 - Do not create, move, or delete broad source directories as part of a bugfix.
   Repository reorganization is planned as an explicit 0.12 development step.
+- After every product, code, build, installer, or packaging patch, complete
+  the mandatory documentation updates in `docs/DOCUMENTATION_POLICY.md`
+  before handing off, committing, tagging, or publishing the patch. At a
+  minimum this means updating `CHANGELOG.md`, `docs/PROJECT_STATE.md`, and the
+  release notes and test plan for the patch version. Publication additionally
+  requires a post-release build report. Do not postpone these updates to an
+  unspecified later cleanup.
 - Update `docs/PROJECT_STATE.md` after any material change to release status,
   accepted tests, active blockers, or the next planned step.
 - Record durable product or architecture choices in `docs/DECISIONS.md`;

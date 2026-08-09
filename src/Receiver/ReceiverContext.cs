@@ -1,0 +1,551 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.ServiceProcess;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Forms;
+using System.Web.Script.Serialization;
+using Microsoft.Win32;
+
+namespace AirPlayReceiverMvp
+{
+    internal sealed partial class ReceiverContext : ApplicationContext
+    {
+        private const string AppTitle = "AeroMirror";
+        private const int ConnectionRequestGraceSeconds = 30;
+        private const int PinEntryGraceSeconds = 60;
+        private readonly NotifyIcon tray;
+        private readonly ToolStripMenuItem statusItem;
+        private readonly ToolStripMenuItem startStopItem;
+        private readonly ToolStripMenuItem autoStartItem;
+        private readonly ToolStripMenuItem topMostItem;
+        private readonly ToolStripMenuItem networkWarningItem;
+        private readonly System.Windows.Forms.Timer monitorTimer;
+        private readonly EventWaitHandle showEvent;
+        private AppSettings settings;
+        private Process coreProcess;
+        private IntPtr coreJob = IntPtr.Zero;
+        private int rapidExitCount;
+        private DateTime rapidExitWindowStartedAt = DateTime.MinValue;
+        private SettingsForm form;
+        private bool quitting;
+        private bool publicNetwork;
+        private bool networkWarningShown;
+        private bool networkProfileKnown;
+        private string networkProfileName = "";
+        private string networkInterfaceName = "";
+        private string physicalNetworkAddresses = "";
+        private string networkSignature = "";
+        private int nonPhysicalProfileCount;
+        private int publicNonPhysicalProfileCount;
+        private IntPtr fittedStreamWindow = IntPtr.Zero;
+        private int networkRefreshPending;
+        private long networkRefreshDueTicks;
+        private int networkRefreshRunning;
+        private int networkUnknownRetries;
+        private int knownNetworkUnknownRetries;
+        private readonly object networkProfileSync = new object();
+        private NetworkProfileInfo pendingNetworkProfile;
+        private bool restartPending;
+        private DateTime restartDueUtc;
+        private string restartReason = "";
+        private int restartStopInProgress;
+        private int restartStopCompleted;
+        private int restartDelayAfterStop;
+        private bool restartAfterStop;
+        private readonly ManualResetEvent restartStopDone =
+            new ManualResetEvent(true);
+        private bool coreReadyPending;
+        private DateTime coreReadyDueUtc;
+        private int coreReadyChecks;
+        private int coreReadinessRecoveryAttempts;
+        private int coreReadinessPid;
+        private int coreClientActivityReadyPending;
+        private int coreSocketsReady;
+        private long coreSocketsReadyDueTicks;
+        private int coreDnsSdStatus;
+        private int coreBleStatus;
+        private int coreDiscoveryRecoveryPending;
+        private int coreDiscoveryRecoveryAttempts;
+        private int coreDiscoveryRecoveryPid;
+        private long coreDiscoveryRecoveryDueTicks;
+        private int activeCorePid;
+        private int mirrorSessionActive;
+        private int mirrorSessionEndedPending;
+        private long mirrorSessionEndedDueTicks;
+        private int settingsRestartDeferred;
+        private readonly object postSessionMaintenanceSync = new object();
+        private long clientActivityGraceDueTicks;
+        private int physicalNetworkRestartDeferred;
+        private long idleDiscoveryRenewalDueTicks;
+        private int idleDiscoveryRenewalUsed;
+        private DateTime lastAutomaticDiscoveryRefreshUtc = DateTime.MinValue;
+        private readonly object videoSizeSync = new object();
+        private Size pendingVideoSize = Size.Empty;
+        private DateTime pendingVideoSizeDueUtc = DateTime.MinValue;
+        private int pendingVideoSizeGeneration;
+        private Size currentVideoSize = Size.Empty;
+        private int currentVideoSizeGeneration;
+        private int mirrorSessionGeneration;
+        private IntPtr videoSizeWindow = IntPtr.Zero;
+        private IntPtr initialFitPendingWindow = IntPtr.Zero;
+        private int exactVideoSizeFitGeneration = -1;
+        private int appliedVideoOrientation;
+        private int lostConnectionRecoveryPending;
+        private int lostConnectionRecoveryPid;
+        private long lostConnectionRecoveryDueTicks;
+        private bool startAfterNetworkCheck;
+        private int discoveryRefreshAfterNetworkCheck;
+        private bool resumeAfterSafeNetwork;
+        private string receiverStateText = "Приёмник остановлен";
+
+        public ReceiverContext(string[] args, EventWaitHandle showEvent)
+        {
+            this.showEvent = showEvent;
+            bool show = false;
+            bool startup = false;
+            foreach (string arg in args)
+            {
+                if (string.Equals(arg, "--show", StringComparison.OrdinalIgnoreCase))
+                    show = true;
+                if (string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase))
+                    startup = true;
+            }
+
+            settings = AppSettings.Load();
+            settings.Save();
+            ApplyAutostart(settings.AutoStartWindows);
+            SanitizeExistingLogs(settings.FixedPin);
+
+            statusItem = new ToolStripMenuItem("● Приёмник остановлен");
+            statusItem.Enabled = false;
+            startStopItem = new ToolStripMenuItem("Запустить приёмник", null, OnStartStop);
+            autoStartItem = new ToolStripMenuItem("Запускать вместе с Windows", null, OnAutostart);
+            autoStartItem.Checked = IsAutostartEnabled();
+            topMostItem = new ToolStripMenuItem("Окно трансляции поверх остальных", null, OnAlwaysOnTop);
+            topMostItem.Checked = settings.AlwaysOnTop;
+            networkWarningItem = new ToolStripMenuItem(
+                "⚠ Публичная сеть без PIN — открыть настройки", null,
+                delegate { ShowSettings(); });
+            networkWarningItem.ForeColor = Color.FromArgb(154, 92, 0);
+            networkWarningItem.Visible = false;
+
+            var menu = new ContextMenuStrip();
+            menu.Items.Add(statusItem);
+            menu.Items.Add(networkWarningItem);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Открыть настройки", null, delegate { ShowSettings(); });
+            menu.Items.Add(startStopItem);
+            menu.Items.Add("Перезапустить приёмник", null, delegate { RestartCore(); });
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(autoStartItem);
+            menu.Items.Add(topMostItem);
+            menu.Items.Add("Подогнать окно под экран iPhone", null, delegate { FitStreamWindow(true); });
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Диагностика", null, delegate { ShowDiagnostics(); });
+            menu.Items.Add("Открыть журнал", null, delegate { OpenLog(); });
+            menu.Items.Add("Сообщить о проблеме", null, delegate
+            {
+                OpenProblemReport(null);
+            });
+            menu.Items.Add("Выход", null, delegate { RequestQuit(); });
+
+            tray = new NotifyIcon();
+            tray.Icon = AppIcon.Current;
+            tray.Text = AppTitle;
+            tray.ContextMenuStrip = menu;
+            tray.MouseClick += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left)
+                    ShowSettings();
+            };
+            tray.BalloonTipClicked += delegate { ShowSettings(); };
+            tray.Visible = true;
+
+            monitorTimer = new System.Windows.Forms.Timer();
+            monitorTimer.Interval = 250;
+            monitorTimer.Tick += delegate { MonitorCore(); };
+            monitorTimer.Start();
+            NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+
+            Log("=== AeroMirror session started ===");
+            Log("Shell version " +
+                AppVersion.Display +
+                "; Windows " + Environment.OSVersion +
+                "; 64-bit process: " + Environment.Is64BitProcess +
+                "; startup: " + startup + ".");
+            Log("Executable: " +
+                Path.GetFileName(Assembly.GetExecutingAssembly().Location));
+            BeginNetworkProfileRefresh();
+            if (settings.AutoStartReceiver)
+            {
+                startAfterNetworkCheck = true;
+                SetState(false, "Проверяем безопасность сети…");
+            }
+
+            if (!startup || !settings.StartMinimized)
+                show = true;
+            if (show)
+                ShowSettings();
+        }
+
+        public bool IsCoreRunning
+        {
+            get
+            {
+                try { return coreProcess != null && !coreProcess.HasExited; }
+                catch { return false; }
+            }
+        }
+
+        public AppSettings CurrentSettings { get { return settings; } }
+        public bool IsPublicNetwork { get { return publicNetwork; } }
+        public bool IsNetworkProfileKnown { get { return networkProfileKnown; } }
+        public bool IsWaitingForNetwork
+        {
+            get
+            {
+                return startAfterNetworkCheck ||
+                    Interlocked.CompareExchange(
+                        ref discoveryRefreshAfterNetworkCheck, 0, 0) == 1;
+            }
+        }
+        public string NetworkProfileName { get { return networkProfileName; } }
+        public string NetworkInterfaceName { get { return networkInterfaceName; } }
+        public bool HasNetworkOverlay
+        {
+            get { return nonPhysicalProfileCount > 0; }
+        }
+        public string ReceiverStateText { get { return receiverStateText; } }
+        public bool IsMirrorSessionActive
+        {
+            get
+            {
+                return Interlocked.CompareExchange(
+                    ref mirrorSessionActive, 0, 0) == 1;
+            }
+        }
+        public bool IsSettingsRestartDeferred
+        {
+            get
+            {
+                return Interlocked.CompareExchange(
+                    ref settingsRestartDeferred, 0, 0) == 1;
+            }
+        }
+
+        public string CorePath
+        {
+            get
+            {
+                return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "core", "uxplay-windows.exe");
+            }
+        }
+
+        public void ShowSettings()
+        {
+            Log("Opening settings window.");
+            if (form == null || form.IsDisposed)
+            {
+                form = new SettingsForm(this);
+                form.FormClosed += delegate { form = null; };
+            }
+            form.SyncStatus();
+            form.Show();
+            form.WindowState = FormWindowState.Normal;
+            form.Activate();
+            Log("Settings window visible: " + form.Visible + ".");
+        }
+
+        public bool SaveSettings(AppSettings updated, bool restartIfCoreArgumentsChanged)
+        {
+            ResetRapidExitWindow();
+            string previousArguments = BuildUxPlayArguments();
+            bool wasRunning = IsCoreRunning;
+            settings = updated;
+            settings.SettingsVersion = 9;
+            settings.Save();
+            ApplyAutostart(settings.AutoStartWindows);
+            autoStartItem.Checked = IsAutostartEnabled();
+            topMostItem.Checked = settings.AlwaysOnTop;
+            Log("Settings saved.");
+            string currentArguments = BuildUxPlayArguments();
+            bool argumentsChanged = !string.Equals(
+                previousArguments, currentArguments, StringComparison.Ordinal);
+            bool restarted = false;
+
+            if (!settings.AutoStartReceiver)
+            {
+                restartPending = false;
+                restartAfterStop = false;
+                startAfterNetworkCheck = false;
+                Interlocked.Exchange(
+                    ref discoveryRefreshAfterNetworkCheck, 0);
+                resumeAfterSafeNetwork = false;
+                if (IsCoreRunning)
+                    StopCore();
+            }
+            else if (!publicNetwork || settings.PairingMode != "none")
+            {
+                if (wasRunning && IsCoreRunning &&
+                    restartIfCoreArgumentsChanged && argumentsChanged)
+                {
+                    ApplyOrDeferSettingsRestart();
+                    restarted = true;
+                }
+                else if (!IsCoreRunning)
+                {
+                    StartCore(false);
+                    restarted = IsCoreRunning;
+                }
+                else
+                {
+                    ApplyTopMost();
+                }
+            }
+            return restarted;
+        }
+
+        private void ApplyOrDeferSettingsRestart()
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                long nowTicks = DateTime.UtcNow.Ticks;
+                long clientGraceDueTicks = Interlocked.Read(
+                    ref clientActivityGraceDueTicks);
+                bool mirrorActive = IsMirrorSessionActive;
+                if (ShouldDeferDisruptiveMaintenance(
+                        mirrorActive, clientGraceDueTicks, nowTicks))
+                {
+                    Interlocked.Exchange(ref settingsRestartDeferred, 1);
+                    if (!mirrorActive)
+                    {
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedDueTicks,
+                            Math.Max(clientGraceDueTicks,
+                                DateTime.UtcNow.AddSeconds(5).Ticks));
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedPending, 1);
+                    }
+                    Log("Core argument changes were saved; restart deferred " +
+                        "until the current AirPlay session or connection " +
+                        "grace ends.");
+                    return;
+                }
+
+                ScheduleRestart("settings changed", false, 1000);
+            }
+        }
+
+        private bool ApplyNetworkProfile(NetworkProfileInfo profile, bool notify)
+        {
+            if (!profile.IsKnown && networkProfileKnown)
+            {
+                if (knownNetworkUnknownRetries < 3)
+                {
+                    knownNetworkUnknownRetries++;
+                    Interlocked.Exchange(
+                        ref networkRefreshDueTicks,
+                        DateTime.UtcNow.AddSeconds(5).Ticks);
+                    Interlocked.Exchange(ref networkRefreshPending, 1);
+                    Log("Physical network profile temporarily returned Unknown; " +
+                        "keeping the last known profile during safety grace period " +
+                        "(" + knownNetworkUnknownRetries + "/3).");
+                    return false;
+                }
+                Log("Physical network profile remained Unknown after the safety " +
+                    "grace period; discarding the last known profile.");
+            }
+            if (profile.IsKnown)
+                knownNetworkUnknownRetries = 0;
+            string previousSignature = networkSignature;
+            networkProfileKnown = profile.IsKnown;
+            publicNetwork = profile.IsPublic;
+            networkProfileName = profile.Name;
+            networkInterfaceName = profile.InterfaceName;
+            physicalNetworkAddresses = profile.IsKnown
+                ? profile.Addresses
+                : "";
+            bool physicalNetworkReady = profile.IsKnown &&
+                FirstNumericIpv4(physicalNetworkAddresses).Length > 0;
+            nonPhysicalProfileCount = profile.NonPhysicalProfileCount;
+            publicNonPhysicalProfileCount =
+                profile.PublicNonPhysicalProfileCount;
+            networkSignature = profile.Signature;
+            bool physicalNetworkUnsafe =
+                !profile.IsKnown || profile.IsPublic;
+            bool unsafeAccess =
+                settings.PairingMode == "none" && physicalNetworkUnsafe;
+            bool receiverStartedByProfile = false;
+            networkWarningItem.Visible = unsafeAccess;
+            networkWarningItem.Text = profile.IsKnown
+                ? (profile.NonPhysicalProfileCount > 0
+                    ? "⚠ Wi-Fi/Ethernet публичная · VPN/виртуальная сеть обнаружена"
+                    : "⚠ Публичная сеть без PIN — открыть настройки")
+                : "⚠ Профиль сети не определён — включить PIN";
+            bool changed = previousSignature.Length > 0 &&
+                !string.Equals(previousSignature, networkSignature,
+                    StringComparison.Ordinal);
+            if (changed)
+                ResetIdleDiscoveryRenewalLimit();
+            if (previousSignature.Length == 0 || changed)
+            {
+                Log("Physical network profile: " +
+                    (profile.IsKnown ? profile.Category : "Unknown") +
+                    " (physical interface " + profile.InterfaceName +
+                    ", IPv4 count " + CountAddresses(profile.Addresses) + ")" +
+                    "; non-physical overlays " +
+                    profile.NonPhysicalProfileCount +
+                    " (public " +
+                    profile.PublicNonPhysicalProfileCount + ")" +
+                    "; access: " + settings.PairingMode +
+                    "; changed: " + changed + ".");
+            }
+
+            if (unsafeAccess && IsCoreRunning)
+            {
+                bool shouldResume = settings.AutoStartReceiver;
+                StopCore();
+                resumeAfterSafeNetwork = shouldResume;
+                SetState(false, profile.IsKnown
+                    ? "Публичная сеть · включите PIN"
+                    : "Сеть не определена · включите PIN");
+                Log(profile.IsKnown
+                    ? "Receiver paused: a public network requires PIN protection."
+                    : "Receiver paused: the physical network profile is unknown.");
+            }
+            else if (unsafeAccess)
+            {
+                SetState(false, profile.IsKnown
+                    ? "Публичная сеть · включите PIN"
+                    : "Сеть не определена · включите PIN");
+            }
+
+            if (unsafeAccess && notify && settings.Notify && !networkWarningShown)
+            {
+                networkWarningShown = true;
+                tray.ShowBalloonTip(7000, AppTitle,
+                    profile.IsKnown
+                        ? (profile.NonPhysicalProfileCount > 0
+                            ? "Приёмник приостановлен: Windows считает физическую сеть публичной. VPN или виртуальная сеть обнаружены, но не используются для определения доверия. Включите PIN или проверьте профиль Wi-Fi/Ethernet."
+                            : "Приёмник приостановлен: публичная сеть требует PIN. Нажмите уведомление, чтобы включить защиту.")
+                        : "Приёмник приостановлен: Windows не удалось определить профиль сети. Включите PIN или повторите проверку.",
+                    ToolTipIcon.Warning);
+            }
+            if (!unsafeAccess)
+                networkWarningShown = false;
+
+            if (physicalNetworkReady && !unsafeAccess &&
+                resumeAfterSafeNetwork && settings.AutoStartReceiver &&
+                !IsCoreRunning)
+            {
+                resumeAfterSafeNetwork = false;
+                Log("Safe physical network profile restored; resuming receiver.");
+                StartCore(false);
+                receiverStartedByProfile = IsCoreRunning;
+            }
+
+            if (form != null && !form.IsDisposed)
+                form.SyncStatus();
+
+            bool discoveryRefreshPending =
+                Interlocked.CompareExchange(
+                    ref discoveryRefreshAfterNetworkCheck, 0, 0) == 1;
+            if (discoveryRefreshPending && physicalNetworkReady)
+            {
+                Interlocked.Exchange(
+                    ref discoveryRefreshAfterNetworkCheck, 0);
+                startAfterNetworkCheck = false;
+                networkUnknownRetries = 0;
+                if (!unsafeAccess)
+                {
+                    if (IsCoreRunning)
+                    {
+                        ScheduleRestart(
+                            "manual discovery refresh after network check",
+                            false, 500);
+                        receiverStartedByProfile = true;
+                    }
+                    else
+                    {
+                        StartCore(false);
+                        receiverStartedByProfile = IsCoreRunning;
+                    }
+                }
+            }
+            if (startAfterNetworkCheck)
+            {
+                if (physicalNetworkReady)
+                {
+                    startAfterNetworkCheck = false;
+                    networkUnknownRetries = 0;
+                    if (!unsafeAccess)
+                    {
+                        StartCore(false);
+                        receiverStartedByProfile = IsCoreRunning;
+                    }
+                }
+                else
+                {
+                    networkUnknownRetries++;
+                    int retrySeconds = networkUnknownRetries <= 3 ? 2 : 5;
+                    Interlocked.Exchange(
+                        ref networkRefreshDueTicks,
+                        DateTime.UtcNow.AddSeconds(retrySeconds).Ticks);
+                    Interlocked.Exchange(ref networkRefreshPending, 1);
+                    SetState(false,
+                        "Проверяем сеть ещё раз…");
+                    if (networkUnknownRetries <= 3 ||
+                        networkUnknownRetries % 12 == 0)
+                        Log("Initial physical network check returned Unknown; " +
+                            "retry " + networkUnknownRetries + " scheduled in " +
+                            retrySeconds + " seconds.");
+                }
+            }
+            else if (discoveryRefreshPending && !physicalNetworkReady)
+            {
+                networkUnknownRetries++;
+                int retrySeconds = networkUnknownRetries <= 3 ? 2 : 5;
+                Interlocked.Exchange(
+                    ref networkRefreshDueTicks,
+                    DateTime.UtcNow.AddSeconds(retrySeconds).Ticks);
+                Interlocked.Exchange(ref networkRefreshPending, 1);
+                SetState(false, "Ждём адрес Wi-Fi/Ethernet…");
+                if (networkUnknownRetries <= 3 ||
+                    networkUnknownRetries % 12 == 0)
+                    Log("Discovery refresh is still waiting for a physical " +
+                        "IPv4 address; retry " + networkUnknownRetries +
+                        " scheduled in " + retrySeconds + " seconds.");
+            }
+            return changed && !receiverStartedByProfile;
+        }
+
+        private void BeginNetworkProfileRefresh()
+        {
+            if (Interlocked.CompareExchange(ref networkRefreshRunning, 1, 0) != 0)
+            {
+                Interlocked.Exchange(
+                    ref networkRefreshDueTicks,
+                    DateTime.UtcNow.AddSeconds(1).Ticks);
+                Interlocked.Exchange(ref networkRefreshPending, 1);
+                return;
+            }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                NetworkProfileInfo profile = NetworkSafety.DetectPhysicalProfile();
+                lock (networkProfileSync)
+                    pendingNetworkProfile = profile;
+                Interlocked.Exchange(ref networkRefreshRunning, 0);
+            });
+        }
+    }
+}
