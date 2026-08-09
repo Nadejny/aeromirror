@@ -1,8 +1,8 @@
 # AeroMirror native build information
 
-This file documents the patched native executable shipped by AeroMirror
-0.11.1. The source bundle also contains the complete upstream trees and the
-patch both separately and applied in place.
+This file documents the patched native executable first shipped by AeroMirror
+0.11.1 and reused unchanged by 0.11.2. The source bundle also contains the
+complete upstream trees and the patch both separately and applied in place.
 
 ## Exact inputs
 
@@ -104,7 +104,7 @@ The actual `dns_sd.h` used for the interface and AeroMirror's `dnssd.def` are
 included in the source bundle. The Bluetooth beacon is reused unchanged from
 the pinned upstream runtime.
 
-The full offline runtime is not published by AeroMirror 0.11.1. The review
-installer downloads the unchanged, pinned upstream runtime asset directly
-from the upstream GitHub release and verifies its SHA-256 before installing
-it.
+The full offline runtime is not published by the AeroMirror 0.11.x review
+releases. The installer downloads the unchanged, pinned upstream runtime asset
+directly from the upstream GitHub release and verifies its SHA-256 before
+installing it.

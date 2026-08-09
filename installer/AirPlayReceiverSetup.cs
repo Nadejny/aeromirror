@@ -17,8 +17,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("AeroMirror Setup")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCompany("AeroMirror open-source project")]
-[assembly: AssemblyVersion("0.11.1.0")]
-[assembly: AssemblyFileVersion("0.11.1.0")]
+[assembly: AssemblyVersion("0.11.2.0")]
+[assembly: AssemblyFileVersion("0.11.2.0")]
 
 namespace AirPlayReceiverSetup
 {
@@ -27,6 +27,35 @@ namespace AirPlayReceiverSetup
         [STAThread]
         private static void Main(string[] args)
         {
+            string originalWorkingDirectory = Environment.CurrentDirectory;
+            try
+            {
+                bool detached = EnsureCurrentDirectoryOutsideInstallTree(
+                    InstallPaths.InstallDirectory);
+                SetupLog.Write(
+                    "Setup process started. Executable=\"" +
+                    Assembly.GetExecutingAssembly().Location +
+                    "\"; CurrentDirectoryBefore=\"" +
+                    originalWorkingDirectory +
+                    "\"; CurrentDirectoryAfter=\"" +
+                    Environment.CurrentDirectory +
+                    "\"; DetachedFromInstallTree=" + detached + ".");
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write(
+                    "Setup could not detach its current directory from the " +
+                    "installation tree: " + ex);
+                MessageBox.Show(
+                    "Не удалось подготовить установщик AeroMirror к запуску.\r\n\r\n" +
+                    "Переместите установщик в папку «Загрузки» и повторите попытку.",
+                    "AeroMirror",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                Environment.ExitCode = 2;
+                return;
+            }
+
             bool updateRequested = HasArgument(args, "/update");
             if (!Environment.Is64BitOperatingSystem)
             {
@@ -70,6 +99,25 @@ namespace AirPlayReceiverSetup
                 {
                     SetupLog.Write(
                         "Shortcut selection verification failed: " + ex);
+                    Environment.ExitCode = 2;
+                }
+                return;
+            }
+            if (args.Length > 0 &&
+                string.Equals(
+                    args[0], "/verify-update-lifecycle",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    InstallerOperations.VerifyUpdateLifecycleLogic();
+                    SetupLog.Write(
+                        "Update lifecycle verification completed successfully.");
+                }
+                catch (Exception ex)
+                {
+                    SetupLog.Write(
+                        "Update lifecycle verification failed: " + ex);
                     Environment.ExitCode = 2;
                 }
                 return;
@@ -166,6 +214,14 @@ namespace AirPlayReceiverSetup
                     Quote(InstallPaths.InstallDirectory) + " " +
                     Process.GetCurrentProcess().Id;
                 start.UseShellExecute = false;
+                start.WorkingDirectory = Path.GetDirectoryName(temporary);
+                if (InstallerOperations.IsPathWithinDirectory(
+                    start.WorkingDirectory,
+                    InstallPaths.InstallDirectory))
+                {
+                    throw new InvalidOperationException(
+                        "The uninstall worker directory is inside the installation tree.");
+                }
                 Process.Start(start);
             }
             catch (Exception ex)
@@ -238,6 +294,35 @@ namespace AirPlayReceiverSetup
             return "\"" + value.Replace("\"", "\\\"") + "\"";
         }
 
+        internal static bool EnsureCurrentDirectoryOutsideInstallTree(
+            string installDirectory)
+        {
+            string current = Environment.CurrentDirectory;
+            if (!InstallerOperations.IsPathWithinDirectory(
+                current, installDirectory))
+                return false;
+
+            string normalizedInstall = Path.GetFullPath(installDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string safeDirectory = Path.GetDirectoryName(normalizedInstall);
+            if (string.IsNullOrEmpty(safeDirectory) ||
+                InstallerOperations.IsPathWithinDirectory(
+                    safeDirectory, installDirectory))
+            {
+                safeDirectory = Path.GetFullPath(Path.GetTempPath());
+            }
+            if (InstallerOperations.IsPathWithinDirectory(
+                safeDirectory, installDirectory))
+            {
+                throw new InvalidOperationException(
+                    "No working directory outside the installation tree is available.");
+            }
+
+            Directory.CreateDirectory(safeDirectory);
+            Environment.CurrentDirectory = safeDirectory;
+            return true;
+        }
+
         [Flags]
         private enum MoveFileFlags
         {
@@ -290,7 +375,7 @@ namespace AirPlayReceiverSetup
 
     internal sealed class SetupForm : Form
     {
-        internal static readonly Version SetupVersion = new Version(0, 11, 1);
+        internal static readonly Version SetupVersion = new Version(0, 11, 2);
         private readonly CheckBox startMenu;
         private readonly CheckBox desktop;
         private readonly CheckBox launch;
@@ -608,6 +693,10 @@ namespace AirPlayReceiverSetup
             @"Software\Microsoft\Windows\CurrentVersion\Uninstall\AirPlayReceiverMvp";
         private const string RunKey =
             @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const int ProcessStopTimeoutMilliseconds = 8000;
+        private const int GracefulProcessStopMilliseconds = 1500;
+        private const int InstallDirectoryMoveTimeoutMilliseconds = 10000;
+        private const int InstallDirectoryMoveRetryDelayMilliseconds = 250;
 
         private sealed class RegistryValueSnapshot
         {
@@ -875,6 +964,113 @@ namespace AirPlayReceiverSetup
                 false, false, "update without shortcuts");
         }
 
+        internal static void VerifyUpdateLifecycleLogic()
+        {
+            string verificationRoot = Path.Combine(
+                Path.GetTempPath(),
+                "AeroMirror-update-lifecycle-check-" +
+                Guid.NewGuid().ToString("N"));
+            string installDirectory = Path.Combine(
+                verificationRoot, "installed");
+            string nestedDirectory = Path.Combine(
+                installDirectory, "core", "plugins");
+            string backupDirectory = Path.Combine(
+                verificationRoot, "installed.backup");
+            string originalWorkingDirectory = Environment.CurrentDirectory;
+
+            try
+            {
+                Directory.CreateDirectory(nestedDirectory);
+                File.WriteAllText(
+                    Path.Combine(installDirectory, "AeroMirror.exe"),
+                    "update lifecycle verifier",
+                    new UTF8Encoding(false));
+                Environment.CurrentDirectory = nestedDirectory;
+
+                if (!Program.EnsureCurrentDirectoryOutsideInstallTree(
+                    installDirectory))
+                {
+                    throw new InvalidOperationException(
+                        "Current-directory detachment was not triggered.");
+                }
+                if (IsPathWithinDirectory(
+                    Environment.CurrentDirectory, installDirectory))
+                {
+                    throw new InvalidOperationException(
+                        "Current directory still points inside the installation tree.");
+                }
+
+                Directory.Move(installDirectory, backupDirectory);
+                if (!Directory.Exists(backupDirectory) ||
+                    Directory.Exists(installDirectory))
+                {
+                    throw new InvalidOperationException(
+                        "The detached installation directory could not be moved.");
+                }
+
+                string sibling = installDirectory + "-old";
+                if (!IsPathWithinDirectory(
+                    Path.Combine(backupDirectory, "AeroMirror.exe"),
+                    backupDirectory) ||
+                    IsPathWithinDirectory(
+                        Path.Combine(sibling, "AeroMirror.exe"),
+                        installDirectory))
+                {
+                    throw new InvalidOperationException(
+                        "Installation-tree path matching is not boundary-safe.");
+                }
+
+                if (CalculateWaitMilliseconds(0, 8000, 1500) != 1500 ||
+                    CalculateWaitMilliseconds(7900, 8000, 1500) != 100 ||
+                    CalculateWaitMilliseconds(8000, 8000, 1500) != 0)
+                {
+                    throw new InvalidOperationException(
+                        "The shared process-stop deadline calculation is invalid.");
+                }
+
+                int attempts = 0;
+                int recoverySweeps = 0;
+                ExecuteWithBoundedIoRetry(
+                    delegate
+                    {
+                        attempts++;
+                        if (attempts < 3)
+                            throw new IOException("Synthetic transient lock.");
+                    },
+                    1000,
+                    1,
+                    "Synthetic update move verifier",
+                    "Synthetic update move verifier timed out.",
+                    delegate { recoverySweeps++; });
+                if (attempts != 3 || recoverySweeps != 1)
+                {
+                    throw new InvalidOperationException(
+                        "The update move retry or recovery sweep count is invalid.");
+                }
+            }
+            finally
+            {
+                try
+                {
+                    Environment.CurrentDirectory =
+                        Directory.Exists(originalWorkingDirectory)
+                        ? originalWorkingDirectory
+                        : Path.GetFullPath(Path.GetTempPath());
+                }
+                catch
+                {
+                    Environment.CurrentDirectory =
+                        Path.GetFullPath(Path.GetTempPath());
+                }
+                try
+                {
+                    if (Directory.Exists(verificationRoot))
+                        Directory.Delete(verificationRoot, true);
+                }
+                catch { }
+            }
+        }
+
         private static void AssertShortcutSelection(
             ShortcutSelection actual,
             bool expectedStartMenu,
@@ -979,7 +1175,10 @@ namespace AirPlayReceiverSetup
                 Directory.CreateDirectory(
                     Path.GetDirectoryName(InstallPaths.InstallDirectory));
                 if (Directory.Exists(InstallPaths.InstallDirectory))
-                    Directory.Move(InstallPaths.InstallDirectory, backup);
+                {
+                    MoveInstallDirectoryToBackup(
+                        InstallPaths.InstallDirectory, backup);
+                }
                 try
                 {
                     MoveOrCopyDirectory(source, InstallPaths.InstallDirectory);
@@ -1501,62 +1700,351 @@ namespace AirPlayReceiverSetup
             }
         }
 
+        internal static bool IsPathWithinDirectory(
+            string path, string directory)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(directory))
+                return false;
+            try
+            {
+                string normalizedDirectory = Path.GetFullPath(directory)
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar);
+                string normalizedPath = Path.GetFullPath(path)
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar);
+                return string.Equals(
+                    normalizedPath,
+                    normalizedDirectory,
+                    StringComparison.OrdinalIgnoreCase) ||
+                    normalizedPath.StartsWith(
+                        normalizedDirectory + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal static int CalculateWaitMilliseconds(
+            long elapsedMilliseconds,
+            int timeoutMilliseconds,
+            int maximumWaitMilliseconds)
+        {
+            long remaining = (long)timeoutMilliseconds -
+                Math.Max(0L, elapsedMilliseconds);
+            if (remaining <= 0 || maximumWaitMilliseconds <= 0)
+                return 0;
+            return (int)Math.Min(
+                remaining,
+                (long)maximumWaitMilliseconds);
+        }
+
+        private static void MoveInstallDirectoryToBackup(
+            string installDirectory, string backupDirectory)
+        {
+            SetupLog.Write(
+                "Preparing existing installation for replacement. Source=\"" +
+                installDirectory + "\"; Backup=\"" + backupDirectory +
+                "\"; CurrentDirectory=\"" + Environment.CurrentDirectory +
+                "\"; SetupExecutable=\"" +
+                Assembly.GetExecutingAssembly().Location + "\".");
+            ExecuteWithBoundedIoRetry(
+                delegate
+                {
+                    Directory.Move(installDirectory, backupDirectory);
+                },
+                InstallDirectoryMoveTimeoutMilliseconds,
+                InstallDirectoryMoveRetryDelayMilliseconds,
+                "Move existing installation to backup",
+                "Не удалось подготовить предыдущую версию AeroMirror к обновлению: " +
+                "её файлы всё ещё используются другим процессом. " +
+                "Закройте окна AeroMirror и повторите обновление.\r\n\r\n" +
+                "Журнал установки: " + SetupLog.Path,
+                delegate
+                {
+                    SetupLog.Write(
+                        "Rechecking installed processes after the first " +
+                        "directory-move failure.");
+                    StopInstalledProcesses(installDirectory);
+                });
+        }
+
+        private static void ExecuteWithBoundedIoRetry(
+            Action operation,
+            int timeoutMilliseconds,
+            int retryDelayMilliseconds,
+            string description,
+            string failureMessage,
+            Action firstRetryRecovery)
+        {
+            var clock = Stopwatch.StartNew();
+            int attempt = 0;
+            Exception lastError = null;
+            while (true)
+            {
+                if (lastError != null &&
+                    clock.ElapsedMilliseconds >= timeoutMilliseconds)
+                {
+                    SetupLog.Write(
+                        description + " failed after " + attempt +
+                        " attempt(s) and " + clock.ElapsedMilliseconds +
+                        " ms. LastError=" + lastError);
+                    throw new IOException(failureMessage, lastError);
+                }
+
+                attempt++;
+                try
+                {
+                    operation();
+                    SetupLog.Write(
+                        description + " succeeded on attempt " + attempt +
+                        " after " + clock.ElapsedMilliseconds + " ms.");
+                    return;
+                }
+                catch (IOException ex)
+                {
+                    lastError = ex;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    lastError = ex;
+                }
+
+                if (attempt == 1 && firstRetryRecovery != null)
+                {
+                    try
+                    {
+                        firstRetryRecovery();
+                    }
+                    catch (Exception ex)
+                    {
+                        SetupLog.Write(
+                            description +
+                            " recovery after the first failure did not " +
+                            "complete: " + ex);
+                        throw new IOException(failureMessage, ex);
+                    }
+                }
+
+                int waitMilliseconds = CalculateWaitMilliseconds(
+                    clock.ElapsedMilliseconds,
+                    timeoutMilliseconds,
+                    retryDelayMilliseconds);
+                SetupLog.Write(
+                    description + " attempt " + attempt +
+                    " failed with " + lastError.GetType().Name + ": " +
+                    lastError.Message + "; RetryDelayMs=" +
+                    waitMilliseconds + ".");
+                if (waitMilliseconds <= 0)
+                    throw new IOException(failureMessage, lastError);
+                Thread.Sleep(waitMilliseconds);
+            }
+        }
+
         internal static void StopInstalledProcesses(string installDirectory)
         {
-            string[] names =
-            {
-                "AeroMirror",
-                "AirPlayReceiverMvp",
-                "uxplay-windows",
-                "uxplay-bluetooth-beacon"
-            };
-            string prefix = Path.GetFullPath(installDirectory).TrimEnd('\\') + "\\";
-            DateTime deadline = DateTime.UtcNow.AddSeconds(8);
+            string normalizedInstallDirectory =
+                Path.GetFullPath(installDirectory);
+            int setupPid = Process.GetCurrentProcess().Id;
+            var clock = Stopwatch.StartNew();
+            SetupLog.Write(
+                "Stopping processes from installation tree. Directory=\"" +
+                normalizedInstallDirectory + "\"; SetupPid=" + setupPid +
+                "; DeadlineMs=" + ProcessStopTimeoutMilliseconds + ".");
             while (true)
             {
                 bool foundInstalledProcess = false;
-                foreach (string name in names)
+                foreach (Process process in Process.GetProcesses())
                 {
-                    foreach (Process process in Process.GetProcessesByName(name))
+                    using (process)
                     {
-                        using (process)
+                        int processId;
+                        try
                         {
-                            try
-                            {
-                                string path = process.MainModule.FileName;
-                                if (!path.StartsWith(
-                                    prefix, StringComparison.OrdinalIgnoreCase))
-                                    continue;
-                                foundInstalledProcess = true;
-                                bool exited = process.HasExited;
-                                if (!exited && process.CloseMainWindow())
-                                    exited = process.WaitForExit(1500);
-                                if (!exited)
-                                {
-                                    process.Kill();
-                                    exited = process.WaitForExit(5000);
-                                }
-                                if (!exited)
-                                    throw new IOException(
-                                        "Не удалось остановить процесс " +
-                                        process.ProcessName + ".");
-                                process.WaitForExit();
-                            }
-                            catch (InvalidOperationException)
-                            {
-                                // The process exited between enumeration and
-                                // inspection.
-                            }
+                            processId = process.Id;
+                            if (processId == setupPid)
+                                continue;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            continue;
+                        }
+
+                        string executablePath;
+                        try
+                        {
+                            executablePath = process.MainModule.FileName;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            continue;
+                        }
+                        catch (System.ComponentModel.Win32Exception)
+                        {
+                            continue;
+                        }
+                        catch (NotSupportedException)
+                        {
+                            continue;
+                        }
+                        if (!IsPathWithinDirectory(
+                            executablePath, normalizedInstallDirectory))
+                            continue;
+
+                        foundInstalledProcess = true;
+                        try
+                        {
+                            StopInstalledProcess(
+                                process,
+                                executablePath,
+                                clock,
+                                ProcessStopTimeoutMilliseconds);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            SetupLog.Write(
+                                "Installed process exited during inspection. " +
+                                "Pid=" + processId + "; Executable=\"" +
+                                executablePath + "\".");
                         }
                     }
                 }
                 if (!foundInstalledProcess)
+                {
+                    SetupLog.Write(
+                        "No running process remains in the installation tree. " +
+                        "ElapsedMs=" + clock.ElapsedMilliseconds + ".");
                     return;
-                if (DateTime.UtcNow >= deadline)
-                    throw new IOException(
-                        "Не удалось дождаться завершения процессов AeroMirror.");
-                Thread.Sleep(150);
+                }
+
+                int pauseMilliseconds = CalculateWaitMilliseconds(
+                    clock.ElapsedMilliseconds,
+                    ProcessStopTimeoutMilliseconds,
+                    150);
+                if (pauseMilliseconds <= 0)
+                {
+                    // Every path-scoped process found in this scan was already
+                    // confirmed stopped by StopInstalledProcess. Do not turn a
+                    // successful final bounded wait into a false timeout merely
+                    // because there is no time left for another discovery pass.
+                    SetupLog.Write(
+                        "Process-stop deadline reached after all discovered " +
+                        "installation processes exited. Proceeding with the " +
+                        "directory move; elapsedMs=" +
+                        clock.ElapsedMilliseconds + ".");
+                    return;
+                }
+                Thread.Sleep(pauseMilliseconds);
             }
+        }
+
+        private static void StopInstalledProcess(
+            Process process,
+            string executablePath,
+            Stopwatch clock,
+            int timeoutMilliseconds)
+        {
+            int processId = process.Id;
+            string processName = process.ProcessName;
+            SetupLog.Write(
+                "Installed process found. Pid=" + processId +
+                "; Name=\"" + processName + "\"; Executable=\"" +
+                executablePath + "\"; ElapsedMs=" +
+                clock.ElapsedMilliseconds + ".");
+
+            bool exited = process.HasExited;
+            if (!exited)
+            {
+                bool closeRequested = process.CloseMainWindow();
+                if (closeRequested)
+                {
+                    int gracefulWait = CalculateWaitMilliseconds(
+                        clock.ElapsedMilliseconds,
+                        timeoutMilliseconds,
+                        GracefulProcessStopMilliseconds);
+                    SetupLog.Write(
+                        "Graceful close requested. Pid=" + processId +
+                        "; WaitMs=" + gracefulWait + ".");
+                    if (gracefulWait > 0)
+                        exited = process.WaitForExit(gracefulWait);
+                }
+            }
+
+            if (!exited)
+            {
+                int forcedWait = CalculateWaitMilliseconds(
+                    clock.ElapsedMilliseconds,
+                    timeoutMilliseconds,
+                    int.MaxValue);
+                if (forcedWait <= 0)
+                {
+                    throw CreateProcessStopTimeoutException(
+                        processName, executablePath, clock);
+                }
+
+                SetupLog.Write(
+                    "Terminating installed process. Pid=" + processId +
+                    "; Name=\"" + processName + "\"; RemainingMs=" +
+                    forcedWait + ".");
+                try
+                {
+                    process.Kill();
+                }
+                catch (InvalidOperationException)
+                {
+                    exited = true;
+                }
+                catch (System.ComponentModel.Win32Exception ex)
+                {
+                    SetupLog.Write(
+                        "Failed to terminate installed process. Pid=" +
+                        processId + "; Executable=\"" + executablePath +
+                        "\"; Error=" + ex);
+                    throw new IOException(
+                        "Не удалось остановить процесс AeroMirror " +
+                        processName + ".",
+                        ex);
+                }
+
+                if (!exited)
+                {
+                    forcedWait = CalculateWaitMilliseconds(
+                        clock.ElapsedMilliseconds,
+                        timeoutMilliseconds,
+                        int.MaxValue);
+                    if (forcedWait > 0)
+                        exited = process.WaitForExit(forcedWait);
+                }
+            }
+
+            if (!exited)
+            {
+                throw CreateProcessStopTimeoutException(
+                    processName, executablePath, clock);
+            }
+            SetupLog.Write(
+                "Installed process stopped. Pid=" + processId +
+                "; Name=\"" + processName + "\"; ElapsedMs=" +
+                clock.ElapsedMilliseconds + ".");
+        }
+
+        private static IOException CreateProcessStopTimeoutException(
+            string processName,
+            string executablePath,
+            Stopwatch clock)
+        {
+            SetupLog.Write(
+                "Installed process stop deadline expired. Name=\"" +
+                (processName ?? "unknown") + "\"; Executable=\"" +
+                (executablePath ?? "unknown") + "\"; ElapsedMs=" +
+                clock.ElapsedMilliseconds + ".");
+            return new IOException(
+                "Не удалось вовремя остановить процессы AeroMirror. " +
+                "Закройте приложение и повторите попытку.");
         }
 
         internal static void RemoveShortcuts()

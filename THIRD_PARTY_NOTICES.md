@@ -19,8 +19,8 @@ asset directly from GitHub and verifies it before extraction:
   `https://github.com/leapbtw/uxplay-windows/tree/8cf3424b438424bc99a89155bd29a789f48a43c0`
 
 The exact AeroMirror and patched native corresponding source are attached
-beside Setup as `AeroMirror-source-0.11.1.zip` and
-`AeroMirror-native-source-0.11.1.zip`. The native archive is a prepared source
+beside Setup as `AeroMirror-source-0.11.2.zip` and
+`AeroMirror-native-source-0.11.2.zip`. The native archive is a prepared source
 tree with both AeroMirror patches included separately and already applied.
 Its `source-provenance.json` records the reviewed patch, modified-source,
 Bonjour-header, `dnssd.def`, and resulting-core hashes. The included build

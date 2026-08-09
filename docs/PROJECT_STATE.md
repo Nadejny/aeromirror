@@ -22,6 +22,21 @@ The `v0.11.1` tag is immutable project history. Any correction discovered
 after publication must use `0.11.2` or a later version; do not replace the
 published 0.11.1 files.
 
+## Pending 0.11.2 patch
+
+- Candidate version: `0.11.2` (local development; not yet public)
+- Confirmed blocker: an update launched from AeroMirror 0.11.0 or 0.11.1 can
+  start Setup with the installed application directory as its inherited
+  working directory. Setup then fails while moving that directory with a
+  "file is being used by another process" error.
+- Failure point: before the old installation is replaced; the existing
+  installation remains intact.
+- Patch scope: move Setup's working directory outside the installation before
+  replacement, launch future Setup versions with an explicit safe working
+  directory, bound path-scoped process shutdown, and retry short-lived
+  directory locks.
+- Acceptance plan: `docs/TEST_PLAN_0.11.2.md`
+
 ## What 0.11.1 addresses
 
 - bounded recovery after a lost or stalled iPhone mirroring session;
@@ -45,31 +60,43 @@ published 0.11.1 files.
 
 See `docs/BUILD_REPORT_0.11.1.md` for the candidate build record.
 
+The 0.11.2 shell build, receiver resilience checks, installer build, shortcut
+selection verifier, update-lifecycle verifier, and an explicit candidate run
+with Setup's inherited working directory inside the installed AeroMirror tree
+all pass locally on Windows 11. Final release-asset verification and the
+physical Windows 10 acceptance run remain pending.
+
 ## Manual acceptance still required
 
-Follow `docs/TEST_PLAN_0.11.1.md` on at least one physical Windows 10 PC and
-one physical Windows 11 PC. The highest-priority scenarios are:
+Publish 0.11.2 only as a review patch after its automated and local candidate
+checks pass, then follow `docs/TEST_PLAN_0.11.2.md` on at least one physical
+Windows 10 PC and one physical Windows 11 PC before considering the patch
+fully accepted. The broader receiver acceptance in `docs/TEST_PLAN_0.11.1.md`
+remains required before 1.0. The highest-priority scenarios are:
 
 1. Windows/AeroMirror starts before Wi-Fi becomes available.
 2. VPN enabled and disabled over the same physical LAN.
 3. Three consecutive connect/stream/disconnect cycles.
 4. iPhone or physical-network loss during active mirroring.
-5. In-place update from 0.11.0 with all shortcut combinations.
+5. In-app updates from both 0.11.0 and 0.11.1 without a directory-lock error.
 
 A crash, missing rediscovery, or recovery substantially slower than the
 documented bound blocks the 1.0 designation and should include a redacted log.
 
 ## Immediate next steps
 
-1. Collect and record the user's Windows 11 results and the friend's Windows 10
-   results for 0.11.1.
-2. If a release defect is found, ship a focused `0.11.2` patch.
-3. If the stability gate passes, begin 0.12 development with an explicit
+1. Complete and automatically verify the focused 0.11.2 updater fix.
+2. Run in-app updates from 0.11.0 and 0.11.1 on physical Windows 10 and
+   Windows 11 PCs, preserving shortcuts and per-user state.
+3. Publish a new immutable `v0.11.2` release only after the focused update
+   plan passes; never replace the existing `v0.11.1` assets.
+4. Collect and record the remaining receiver-stability results for 0.11.1.
+5. If the stability gate passes, begin 0.12 development with an explicit
    repository-structure plan before moving files.
-4. Introduce resource-based UI localization in 0.12: follow the Windows
+6. Introduce resource-based UI localization in 0.12: follow the Windows
    display language by default and offer `System / English / Russian` in
    settings.
-5. Keep AirDrop-style transfer and iPhone remote control as later, separate
+7. Keep AirDrop-style transfer and iPhone remote control as later, separate
    research tracks after the receiver is reliable.
 
 ## Where information belongs

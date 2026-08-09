@@ -66,7 +66,7 @@ update.
 
 For a working automatic update, every GitHub Release must include:
 
-- a semantic tag such as `v0.11.1`;
+- a semantic tag such as `v0.11.2`;
 - a setup asset named exactly
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` for that release version;
 - GitHub's SHA-256 asset digest;
@@ -85,10 +85,11 @@ a tag and stores its own downloadable assets. Publishing or replacing a
 Release asset does not update `main`; push the reviewed release commit to
 `main` before creating the matching tag and Release.
 
-Version 0.11.1 may be published as an explicitly labelled review candidate so
-the GitHub update path and multiple real PCs can be tested. Complete the
-Windows 10/11 scenarios in [TEST_PLAN_0.11.1.md](TEST_PLAN_0.11.1.md) before
-labelling the project 1.0.
+Version 0.11.2 is a focused review patch for the in-place update lock found
+after 0.11.1 was published. Complete
+[TEST_PLAN_0.11.2.md](TEST_PLAN_0.11.2.md) before publishing the patch, and
+complete the broader Windows 10/11 scenarios in
+[TEST_PLAN_0.11.1.md](TEST_PLAN_0.11.1.md) before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.
@@ -99,9 +100,9 @@ from the Release tag.
 Recommended assets:
 
 ```text
-AeroMirror-Setup-0.11.1.exe
-AeroMirror-source-0.11.1.zip
-AeroMirror-native-source-0.11.1.zip
+AeroMirror-Setup-0.11.2.exe
+AeroMirror-source-0.11.2.zip
+AeroMirror-native-source-0.11.2.zip
 SHA256SUMS.txt
 ```
 

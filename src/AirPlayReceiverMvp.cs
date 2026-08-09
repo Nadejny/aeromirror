@@ -21,8 +21,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("AeroMirror open-source project")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("0.11.1.0")]
-[assembly: AssemblyFileVersion("0.11.1.0")]
+[assembly: AssemblyVersion("0.11.2.0")]
+[assembly: AssemblyFileVersion("0.11.2.0")]
 
 namespace AirPlayReceiverMvp
 {
@@ -3974,6 +3974,7 @@ namespace AirPlayReceiverMvp
                             Process.Start(new ProcessStartInfo(installerPath)
                             {
                                 Arguments = "/update /delete-source",
+                                WorkingDirectory = Path.GetDirectoryName(installerPath),
                                 UseShellExecute = true
                             });
                             pendingInstallerPath = "";

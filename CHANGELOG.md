@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.2 — reliable in-place updates
+
+### Fixed
+
+- In-app updates launched from AeroMirror 0.11.0 or 0.11.1 no longer leave
+  Setup inside the installed application's working directory. Setup can now
+  replace the previous application folder after AeroMirror exits instead of
+  failing with a misleading "file is being used by another process" error.
+- Setup shutdown is bounded and covers helper executables running from the
+  AeroMirror installation directory, reducing transient locks during an
+  update without terminating unrelated processes elsewhere on the PC.
+- Moving the previous installation now tolerates short-lived file-system
+  locks and records actionable attempts in the Setup log. A permanent failure
+  still leaves the existing installation intact.
+
 ## 0.11.1 — session recovery and reliable discovery
 
 ### Fixed

@@ -27,6 +27,9 @@ Assert-True ($source.Contains("randomly-generated) MAC address")) `
     "the exact first-run UxPlay device ID is captured"
 Assert-True (-not [regex]::IsMatch($source, 'WaitForExit\s*\(\s*\)')) `
     "core shutdown contains no unbounded WaitForExit call"
+Assert-True ($source.Contains(
+    "WorkingDirectory = Path.GetDirectoryName(installerPath)")) `
+    "the updater launches Setup outside the installed application directory"
 Assert-True ($source.Contains("discoveryRefreshAfterNetworkCheck")) `
     "manual discovery refresh survives an unavailable physical network"
 Assert-True ($source.Contains("physicalNetworkReady")) `

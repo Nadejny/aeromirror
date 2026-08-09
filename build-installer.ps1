@@ -1,6 +1,6 @@
 param(
     [string]$PortableZip = "",
-    [string]$Version = "0.11.1"
+    [string]$Version = "0.11.2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -110,6 +110,13 @@ foreach ($literal in $requiredVersionLiterals) {
             "Installer source version does not match requested release " +
             "$Version. Missing literal: $literal")
     }
+}
+if ([regex]::IsMatch($installerSource, 'WaitForExit\s*\(\s*\)')) {
+    throw "Installer process shutdown must not contain an unbounded WaitForExit()."
+}
+if (-not $installerSource.Contains(
+    "bool detached = EnsureCurrentDirectoryOutsideInstallTree(")) {
+    throw "Installer must detach its working directory before update handling."
 }
 
 New-Item -ItemType Directory -Force -Path $outputFolder | Out-Null
@@ -291,6 +298,18 @@ if ($shortcutCheck.ExitCode -ne 0) {
     throw (
         "Installer shortcut-selection verification failed with exit code " +
         $shortcutCheck.ExitCode + ".")
+}
+$updateLifecycleCheck = Start-Process `
+    -FilePath $output `
+    -ArgumentList "/verify-update-lifecycle" `
+    -WorkingDirectory $projectRoot `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+if ($updateLifecycleCheck.ExitCode -ne 0) {
+    throw (
+        "Installer update-lifecycle verification failed with exit code " +
+        $updateLifecycleCheck.ExitCode + ".")
 }
 
 Write-Host "Built $output"
