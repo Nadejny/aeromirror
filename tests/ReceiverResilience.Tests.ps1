@@ -46,6 +46,24 @@ Assert-True ($source.Contains("AEROMIRROR_BLE")) `
     "native BLE marker is observed"
 Assert-True ($source.Contains("Discovery registration: DNS-SD=")) `
     "support diagnostics expose native discovery registration"
+Assert-True (-not $source.Contains("post-session discovery renewal")) `
+    "a completed session does not force an unconditional core restart"
+Assert-True ($source.Contains('parts.Add("-reset 6")')) `
+    "UxPlay receives the six-second lost-client reset bound"
+$systemResetIndex = $source.IndexOf('parts.Add("-reset 6")')
+$advancedArgumentsIndex = $source.IndexOf(
+    'parts.Add(settings.AdvancedArguments.Trim())')
+Assert-True ($systemResetIndex -lt $advancedArgumentsIndex) `
+    "advanced UxPlay arguments can override the system reset bound"
+Assert-True (-not $source.Contains('parts.Add("-nohold")')) `
+    "the receiver does not allow a new client to preempt an active session"
+$sharedBudgetCallCount = [regex]::Matches(
+    $source, 'ConsumeSharedAutomaticRecoveryBudget\s*\(').Count
+Assert-True ($sharedBudgetCallCount -ge 3) `
+    "readiness and native discovery both consume one shared recovery budget"
+Assert-True (-not $source.Contains(
+        'StopCoreInternal("readiness confirmation failed"')) `
+    "unconfirmed readiness never synchronously stops a socket-ready core"
 
 $assembly = [Reflection.Assembly]::LoadFrom(
     [IO.Path]::GetFullPath($AssemblyPath))
@@ -69,7 +87,23 @@ function Field([string]$Name) {
 $activePid = Field "activeCorePid"
 $mirrorActive = Field "mirrorSessionActive"
 $recoveryPending = Field "lostConnectionRecoveryPending"
+$recoveryPid = Field "lostConnectionRecoveryPid"
 $recoveryDue = Field "lostConnectionRecoveryDueTicks"
+$sessionEndedPending = Field "mirrorSessionEndedPending"
+$sessionEndedDue = Field "mirrorSessionEndedDueTicks"
+$settingsRestartDeferred = Field "settingsRestartDeferred"
+$idleRenewalDue = Field "idleDiscoveryRenewalDueTicks"
+$idleRenewalUsed = Field "idleDiscoveryRenewalUsed"
+$restartPending = Field "restartPending"
+$coreReadyPending = Field "coreReadyPending"
+$coreReadyChecks = Field "coreReadyChecks"
+$coreReadinessAttempts = Field "coreReadinessRecoveryAttempts"
+$coreReadinessPid = Field "coreReadinessPid"
+$clientReadyPending = Field "coreClientActivityReadyPending"
+$clientGraceDue = Field "clientActivityGraceDueTicks"
+$physicalNetworkRestartDeferred = Field "physicalNetworkRestartDeferred"
+$maintenanceSync = Field "postSessionMaintenanceSync"
+$videoSizeSync = Field "videoSizeSync"
 $startAfterNetwork = Field "startAfterNetworkCheck"
 $refreshAfterNetwork = Field "discoveryRefreshAfterNetworkCheck"
 $networkRefreshPending = Field "networkRefreshPending"
@@ -82,6 +116,8 @@ $discoveryRecoveryAttempts = Field "coreDiscoveryRecoveryAttempts"
 $discoveryRecoveryPid = Field "coreDiscoveryRecoveryPid"
 $discoveryRecoveryDue = Field "coreDiscoveryRecoveryDueTicks"
 
+$maintenanceSync.SetValue($context, (New-Object object))
+$videoSizeSync.SetValue($context, (New-Object object))
 $activePid.SetValue($context, 42)
 $mirrorActive.SetValue($context, 1)
 $observe = $contextType.GetMethod("ObserveCoreOutput", $instanceFlags)
@@ -107,6 +143,100 @@ Assert-True (-not [bool]$readiness.Invoke(
 Assert-True (-not [bool]$readiness.Invoke(
         $null, [object[]]@($true, $true, -1, -1))) `
     "a running Bonjour service cannot override explicit failure of both discovery paths"
+
+$connectionMarker = $contextType.GetMethod(
+    "IsIncomingAirPlayConnectionRequestMarker", $staticFlags)
+$pinMarker = $contextType.GetMethod(
+    "IsAirPlayPinEntryMarker", $staticFlags)
+$deferDisruptive = $contextType.GetMethod(
+    "ShouldDeferDisruptiveMaintenance", $staticFlags)
+Assert-True ([bool]$connectionMarker.Invoke(
+        $null, [object[]]@("connection request from iPhone (iPhone14,8)"))) `
+    "the anchored post-auth AirPlay request marker is recognized"
+Assert-True (-not [bool]$connectionMarker.Invoke(
+        $null, [object[]]@("rejecting new connection request from iPhone"))) `
+    "a rejected request is not treated as successful client activity"
+Assert-True ([bool]$pinMarker.Invoke(
+        $null, [object[]]@('*** CLIENT MUST NOW ENTER PIN = "1234" AS AIRPLAY PASSWORD'))) `
+    "the exact pre-auth PIN progress prefix is recognized"
+Assert-True (-not [bool]$pinMarker.Invoke(
+        $null, [object[]]@("CLIENT MUST NOW ENTER PIN"))) `
+    "a PIN-marker near miss is ignored"
+$graceProbeNow = [DateTime]::UtcNow.Ticks
+Assert-True ([bool]$deferDisruptive.Invoke(
+        $null, [object[]]@($true, [long]0, $graceProbeNow))) `
+    "an active stream defers disruptive maintenance without a renderer HWND"
+Assert-True ([bool]$deferDisruptive.Invoke(
+        $null, [object[]]@(
+            $false, [DateTime]::UtcNow.AddSeconds(30).Ticks, $graceProbeNow))) `
+    "client-activity grace defers disruptive maintenance before rendering"
+Assert-True (-not [bool]$deferDisruptive.Invoke(
+        $null, [object[]]@($false, [long]0, $graceProbeNow))) `
+    "idle maintenance is allowed when no session or client grace exists"
+
+$consumeSharedBudget = $contextType.GetMethod(
+    "ConsumeSharedAutomaticRecoveryBudget", $instanceFlags)
+Assert-True ($null -ne $consumeSharedBudget) `
+    "shared automatic recovery budget exists"
+
+$coreReadyPending.SetValue($context, $true)
+$coreReadyChecks.SetValue($context, 8)
+$coreReadinessAttempts.SetValue($context, 0)
+$coreReadinessPid.SetValue($context, 42)
+$discoveryRecoveryPending.SetValue($context, 1)
+$discoveryRecoveryAttempts.SetValue($context, 0)
+$discoveryRecoveryPid.SetValue($context, 42)
+$discoveryRecoveryDue.SetValue(
+    $context, [DateTime]::UtcNow.AddSeconds(5).Ticks)
+$readinessWon = [bool]$consumeSharedBudget.Invoke(
+    $context, [object[]]@($true))
+Assert-True $readinessWon `
+    "readiness can consume an unused shared automatic recovery budget"
+Assert-True ([int]$coreReadinessAttempts.GetValue($context) -eq 1) `
+    "readiness recovery marks its own shared allowance consumed"
+Assert-True ([int]$discoveryRecoveryAttempts.GetValue($context) -eq 1) `
+    "readiness recovery also consumes the native-discovery allowance"
+Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
+    "readiness recovery cancels sibling native-discovery maintenance"
+Assert-True (-not [bool]$coreReadyPending.GetValue($context)) `
+    "readiness recovery resolves its completed readiness check"
+$discoveryAfterReadiness = [bool]$consumeSharedBudget.Invoke(
+    $context, [object[]]@($false))
+Assert-True (-not $discoveryAfterReadiness) `
+    "native discovery cannot trigger a second restart after readiness recovery"
+
+$coreReadyPending.SetValue($context, $true)
+$coreReadyChecks.SetValue($context, 8)
+$coreReadinessAttempts.SetValue($context, 0)
+$coreReadinessPid.SetValue($context, 42)
+$discoveryRecoveryPending.SetValue($context, 1)
+$discoveryRecoveryAttempts.SetValue($context, 0)
+$discoveryRecoveryPid.SetValue($context, 42)
+$discoveryRecoveryDue.SetValue(
+    $context, [DateTime]::UtcNow.AddSeconds(5).Ticks)
+$discoveryWon = [bool]$consumeSharedBudget.Invoke(
+    $context, [object[]]@($false))
+Assert-True $discoveryWon `
+    "native discovery can consume an unused shared automatic recovery budget"
+Assert-True ([int]$coreReadinessAttempts.GetValue($context) -eq 1) `
+    "native-discovery recovery also consumes the readiness allowance"
+Assert-True (-not [bool]$coreReadyPending.GetValue($context)) `
+    "native-discovery recovery cancels sibling readiness maintenance"
+Assert-True ([int]$coreReadinessPid.GetValue($context) -eq 0) `
+    "native-discovery recovery clears the sibling readiness owner"
+$readinessAfterDiscovery = [bool]$consumeSharedBudget.Invoke(
+    $context, [object[]]@($true))
+Assert-True (-not $readinessAfterDiscovery) `
+    "readiness cannot trigger a second restart after native discovery recovery"
+
+$coreReadyPending.SetValue($context, $false)
+$coreReadyChecks.SetValue($context, 0)
+$coreReadinessAttempts.SetValue($context, 0)
+$coreReadinessPid.SetValue($context, 0)
+$discoveryRecoveryPending.SetValue($context, 0)
+$discoveryRecoveryAttempts.SetValue($context, 0)
+$discoveryRecoveryPid.SetValue($context, 0)
+$discoveryRecoveryDue.SetValue($context, [long]0)
 
 $observe.Invoke(
     $context,
@@ -182,6 +312,19 @@ Assert-True ([int]$dnsSdStatus.GetValue($context) -eq 1) `
 Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
     "DNS-SD success cancels recovery even when BLE is unavailable"
 
+$recoveryPending.SetValue($context, 0)
+$restartPending.SetValue($context, $false)
+$mirrorActive.SetValue($context, 1)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "*** ERROR:   3 seconds since last client feedback request (expected every two seconds); client may be offline")) |
+    Out-Null
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "a client-feedback delay warning does not arm the lost-client watchdog"
+Assert-True (-not [bool]$restartPending.GetValue($context)) `
+    "a client-feedback delay warning does not schedule a core restart"
+
 $before = [DateTime]::UtcNow.Ticks
 $observe.Invoke(
     $context,
@@ -207,6 +350,236 @@ Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
     "normal mirror shutdown cancels recovery"
 Assert-True ([int]$mirrorActive.GetValue($context) -eq 0) `
     "normal mirror shutdown clears the active-session flag"
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
+    "normal mirror shutdown does not schedule post-session maintenance"
+Assert-True (-not [bool]$restartPending.GetValue($context)) `
+    "normal mirror shutdown does not schedule a core restart"
+$idleDue = [long]$idleRenewalDue.GetValue($context)
+Assert-True ($idleDue -ge [DateTime]::UtcNow.AddMinutes(9).Ticks) `
+    "normal mirror shutdown preserves the bounded idle-discovery fallback"
+Assert-True ($idleDue -le [DateTime]::UtcNow.AddMinutes(11).Ticks) `
+    "idle-discovery fallback remains bounded near ten minutes"
+
+$settingsRestartDeferred.SetValue($context, 1)
+$sessionEndedPending.SetValue($context, 1)
+$rawAcceptDue = [DateTime]::UtcNow.AddMilliseconds(100).Ticks
+$rawAcceptIdleDue = [DateTime]::UtcNow.AddMilliseconds(100).Ticks
+$sessionEndedDue.SetValue($context, $rawAcceptDue)
+$idleRenewalDue.SetValue($context, $rawAcceptIdleDue)
+$idleRenewalUsed.SetValue($context, 1)
+$discoveryRecoveryPending.SetValue($context, 1)
+$discoveryRecoveryAttempts.SetValue($context, 1)
+$discoveryRecoveryPid.SetValue($context, 42)
+$discoveryRecoveryDue.SetValue($context, $rawAcceptDue)
+$coreReadyPending.SetValue($context, $true)
+$coreReadyChecks.SetValue($context, 8)
+$coreReadinessAttempts.SetValue($context, 1)
+$coreReadinessPid.SetValue($context, 42)
+$clientReadyPending.SetValue($context, 0)
+$clientGraceDue.SetValue($context, [long]0)
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "Accepted IPv4 client on socket 12, port 7000")) |
+    Out-Null
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 1) `
+    "a low-level accepted socket is not treated as an AirPlay request"
+Assert-True ([long]$sessionEndedDue.GetValue($context) -eq $rawAcceptDue) `
+    "a low-level accepted socket does not alter deferred maintenance"
+Assert-True ([long]$idleRenewalDue.GetValue($context) -eq $rawAcceptIdleDue) `
+    "a low-level accepted socket does not postpone idle maintenance"
+Assert-True ([int]$idleRenewalUsed.GetValue($context) -eq 1) `
+    "a low-level accepted socket does not renew the idle fallback allowance"
+Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 1) `
+    "a low-level accepted socket does not cancel discovery recovery"
+Assert-True ([bool]$coreReadyPending.GetValue($context)) `
+    "a low-level accepted socket does not bypass readiness confirmation"
+Assert-True ([long]$clientGraceDue.GetValue($context) -eq 0) `
+    "a low-level accepted socket does not start client-activity grace"
+Assert-True ([int]$settingsRestartDeferred.GetValue($context) -eq 1) `
+    "a low-level accepted socket does not discard deferred settings"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "rejecting new connection request from unsupported client")) |
+    Out-Null
+Assert-True ([long]$sessionEndedDue.GetValue($context) -eq $rawAcceptDue) `
+    "a rejected request does not postpone deferred maintenance"
+Assert-True ([bool]$coreReadyPending.GetValue($context)) `
+    "a rejected request does not bypass readiness confirmation"
+Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 1) `
+    "a rejected request does not cancel discovery recovery"
+
+$mirrorActive.SetValue($context, 1)
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$pinBefore = [DateTime]::UtcNow
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        '*** CLIENT MUST NOW ENTER PIN = "1234" AS AIRPLAY PASSWORD')) |
+    Out-Null
+Assert-True ([bool]$coreReadyPending.GetValue($context) -eq $false) `
+    "PIN-entry progress resolves readiness without waiting for DNS-SD checks"
+Assert-True ([int]$coreReadinessAttempts.GetValue($context) -eq 0) `
+    "PIN-entry progress cancels readiness recovery"
+Assert-True ([int]$coreReadinessPid.GetValue($context) -eq 0) `
+    "PIN-entry progress clears the readiness recovery owner"
+Assert-True ([int]$clientReadyPending.GetValue($context) -eq 1) `
+    "PIN-entry progress queues the ready UI state for the monitor thread"
+Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
+    "PIN-entry progress cancels obsolete discovery recovery"
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "PIN-entry progress cancels the previous session's lost-client watchdog"
+$pinGraceDue = [long]$clientGraceDue.GetValue($context)
+Assert-True ($pinGraceDue -ge $pinBefore.AddSeconds(59).Ticks) `
+    "PIN entry receives a usable authentication grace period"
+Assert-True ($pinGraceDue -le [DateTime]::UtcNow.AddSeconds(61).Ticks) `
+    "PIN authentication grace remains bounded"
+Assert-True ([int]$mirrorActive.GetValue($context) -eq 1) `
+    "PIN-entry progress does not manufacture a new mirroring start"
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "***ERROR lost connection with client")) | Out-Null
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "a late old-session fatal marker cannot re-arm during PIN grace"
+Assert-True (-not [bool]$restartPending.GetValue($context)) `
+    "a late old-session fatal marker cannot schedule a handshake restart"
+
+$mirrorActive.SetValue($context, 0)
+$sessionEndedPending.SetValue($context, 1)
+$sessionEndedDue.SetValue($context, [DateTime]::UtcNow.AddMilliseconds(100).Ticks)
+$idleRenewalUsed.SetValue($context, 1)
+$discoveryRecoveryPending.SetValue($context, 1)
+$discoveryRecoveryAttempts.SetValue($context, 1)
+$discoveryRecoveryPid.SetValue($context, 42)
+$discoveryRecoveryDue.SetValue(
+    $context, [DateTime]::UtcNow.AddMilliseconds(100).Ticks)
+$coreReadyPending.SetValue($context, $true)
+$coreReadyChecks.SetValue($context, 8)
+$coreReadinessAttempts.SetValue($context, 1)
+$coreReadinessPid.SetValue($context, 42)
+$clientReadyPending.SetValue($context, 0)
+$requestBefore = [DateTime]::UtcNow
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "connection request from iPhone (iPhone14,8)")) |
+    Out-Null
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 1) `
+    "an AirPlay request keeps deferred settings maintenance pending"
+$postponedDue = [long]$sessionEndedDue.GetValue($context)
+Assert-True ($postponedDue -ge $requestBefore.AddSeconds(29).Ticks) `
+    "an AirPlay request grants deferred settings a new grace period"
+Assert-True ($postponedDue -le [DateTime]::UtcNow.AddSeconds(31).Ticks) `
+    "the deferred settings grace period remains bounded"
+$requestIdleDue = [long]$idleRenewalDue.GetValue($context)
+Assert-True ($requestIdleDue -ge $requestBefore.AddMinutes(9).Ticks) `
+    "an AirPlay request moves idle maintenance away from the handshake"
+Assert-True ($requestIdleDue -le [DateTime]::UtcNow.AddMinutes(11).Ticks) `
+    "the re-armed idle fallback remains bounded near ten minutes"
+Assert-True ([int]$idleRenewalUsed.GetValue($context) -eq 0) `
+    "an AirPlay request re-arms one idle fallback allowance"
+Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
+    "an AirPlay request cancels obsolete discovery recovery"
+Assert-True ([int]$discoveryRecoveryPid.GetValue($context) -eq 0) `
+    "an AirPlay request clears the discovery recovery owner"
+Assert-True ([long]$discoveryRecoveryDue.GetValue($context) -eq 0) `
+    "an AirPlay request clears the discovery recovery deadline"
+Assert-True ([int]$discoveryRecoveryAttempts.GetValue($context) -eq 0) `
+    "an AirPlay request restores the bounded discovery recovery allowance"
+Assert-True (-not [bool]$coreReadyPending.GetValue($context)) `
+    "an AirPlay request cancels pending readiness recovery"
+Assert-True ([int]$coreReadyChecks.GetValue($context) -eq 0) `
+    "an AirPlay request clears stale readiness checks"
+Assert-True ([int]$coreReadinessAttempts.GetValue($context) -eq 0) `
+    "an AirPlay request restores the readiness recovery allowance"
+Assert-True ([int]$coreReadinessPid.GetValue($context) -eq 0) `
+    "an AirPlay request clears the readiness recovery owner"
+Assert-True ([int]$clientReadyPending.GetValue($context) -eq 1) `
+    "an AirPlay request queues ready UI state on the monitor thread"
+$requestGraceDue = [long]$clientGraceDue.GetValue($context)
+Assert-True ($requestGraceDue -ge $requestBefore.AddSeconds(29).Ticks) `
+    "post-auth client activity receives a connection grace period"
+Assert-True ($requestGraceDue -le [DateTime]::UtcNow.AddSeconds(31).Ticks) `
+    "post-auth client grace remains bounded"
+
+$applySettingsRestart = $contextType.GetMethod(
+    "ApplyOrDeferSettingsRestart", $instanceFlags)
+$settingsRestartDeferred.SetValue($context, 0)
+$sessionEndedPending.SetValue($context, 0)
+$sessionEndedDue.SetValue($context, [long]0)
+$applySettingsRestart.Invoke($context, [object[]]@()) | Out-Null
+Assert-True ([int]$settingsRestartDeferred.GetValue($context) -eq 1) `
+    "settings restart is deferred during client-activity grace"
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 1) `
+    "deferred settings remain scheduled after handshake grace"
+Assert-True ([long]$sessionEndedDue.GetValue($context) -ge $requestGraceDue) `
+    "settings maintenance cannot interrupt the current handshake"
+
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$discoveryRecoveryPending.SetValue($context, 1)
+$discoveryRecoveryAttempts.SetValue($context, 1)
+$discoveryRecoveryPid.SetValue($context, 42)
+$discoveryRecoveryDue.SetValue(
+    $context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$coreReadyPending.SetValue($context, $true)
+$coreReadyChecks.SetValue($context, 8)
+$coreReadinessAttempts.SetValue($context, 1)
+$coreReadinessPid.SetValue($context, 42)
+$clientReadyPending.SetValue($context, 0)
+$physicalNetworkRestartDeferred.SetValue($context, 1)
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "raop_rtp_mirror starting mirroring")) | Out-Null
+Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
+    "actual mirroring start clears pending post-session maintenance"
+Assert-True ([long]$sessionEndedDue.GetValue($context) -eq 0) `
+    "actual mirroring start clears the post-session deadline"
+Assert-True ([int]$settingsRestartDeferred.GetValue($context) -eq 1) `
+    "actual mirroring start preserves the deferred settings change"
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "actual mirroring start atomically cancels the old lost-client watchdog"
+Assert-True ([int]$recoveryPid.GetValue($context) -eq 0) `
+    "actual mirroring start clears the old lost-client recovery owner"
+Assert-True ([long]$recoveryDue.GetValue($context) -eq 0) `
+    "actual mirroring start clears the old lost-client recovery deadline"
+Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
+    "actual mirroring start atomically cancels discovery recovery"
+Assert-True ([int]$discoveryRecoveryPid.GetValue($context) -eq 0) `
+    "actual mirroring start clears the discovery recovery owner"
+Assert-True ([long]$discoveryRecoveryDue.GetValue($context) -eq 0) `
+    "actual mirroring start clears the discovery recovery deadline"
+Assert-True ([int]$discoveryRecoveryAttempts.GetValue($context) -eq 0) `
+    "actual mirroring start restores the discovery recovery allowance"
+Assert-True (-not [bool]$coreReadyPending.GetValue($context)) `
+    "actual mirroring start cancels readiness recovery"
+Assert-True ([int]$coreReadinessPid.GetValue($context) -eq 0) `
+    "actual mirroring start clears the readiness owner"
+Assert-True ([int]$clientReadyPending.GetValue($context) -eq 1) `
+    "actual mirroring start queues the ready UI state"
+Assert-True ([long]$clientGraceDue.GetValue($context) -eq 0) `
+    "actual mirroring start replaces handshake grace with active-session state"
+Assert-True ([int]$physicalNetworkRestartDeferred.GetValue($context) -eq 1) `
+    "a deferred physical-network restart remains queued during mirroring"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "raop_rtp_mirror->running is no longer true")) |
+    Out-Null
+Assert-True ([int]$mirrorActive.GetValue($context) -eq 0) `
+    "session end releases the active-stream maintenance guard"
+Assert-True ([int]$physicalNetworkRestartDeferred.GetValue($context) -eq 1) `
+    "session end leaves one physical-network restart for the monitor"
+Assert-True (-not [bool]$deferDisruptive.Invoke(
+        $null, [object[]]@($false, [long]0, [DateTime]::UtcNow.Ticks))) `
+    "deferred network maintenance becomes eligible after session end"
+$physicalNetworkRestartDeferred.SetValue($context, 0)
+$sessionEndedPending.SetValue($context, 0)
+$sessionEndedDue.SetValue($context, [long]0)
+$settingsRestartDeferred.SetValue($context, 0)
 
 $mirrorActive.SetValue($context, 1)
 $observe.Invoke(

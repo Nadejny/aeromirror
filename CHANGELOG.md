@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.11.3 — faster reconnects without needless receiver restarts
+
+### Fixed
+
+- A normal mirroring disconnect no longer schedules a full native-receiver
+  restart while the receiver is healthy. Its DNS-SD registration and
+  listening endpoints remain stable so the iPhone can reconnect immediately
+  instead of following a stale advertisement.
+- A high-level incoming AirPlay request re-arms the single bounded ten-minute
+  idle-discovery fallback and postpones deferred settings maintenance so
+  neither can interrupt the handshake. Once mirroring actually starts,
+  pending post-session maintenance is cancelled for that session; saved
+  settings remain deferred until the next clean disconnect.
+- Normal completion and benign feedback warnings do not trigger a full
+  restart. Real fatal lost-client and mirror-receive failures retain bounded
+  recovery; separately, at most one discovery renewal remains available after
+  ten minutes of uninterrupted idle time.
+- After iPhone Wi-Fi loss, UxPlay now uses a default lost-client reset bound of
+  about six seconds instead of its upstream wait of about fifteen seconds.
+  This bounds stale-session cleanup, not end-to-end discovery or connection
+  time. An explicit advanced `-reset` argument can still override the default.
+
+### Compatibility
+
+- The reviewed native UxPlay executable and pinned runtime are unchanged from
+  0.11.2; this patch updates the AeroMirror shell supervision behavior.
+
 ## 0.11.2 — reliable in-place updates
 
 ### Fixed

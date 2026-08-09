@@ -21,8 +21,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("AeroMirror open-source project")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("0.11.2.0")]
-[assembly: AssemblyFileVersion("0.11.2.0")]
+[assembly: AssemblyVersion("0.11.3.0")]
+[assembly: AssemblyFileVersion("0.11.3.0")]
 
 namespace AirPlayReceiverMvp
 {
@@ -405,6 +405,8 @@ namespace AirPlayReceiverMvp
     internal sealed class ReceiverContext : ApplicationContext
     {
         private const string AppTitle = "AeroMirror";
+        private const int ConnectionRequestGraceSeconds = 30;
+        private const int PinEntryGraceSeconds = 60;
         private readonly NotifyIcon tray;
         private readonly ToolStripMenuItem statusItem;
         private readonly ToolStripMenuItem startStopItem;
@@ -450,6 +452,8 @@ namespace AirPlayReceiverMvp
         private DateTime coreReadyDueUtc;
         private int coreReadyChecks;
         private int coreReadinessRecoveryAttempts;
+        private int coreReadinessPid;
+        private int coreClientActivityReadyPending;
         private int coreSocketsReady;
         private long coreSocketsReadyDueTicks;
         private int coreDnsSdStatus;
@@ -463,6 +467,9 @@ namespace AirPlayReceiverMvp
         private int mirrorSessionEndedPending;
         private long mirrorSessionEndedDueTicks;
         private int settingsRestartDeferred;
+        private readonly object postSessionMaintenanceSync = new object();
+        private long clientActivityGraceDueTicks;
+        private int physicalNetworkRestartDeferred;
         private long idleDiscoveryRenewalDueTicks;
         private int idleDiscoveryRenewalUsed;
         private DateTime lastAutomaticDiscoveryRefreshUtc = DateTime.MinValue;
@@ -680,16 +687,7 @@ namespace AirPlayReceiverMvp
                 if (wasRunning && IsCoreRunning &&
                     restartIfCoreArgumentsChanged && argumentsChanged)
                 {
-                    if (IsMirrorSessionActive)
-                    {
-                        Interlocked.Exchange(ref settingsRestartDeferred, 1);
-                        Log("Core argument changes were saved; restart deferred " +
-                            "until the current mirroring session ends.");
-                    }
-                    else
-                    {
-                        ScheduleRestart("settings changed", false, 1000);
-                    }
+                    ApplyOrDeferSettingsRestart();
                     restarted = true;
                 }
                 else if (!IsCoreRunning)
@@ -703,6 +701,37 @@ namespace AirPlayReceiverMvp
                 }
             }
             return restarted;
+        }
+
+        private void ApplyOrDeferSettingsRestart()
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                long nowTicks = DateTime.UtcNow.Ticks;
+                long clientGraceDueTicks = Interlocked.Read(
+                    ref clientActivityGraceDueTicks);
+                bool mirrorActive = IsMirrorSessionActive;
+                if (ShouldDeferDisruptiveMaintenance(
+                        mirrorActive, clientGraceDueTicks, nowTicks))
+                {
+                    Interlocked.Exchange(ref settingsRestartDeferred, 1);
+                    if (!mirrorActive)
+                    {
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedDueTicks,
+                            Math.Max(clientGraceDueTicks,
+                                DateTime.UtcNow.AddSeconds(5).Ticks));
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedPending, 1);
+                    }
+                    Log("Core argument changes were saved; restart deferred " +
+                        "until the current AirPlay session or connection " +
+                        "grace ends.");
+                    return;
+                }
+
+                ScheduleRestart("settings changed", false, 1000);
+            }
         }
 
         public void RefreshNetworkSafety(bool notify)
@@ -916,8 +945,7 @@ namespace AirPlayReceiverMvp
         public void StartCore()
         {
             ResetRapidExitWindow();
-            coreReadinessRecoveryAttempts = 0;
-            Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+            ResetSharedAutomaticRecoveryBudget();
             if (!networkProfileKnown)
             {
                 startAfterNetworkCheck = true;
@@ -1036,6 +1064,16 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref activeCorePid, processId);
                 ResetCoreSessionTracking(true);
                 ArmIdleDiscoveryRenewalIfAvailable();
+                fittedStreamWindow = IntPtr.Zero;
+                lock (postSessionMaintenanceSync)
+                {
+                    coreReadyPending = true;
+                    coreReadyChecks = 0;
+                    coreReadyDueUtc = DateTime.UtcNow.AddSeconds(2);
+                    coreReadinessPid = processId;
+                    Interlocked.Exchange(
+                        ref coreClientActivityReadyPending, 0);
+                }
                 string processPinSnapshot = settings.FixedPin;
                 process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 {
@@ -1065,10 +1103,6 @@ namespace AirPlayReceiverMvp
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-                fittedStreamWindow = IntPtr.Zero;
-                coreReadyPending = true;
-                coreReadyChecks = 0;
-                coreReadyDueUtc = DateTime.UtcNow.AddSeconds(2);
                 startAfterNetworkCheck = false;
                 resumeAfterSafeNetwork = false;
                 Log("Core started, PID " + coreProcess.Id +
@@ -1156,8 +1190,7 @@ namespace AirPlayReceiverMvp
 
         private void RestartCore(bool notify)
         {
-            coreReadinessRecoveryAttempts = 0;
-            Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+            ResetSharedAutomaticRecoveryBudget();
             ScheduleRestart("manual restart", notify, 1000);
         }
 
@@ -1265,8 +1298,7 @@ namespace AirPlayReceiverMvp
         public void RefreshDiscovery()
         {
             ResetRapidExitWindow();
-            coreReadinessRecoveryAttempts = 0;
-            Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+            ResetSharedAutomaticRecoveryBudget();
             ResetIdleDiscoveryRenewalLimit();
             Log("Manual AirPlay discovery refresh requested.");
             Interlocked.Exchange(
@@ -1283,7 +1315,14 @@ namespace AirPlayReceiverMvp
                     ref activeCorePid, 0, 0) != processId)
                 return;
 
-            ObserveCoreDiscoveryMarker(processId, line);
+            if (IsIncomingAirPlayConnectionRequestMarker(line))
+                HandleIncomingAirPlayClientActivity(
+                    processId, ConnectionRequestGraceSeconds,
+                    "AirPlay connection request");
+            else if (IsAirPlayPinEntryMarker(line))
+                HandleIncomingAirPlayClientActivity(
+                    processId, PinEntryGraceSeconds,
+                    "AirPlay authentication progress");
 
             Match chosenDeviceId = Regex.Match(
                 line,
@@ -1298,21 +1337,28 @@ namespace AirPlayReceiverMvp
                     "raop_rtp_mirror starting mirroring",
                     StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
-                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
-                Interlocked.Exchange(ref mirrorSessionActive, 1);
-                Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
-                Interlocked.Increment(ref mirrorSessionGeneration);
-                lock (videoSizeSync)
+                if (HandleMirroringStartedMaintenance(processId))
                 {
-                    pendingVideoSize = Size.Empty;
-                    pendingVideoSizeDueUtc = DateTime.MinValue;
-                    pendingVideoSizeGeneration = 0;
-                    currentVideoSize = Size.Empty;
-                    currentVideoSizeGeneration = 0;
+                    Interlocked.Increment(ref mirrorSessionGeneration);
+                    lock (videoSizeSync)
+                    {
+                        pendingVideoSize = Size.Empty;
+                        pendingVideoSizeDueUtc = DateTime.MinValue;
+                        pendingVideoSizeGeneration = 0;
+                        currentVideoSize = Size.Empty;
+                        currentVideoSizeGeneration = 0;
+                    }
                 }
-                ResetIdleDiscoveryRenewalLimit();
             }
+
+            if (line.IndexOf(
+                    "raop_rtp_mirror->running is no longer true",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                HandleMirroringEndedMaintenance(processId);
+            }
+
+            ObserveCoreDiscoveryMarker(processId, line);
 
             bool lostClient = line.IndexOf(
                 "lost connection with client",
@@ -1351,151 +1397,347 @@ namespace AirPlayReceiverMvp
                 }
             }
 
-            if (line.IndexOf(
-                    "raop_rtp_mirror->running is no longer true",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
+        }
+
+        private static bool IsIncomingAirPlayConnectionRequestMarker(
+            string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return false;
+            return line.TrimStart().StartsWith(
+                "connection request from ",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAirPlayPinEntryMarker(string line)
+        {
+            return !string.IsNullOrWhiteSpace(line) &&
+                line.TrimStart().StartsWith(
+                    "*** CLIENT MUST NOW ENTER PIN = ",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void HandleIncomingAirPlayClientActivity(
+            int processId, int graceSeconds, string evidence)
+        {
+            bool deferredSettingsPostponed = false;
+            DateTime now = DateTime.UtcNow;
+            lock (postSessionMaintenanceSync)
             {
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId)
+                    return;
+                ResolveCoreReadinessFromClientActivityLocked(
+                    evidence);
+                CancelCoreDiscoveryRecovery(true);
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
-                if (Interlocked.Exchange(ref mirrorSessionActive, 0) == 1)
+
+                Interlocked.Exchange(
+                    ref clientActivityGraceDueTicks,
+                    now.AddSeconds(graceSeconds).Ticks);
+
+                if (Interlocked.CompareExchange(
+                        ref mirrorSessionEndedPending, 0, 0) == 1)
+                {
+                    if (IsSettingsRestartDeferred)
+                    {
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedDueTicks,
+                            now.AddSeconds(graceSeconds).Ticks);
+                        deferredSettingsPostponed = true;
+                    }
+                    else
+                    {
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedPending, 0);
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedDueTicks, 0);
+                    }
+                }
+
+                Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalDueTicks,
+                    now.AddMinutes(10).Ticks);
+            }
+
+            Log("Incoming AirPlay client activity observed; " +
+                (deferredSettingsPostponed
+                    ? "the deferred settings restart received a new " +
+                        graceSeconds + "-second grace period"
+                    : "no post-session settings restart was pending") +
+                ", and one bounded idle discovery fallback was re-armed " +
+                "for ten minutes.");
+        }
+
+        private bool HandleMirroringStartedMaintenance(int processId)
+        {
+            bool canceledDeferredRestart;
+            lock (postSessionMaintenanceSync)
+            {
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId)
+                    return false;
+                ResolveCoreReadinessFromClientActivityLocked(
+                    "mirroring start");
+                CancelCoreDiscoveryRecovery(true);
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
+                Interlocked.Exchange(ref mirrorSessionActive, 1);
+                canceledDeferredRestart = Interlocked.Exchange(
+                    ref mirrorSessionEndedPending, 0) == 1;
+                Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
+                Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalDueTicks,
+                    DateTime.UtcNow.AddMinutes(10).Ticks);
+            }
+            if (canceledDeferredRestart)
+                Log("Mirroring started; pending post-session settings " +
+                    "maintenance was canceled and remains deferred until " +
+                    "this session ends.");
+            return true;
+        }
+
+        private void ResolveCoreReadinessFromClientActivityLocked(
+            string evidence)
+        {
+            if (!coreReadyPending && coreReadinessRecoveryAttempts == 0)
+                return;
+            coreReadyPending = false;
+            coreReadyChecks = 0;
+            coreReadyDueUtc = DateTime.MinValue;
+            coreReadinessRecoveryAttempts = 0;
+            coreReadinessPid = 0;
+            Interlocked.Exchange(ref coreClientActivityReadyPending, 1);
+            Log("Core readiness was confirmed by " + evidence +
+                "; automatic readiness recovery was canceled.");
+        }
+
+        private void HandleMirroringEndedMaintenance(int processId)
+        {
+            string message = "";
+            lock (postSessionMaintenanceSync)
+            {
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId)
+                    return;
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
+                if (Interlocked.Exchange(ref mirrorSessionActive, 0) != 1)
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                if (Interlocked.CompareExchange(
+                        ref idleDiscoveryRenewalUsed, 0, 0) == 0)
+                {
+                    Interlocked.Exchange(
+                        ref idleDiscoveryRenewalDueTicks,
+                        now.AddMinutes(10).Ticks);
+                }
+                if (IsSettingsRestartDeferred)
                 {
                     Interlocked.Exchange(
                         ref mirrorSessionEndedDueTicks,
-                        DateTime.UtcNow.AddSeconds(5).Ticks);
+                        now.AddSeconds(5).Ticks);
                     Interlocked.Exchange(ref mirrorSessionEndedPending, 1);
-                    Interlocked.Exchange(
-                        ref idleDiscoveryRenewalDueTicks,
-                        DateTime.UtcNow.AddMinutes(10).Ticks);
-                    Log("Mirroring session ended; a bounded discovery renewal " +
-                        "will run if the iPhone does not reconnect.");
+                    message = "Mirroring session cleanup completed; saved " +
+                        "receiver settings will be applied after a five-second " +
+                        "reconnect grace period.";
+                }
+                else
+                {
+                    Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
+                    Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
+                    message = "Mirroring session cleanup completed; the receiver " +
+                        "stays running and no post-session restart was " +
+                        "scheduled. The bounded ten-minute idle discovery " +
+                        "fallback remains armed.";
                 }
             }
+            Log(message);
         }
 
         private void ObserveCoreDiscoveryMarker(int processId, string line)
         {
-            bool discoveryReady = false;
-            bool discoveryDegraded = false;
+            lock (postSessionMaintenanceSync)
+            {
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId)
+                    return;
+                bool discoveryReady = false;
+                bool discoveryDegraded = false;
 
-            if (line.IndexOf(
-                    "AEROMIRROR_DNSSD_READY",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                Interlocked.Exchange(ref coreDnsSdStatus, 1);
-                discoveryReady = true;
-            }
-            else if (line.IndexOf(
-                    "AEROMIRROR_DNSSD_DEGRADED",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                Interlocked.Exchange(ref coreDnsSdStatus, -1);
-                discoveryDegraded = true;
-            }
-
-            bool bleMarkerLine = line.IndexOf(
-                    "AEROMIRROR_BLE",
-                    StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf(
-                    "[beacon]",
-                    StringComparison.OrdinalIgnoreCase) >= 0;
-            if (bleMarkerLine)
-            {
                 if (line.IndexOf(
-                        "Advertising started",
+                        "AEROMIRROR_DNSSD_READY",
                         StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    Interlocked.Exchange(ref coreBleStatus, 1);
+                    Interlocked.Exchange(ref coreDnsSdStatus, 1);
                     discoveryReady = true;
                 }
                 else if (line.IndexOf(
-                            "Advertising failed",
-                            StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         line.IndexOf(
-                            "Failed to start",
-                            StringComparison.OrdinalIgnoreCase) >= 0)
+                        "AEROMIRROR_DNSSD_DEGRADED",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    Interlocked.Exchange(ref coreBleStatus, -1);
+                    Interlocked.Exchange(ref coreDnsSdStatus, -1);
                     discoveryDegraded = true;
                 }
-            }
 
-            if (discoveryReady)
-            {
-                CancelCoreDiscoveryRecovery(true);
-                return;
-            }
+                bool bleMarkerLine = line.IndexOf(
+                        "AEROMIRROR_BLE",
+                        StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    line.IndexOf(
+                        "[beacon]",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                if (bleMarkerLine)
+                {
+                    if (line.IndexOf(
+                            "Advertising started",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        Interlocked.Exchange(ref coreBleStatus, 1);
+                        discoveryReady = true;
+                    }
+                    else if (line.IndexOf(
+                                "Advertising failed",
+                                StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             line.IndexOf(
+                                "Failed to start",
+                                StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        Interlocked.Exchange(ref coreBleStatus, -1);
+                        discoveryDegraded = true;
+                    }
+                }
 
-            if (discoveryDegraded)
-                ArmCoreDiscoveryRecovery(processId);
+                if (discoveryReady)
+                {
+                    CancelCoreDiscoveryRecovery(true);
+                    return;
+                }
+
+                if (discoveryDegraded)
+                    ArmCoreDiscoveryRecovery(processId);
+            }
         }
 
         private void ArmCoreDiscoveryRecovery(int processId)
         {
-            if (Interlocked.CompareExchange(
-                    ref coreDnsSdStatus, 0, 0) != -1 ||
-                Interlocked.CompareExchange(
-                    ref coreBleStatus, 0, 0) != -1)
-                return;
-            if (Interlocked.CompareExchange(
-                    ref coreDiscoveryRecoveryPending, 2, 0) != 0)
-                return;
-
-            Interlocked.Exchange(ref coreDiscoveryRecoveryPid, processId);
-            Interlocked.Exchange(
-                ref coreDiscoveryRecoveryDueTicks,
-                DateTime.UtcNow.AddSeconds(5).Ticks);
-            Interlocked.Exchange(ref coreDiscoveryRecoveryPending, 1);
-
-            if (Interlocked.CompareExchange(
-                    ref coreDnsSdStatus, 0, 0) != -1 ||
-                Interlocked.CompareExchange(
-                    ref coreBleStatus, 0, 0) != -1)
+            lock (postSessionMaintenanceSync)
             {
-                CancelCoreDiscoveryRecovery(false);
-                return;
-            }
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId ||
+                    Interlocked.CompareExchange(
+                        ref coreDnsSdStatus, 0, 0) != -1 ||
+                    Interlocked.CompareExchange(
+                        ref coreBleStatus, 0, 0) != -1 ||
+                    Interlocked.CompareExchange(
+                        ref coreDiscoveryRecoveryPending, 2, 0) != 0)
+                    return;
 
-            Log("Both native discovery registrations reported a failure; " +
-                "waiting five seconds before bounded host recovery.");
+                Interlocked.Exchange(
+                    ref coreDiscoveryRecoveryPid, processId);
+                Interlocked.Exchange(
+                    ref coreDiscoveryRecoveryDueTicks,
+                    DateTime.UtcNow.AddSeconds(5).Ticks);
+                Interlocked.Exchange(ref coreDiscoveryRecoveryPending, 1);
+                Log("Both native discovery registrations reported a failure; " +
+                    "waiting five seconds before bounded host recovery.");
+            }
         }
 
         private void CancelCoreDiscoveryRecovery(bool resetAttempts)
         {
-            Interlocked.Exchange(ref coreDiscoveryRecoveryPending, 0);
-            Interlocked.Exchange(ref coreDiscoveryRecoveryPid, 0);
-            Interlocked.Exchange(ref coreDiscoveryRecoveryDueTicks, 0);
-            if (resetAttempts)
+            lock (postSessionMaintenanceSync)
+            {
+                Interlocked.Exchange(ref coreDiscoveryRecoveryPending, 0);
+                Interlocked.Exchange(ref coreDiscoveryRecoveryPid, 0);
+                Interlocked.Exchange(ref coreDiscoveryRecoveryDueTicks, 0);
+                if (resetAttempts)
+                    Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+            }
+        }
+
+        private bool ConsumeSharedAutomaticRecoveryBudget(
+            bool readinessRecovery)
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                bool available = coreReadinessRecoveryAttempts < 1 &&
+                    Interlocked.CompareExchange(
+                        ref coreDiscoveryRecoveryAttempts, 0, 0) < 1;
+                coreReadinessRecoveryAttempts = 1;
+                Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 1);
+                coreReadyPending = false;
+                coreReadyChecks = 0;
+                coreReadyDueUtc = DateTime.MinValue;
+                coreReadinessPid = 0;
+                if (readinessRecovery)
+                {
+                    CancelCoreDiscoveryRecovery(false);
+                }
+                return available;
+            }
+        }
+
+        private void ResetSharedAutomaticRecoveryBudget()
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                coreReadinessRecoveryAttempts = 0;
                 Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+            }
         }
 
         private void ArmLostConnectionRecovery(int processId, string marker)
         {
-            if (Interlocked.CompareExchange(
-                    ref lostConnectionRecoveryPending, 2, 0) != 0)
-                return;
-            Interlocked.Exchange(ref lostConnectionRecoveryPid, processId);
-            Interlocked.Exchange(
-                ref lostConnectionRecoveryDueTicks,
-                DateTime.UtcNow.AddSeconds(3).Ticks);
-            Interlocked.Exchange(ref lostConnectionRecoveryPending, 1);
-            Log("UxPlay reported a " + marker + "; waiting three seconds " +
-                "for its internal reset before host recovery.");
+            lock (postSessionMaintenanceSync)
+            {
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId ||
+                    !IsMirrorSessionActive ||
+                    (Interlocked.Read(ref clientActivityGraceDueTicks) >
+                        DateTime.UtcNow.Ticks) ||
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 2, 0) != 0)
+                    return;
+                Interlocked.Exchange(ref lostConnectionRecoveryPid, processId);
+                Interlocked.Exchange(
+                    ref lostConnectionRecoveryDueTicks,
+                    DateTime.UtcNow.AddSeconds(3).Ticks);
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 1);
+                Log("UxPlay reported a " + marker + "; waiting three seconds " +
+                    "for its internal reset before host recovery.");
+            }
         }
 
         private void ResetCoreSessionTracking(bool clearDeferredRestart)
         {
-            Interlocked.Exchange(ref mirrorSessionActive, 0);
-            Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
-            Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
-            Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
-            Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
-            Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
-            Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+            lock (postSessionMaintenanceSync)
+            {
+                Interlocked.Exchange(ref mirrorSessionActive, 0);
+                Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
+                Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
+                Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                Interlocked.Exchange(ref coreClientActivityReadyPending, 0);
+                Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
+                Interlocked.Exchange(ref physicalNetworkRestartDeferred, 0);
+                coreReadinessPid = 0;
+                if (clearDeferredRestart)
+                    Interlocked.Exchange(ref settingsRestartDeferred, 0);
+            }
             Interlocked.Exchange(ref coreDnsSdStatus, 0);
             Interlocked.Exchange(ref coreBleStatus, 0);
             CancelCoreDiscoveryRecovery(false);
-            if (clearDeferredRestart)
-                Interlocked.Exchange(ref settingsRestartDeferred, 0);
             lock (videoSizeSync)
             {
                 pendingVideoSize = Size.Empty;
@@ -1513,25 +1755,63 @@ namespace AirPlayReceiverMvp
 
         private void ResetIdleDiscoveryRenewalLimit()
         {
-            Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
-            Interlocked.Exchange(
-                ref idleDiscoveryRenewalDueTicks,
-                IsCoreRunning
-                    ? DateTime.UtcNow.AddMinutes(10).Ticks
-                    : 0);
+            lock (postSessionMaintenanceSync)
+            {
+                Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalDueTicks,
+                    IsCoreRunning
+                        ? DateTime.UtcNow.AddMinutes(10).Ticks
+                        : 0);
+            }
         }
 
         private void ArmIdleDiscoveryRenewalIfAvailable()
         {
-            if (Interlocked.CompareExchange(
-                    ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+            lock (postSessionMaintenanceSync)
             {
-                Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
-                return;
+                if (Interlocked.CompareExchange(
+                        ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+                {
+                    Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+                    return;
+                }
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalDueTicks,
+                    DateTime.UtcNow.AddMinutes(10).Ticks);
             }
-            Interlocked.Exchange(
-                ref idleDiscoveryRenewalDueTicks,
-                DateTime.UtcNow.AddMinutes(10).Ticks);
+        }
+
+        private static bool ShouldDeferDisruptiveMaintenance(
+            bool mirrorActive, long clientGraceDueTicks, long nowTicks)
+        {
+            return mirrorActive ||
+                (clientGraceDueTicks > 0 && nowTicks < clientGraceDueTicks);
+        }
+
+        private void HandlePhysicalNetworkChangeMaintenance()
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                if (!IsCoreRunning)
+                    return;
+                long nowTicks = DateTime.UtcNow.Ticks;
+                if (ShouldDeferDisruptiveMaintenance(
+                        IsMirrorSessionActive,
+                        Interlocked.Read(ref clientActivityGraceDueTicks),
+                        nowTicks))
+                {
+                    Interlocked.Exchange(
+                        ref physicalNetworkRestartDeferred, 1);
+                    Log("Physical network changed during AirPlay client " +
+                        "activity; receiver restart was deferred until the " +
+                        "session or connection grace ends.");
+                    return;
+                }
+
+                Interlocked.Exchange(ref physicalNetworkRestartDeferred, 0);
+                ScheduleRestart("physical network changed", false, 1200);
+            }
         }
 
         private void HandleAutomaticDiscoveryMaintenance()
@@ -1541,17 +1821,43 @@ namespace AirPlayReceiverMvp
                     ref restartStopInProgress, 0, 0) == 1)
                 return;
 
-            DateTime now = DateTime.UtcNow;
-            if (Interlocked.CompareExchange(
-                    ref mirrorSessionEndedPending, 0, 0) == 1)
+            lock (postSessionMaintenanceSync)
             {
-                long dueTicks = Interlocked.Read(
-                    ref mirrorSessionEndedDueTicks);
-                if (dueTicks > 0 && now.Ticks >= dueTicks)
+                if (!IsCoreRunning || coreReadyPending || restartPending ||
+                    Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1)
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                if (Interlocked.CompareExchange(
+                        ref physicalNetworkRestartDeferred, 0, 0) == 1)
                 {
-                    Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
-                    if (!IsMirrorSessionActive)
+                    if (ShouldDeferDisruptiveMaintenance(
+                            IsMirrorSessionActive,
+                            Interlocked.Read(ref clientActivityGraceDueTicks),
+                            now.Ticks))
+                        return;
+                    Interlocked.Exchange(
+                        ref physicalNetworkRestartDeferred, 0);
+                    Log("AirPlay client activity ended; applying the deferred " +
+                        "physical-network receiver restart.");
+                    ScheduleRestart(
+                        "deferred physical network change", false, 1200);
+                    return;
+                }
+
+                if (Interlocked.CompareExchange(
+                        ref mirrorSessionEndedPending, 0, 0) == 1)
+                {
+                    long dueTicks = Interlocked.Read(
+                        ref mirrorSessionEndedDueTicks);
+                    if (dueTicks > 0 && now.Ticks >= dueTicks &&
+                        !IsMirrorSessionActive)
                     {
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedPending, 0);
+                        Interlocked.Exchange(
+                            ref mirrorSessionEndedDueTicks, 0);
                         if (IsSettingsRestartDeferred)
                         {
                             Log("Current mirroring session ended; applying " +
@@ -1562,50 +1868,35 @@ namespace AirPlayReceiverMvp
                             return;
                         }
 
-                        if ((now - lastAutomaticDiscoveryRefreshUtc).
-                                TotalSeconds >= 60)
-                        {
-                            Log("Renewing AirPlay discovery after the completed " +
-                                "mirroring session.");
-                            lastAutomaticDiscoveryRefreshUtc = now;
-                            ScheduleRestart(
-                                "post-session discovery renewal", false, 1200);
-                            return;
-                        }
+                        Log("Post-session maintenance elapsed without deferred " +
+                            "settings; keeping the healthy receiver running.");
                     }
                 }
-            }
 
-            long idleDueTicks = Interlocked.Read(
-                ref idleDiscoveryRenewalDueTicks);
-            if (idleDueTicks <= 0 || now.Ticks < idleDueTicks ||
-                IsMirrorSessionActive ||
-                Interlocked.CompareExchange(
-                    ref idleDiscoveryRenewalUsed, 0, 0) != 0)
-                return;
+                long idleDueTicks = Interlocked.Read(
+                    ref idleDiscoveryRenewalDueTicks);
+                if (idleDueTicks <= 0 || now.Ticks < idleDueTicks ||
+                    IsMirrorSessionActive ||
+                    Interlocked.CompareExchange(
+                        ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+                    return;
 
-            if ((now - lastAutomaticDiscoveryRefreshUtc).TotalMinutes < 2)
-            {
+                if ((now - lastAutomaticDiscoveryRefreshUtc).TotalMinutes < 2)
+                {
+                    Interlocked.Exchange(
+                        ref idleDiscoveryRenewalDueTicks,
+                        now.AddMinutes(10).Ticks);
+                    return;
+                }
+
+                Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 1);
                 Interlocked.Exchange(
-                    ref idleDiscoveryRenewalDueTicks,
-                    now.AddMinutes(10).Ticks);
-                return;
+                    ref idleDiscoveryRenewalDueTicks, 0);
+                Log("Renewing idle AirPlay discovery after ten minutes without " +
+                    "a mirroring session.");
+                lastAutomaticDiscoveryRefreshUtc = now;
+                ScheduleRestart("idle discovery renewal", false, 1200);
             }
-
-            if (Interlocked.CompareExchange(
-                    ref idleDiscoveryRenewalUsed, 1, 0) != 0)
-                return;
-            Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
-            if (IsMirrorSessionActive)
-            {
-                ResetIdleDiscoveryRenewalLimit();
-                return;
-            }
-
-            Log("Renewing idle AirPlay discovery after ten minutes without " +
-                "a mirroring session.");
-            lastAutomaticDiscoveryRefreshUtc = now;
-            ScheduleRestart("idle discovery renewal", false, 1200);
         }
 
         private void HandleLostConnectionRecovery()
@@ -1613,31 +1904,41 @@ namespace AirPlayReceiverMvp
             if (Interlocked.CompareExchange(
                     ref lostConnectionRecoveryPending, 0, 0) != 1)
                 return;
-            long dueTicks = Interlocked.Read(
-                ref lostConnectionRecoveryDueTicks);
-            if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
-                return;
-
-            int recoveryPid = Interlocked.CompareExchange(
-                ref lostConnectionRecoveryPid, 0, 0);
-            if (!IsCoreRunning || !IsMirrorSessionActive ||
-                recoveryPid <= 0 ||
-                Interlocked.CompareExchange(ref activeCorePid, 0, 0) !=
-                    recoveryPid)
+            lock (postSessionMaintenanceSync)
             {
-                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
-                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
-                return;
-            }
-            if (restartPending || Interlocked.CompareExchange(
-                    ref restartStopInProgress, 0, 0) == 1)
-                return;
+                if (Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 0, 0) != 1)
+                    return;
+                long dueTicks = Interlocked.Read(
+                    ref lostConnectionRecoveryDueTicks);
+                if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
+                    return;
 
-            Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
-            Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
-            Log("UxPlay did not finish its internal lost-client reset within " +
-                "three seconds; restarting the receiver process.");
-            ScheduleRestart("stalled mirror after lost client", false, 500);
+                int recoveryPid = Interlocked.CompareExchange(
+                    ref lostConnectionRecoveryPid, 0, 0);
+                if (!IsCoreRunning || !IsMirrorSessionActive ||
+                    recoveryPid <= 0 ||
+                    Interlocked.CompareExchange(ref activeCorePid, 0, 0) !=
+                        recoveryPid)
+                {
+                    Interlocked.Exchange(
+                        ref lostConnectionRecoveryPending, 0);
+                    Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+                    Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                    return;
+                }
+                if (restartPending || Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1)
+                    return;
+
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                Log("UxPlay did not finish its internal lost-client reset within " +
+                    "three seconds; restarting the receiver process.");
+                ScheduleRestart(
+                    "stalled mirror after lost client", false, 500);
+            }
         }
 
         private void HandleCoreDiscoveryRecovery()
@@ -1645,58 +1946,65 @@ namespace AirPlayReceiverMvp
             if (Interlocked.CompareExchange(
                     ref coreDiscoveryRecoveryPending, 0, 0) != 1)
                 return;
-            long dueTicks = Interlocked.Read(
-                ref coreDiscoveryRecoveryDueTicks);
-            if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
-                return;
-
-            if (coreReadyPending || IsMirrorSessionActive)
+            lock (postSessionMaintenanceSync)
             {
-                Interlocked.Exchange(
-                    ref coreDiscoveryRecoveryDueTicks,
-                    DateTime.UtcNow.AddSeconds(10).Ticks);
-                return;
-            }
-            if (restartPending || Interlocked.CompareExchange(
-                    ref restartStopInProgress, 0, 0) == 1)
-                return;
-            if (Interlocked.CompareExchange(
-                    ref coreDiscoveryRecoveryPending, 2, 1) != 1)
-                return;
+                if (Interlocked.CompareExchange(
+                        ref coreDiscoveryRecoveryPending, 0, 0) != 1)
+                    return;
+                long dueTicks = Interlocked.Read(
+                    ref coreDiscoveryRecoveryDueTicks);
+                if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
+                    return;
 
-            int recoveryPid = Interlocked.CompareExchange(
-                ref coreDiscoveryRecoveryPid, 0, 0);
-            bool stillFailed =
-                Interlocked.CompareExchange(
-                    ref coreDnsSdStatus, 0, 0) == -1 &&
-                Interlocked.CompareExchange(
-                    ref coreBleStatus, 0, 0) == -1;
-            bool sameRunningCore = IsCoreRunning && recoveryPid > 0 &&
-                Interlocked.CompareExchange(ref activeCorePid, 0, 0) ==
-                    recoveryPid;
-            bool socketsReady = Interlocked.CompareExchange(
-                ref coreSocketsReady, 0, 0) == 1;
-            if (!sameRunningCore || !stillFailed || !socketsReady)
-            {
+                if (coreReadyPending || IsMirrorSessionActive)
+                {
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRecoveryDueTicks,
+                        DateTime.UtcNow.AddSeconds(10).Ticks);
+                    return;
+                }
+                if (restartPending || Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1)
+                    return;
+                if (Interlocked.CompareExchange(
+                        ref coreDiscoveryRecoveryPending, 2, 1) != 1)
+                    return;
+
+                int recoveryPid = Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryPid, 0, 0);
+                bool stillFailed =
+                    Interlocked.CompareExchange(
+                        ref coreDnsSdStatus, 0, 0) == -1 &&
+                    Interlocked.CompareExchange(
+                        ref coreBleStatus, 0, 0) == -1;
+                bool sameRunningCore = IsCoreRunning && recoveryPid > 0 &&
+                    Interlocked.CompareExchange(ref activeCorePid, 0, 0) ==
+                        recoveryPid;
+                bool socketsReady = Interlocked.CompareExchange(
+                    ref coreSocketsReady, 0, 0) == 1;
+                if (!sameRunningCore || !stillFailed || !socketsReady)
+                {
+                    CancelCoreDiscoveryRecovery(false);
+                    return;
+                }
+
+                bool recoveryAvailable =
+                    ConsumeSharedAutomaticRecoveryBudget(false);
                 CancelCoreDiscoveryRecovery(false);
-                return;
-            }
+                if (recoveryAvailable)
+                {
+                    Log("DNS-SD and BLE discovery both remained degraded; " +
+                        "performing the single shared automatic recovery.");
+                    ScheduleRestart(
+                        "native discovery registration recovery", false, 1200);
+                    return;
+                }
 
-            if (Interlocked.CompareExchange(
-                    ref coreDiscoveryRecoveryAttempts, 1, 0) == 0)
-            {
-                CancelCoreDiscoveryRecovery(false);
-                Log("DNS-SD and BLE discovery both remained degraded; " +
-                    "performing the single automatic registration recovery.");
-                ScheduleRestart(
-                    "native discovery registration recovery", false, 1200);
-                return;
+                Log("DNS-SD and BLE discovery remain degraded after the shared " +
+                    "automatic recovery budget was consumed. The socket-ready " +
+                    "receiver stays running; no automatic restart loop will " +
+                    "be started.");
             }
-
-            CancelCoreDiscoveryRecovery(false);
-            Log("DNS-SD and BLE discovery remain degraded after the bounded " +
-                "recovery. The socket-ready receiver stays running; no " +
-                "automatic restart loop will be started.");
         }
 
         private void ResetRapidExitWindow()
@@ -1781,6 +2089,7 @@ namespace AirPlayReceiverMvp
             if (settings.AudioOutput == "mute")
                 parts.Add("-a");
 
+            parts.Add("-reset 6");
             if (!string.IsNullOrWhiteSpace(settings.AdvancedArguments))
                 parts.Add(settings.AdvancedArguments.Trim());
             return string.Join(" ", parts.ToArray());
@@ -2075,11 +2384,9 @@ namespace AirPlayReceiverMvp
             {
                 bool networkChanged = ApplyNetworkProfile(
                     refreshedProfile, true);
-                if (networkChanged && IsCoreRunning &&
-                    !HasVisibleRendererWindow())
+                if (networkChanged && IsCoreRunning)
                 {
-                    ScheduleRestart(
-                        "physical network changed", false, 1200);
+                    HandlePhysicalNetworkChangeMaintenance();
                 }
             }
 
@@ -2112,6 +2419,14 @@ namespace AirPlayReceiverMvp
 
             HandleExitedCore();
 
+            if (Interlocked.Exchange(
+                    ref coreClientActivityReadyPending, 0) == 1 &&
+                IsCoreRunning)
+            {
+                SetState(true,
+                    "Приёмник включён · ожидание подключения");
+            }
+
             if (restartPending && DateTime.UtcNow >= restartDueUtc)
             {
                 restartPending = false;
@@ -2121,9 +2436,14 @@ namespace AirPlayReceiverMvp
                     StartCore(false);
             }
 
-            if (coreReadyPending && IsCoreRunning &&
-                DateTime.UtcNow >= coreReadyDueUtc)
+            lock (postSessionMaintenanceSync)
             {
+              if (coreReadyPending && IsCoreRunning &&
+                  coreReadinessPid > 0 &&
+                  Interlocked.CompareExchange(
+                      ref activeCorePid, 0, 0) == coreReadinessPid &&
+                  DateTime.UtcNow >= coreReadyDueUtc)
+              {
                 coreReadyChecks++;
                 string bonjourStatus = GetBonjourStatus();
                 bool socketsReady =
@@ -2151,6 +2471,7 @@ namespace AirPlayReceiverMvp
                 {
                     coreReadyPending = false;
                     coreReadinessRecoveryAttempts = 0;
+                    coreReadinessPid = 0;
                     SetState(true,
                         "Приёмник включён · ожидание подключения");
                 }
@@ -2161,23 +2482,25 @@ namespace AirPlayReceiverMvp
                 }
                 else
                 {
-                    coreReadyPending = false;
-                    if (coreReadinessRecoveryAttempts < 1)
+                    bool recoveryAvailable =
+                        ConsumeSharedAutomaticRecoveryBudget(true);
+                    coreReadinessPid = 0;
+                    if (recoveryAvailable)
                     {
-                        coreReadinessRecoveryAttempts++;
                         SetState(false,
                             "AirPlay не опубликован · восстанавливаем…");
                         Log("Core readiness was not confirmed after eight checks; " +
-                            "performing one full stop/start recovery.");
+                            "performing the single shared automatic recovery.");
                         ScheduleRestart(
                             "readiness recovery", false, 1500);
                     }
                     else
                     {
                         Log("Core readiness was not confirmed after automatic " +
-                            "recovery; stopping the unconfirmed receiver.");
-                        StopCoreInternal(
-                            "readiness confirmation failed", true, false);
+                            "recovery, or the shared automatic recovery budget " +
+                            "was already consumed by native discovery. The " +
+                            "socket-running receiver stays available; no " +
+                            "additional automatic restart or stop will run.");
                         SetState(false,
                             "AirPlay не опубликован · откройте диагностику");
                         if (settings.Notify)
@@ -2186,6 +2509,7 @@ namespace AirPlayReceiverMvp
                                 ToolTipIcon.Warning);
                     }
                 }
+              }
             }
             HandleLostConnectionRecovery();
             HandleCoreDiscoveryRecovery();

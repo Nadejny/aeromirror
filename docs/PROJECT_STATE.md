@@ -37,6 +37,26 @@ published 0.11.2 files.
   directory locks.
 - Acceptance plan: `docs/TEST_PLAN_0.11.2.md`
 
+## Pending 0.11.3 reconnect patch
+
+- Candidate version: `0.11.3` (local development; not yet public)
+- Confirmed blocker: after a normal disconnect, or after iPhone Wi-Fi is
+  turned off and on, the first reconnect can wait for 20–30 seconds and fail
+  while a second attempt succeeds.
+- Root cause: the shell schedules a full native-core restart after session
+  completion even when the receiver has already recovered and is healthy.
+  Restarting changes the listening endpoints while the iPhone may still hold
+  the previous DNS-SD advertisement.
+- Patch scope: keep a healthy receiver registered across normal disconnects;
+  re-arm its single bounded ten-minute idle-discovery fallback and postpone
+  deferred settings maintenance on a high-level AirPlay request; cancel
+  pending post-session maintenance when mirroring actually starts; retain
+  bounded recovery for confirmed fatal failures; and retain a separate,
+  at-most-once ten-minute idle discovery renewal.
+- Native core: the reviewed 0.11.1 executable and pinned runtime are reused
+  unchanged.
+- Acceptance plan: `docs/TEST_PLAN_0.11.3.md`
+
 ## What 0.11.1 addresses
 
 - bounded recovery after a lost or stalled iPhone mirroring session;
@@ -67,29 +87,44 @@ all pass locally on Windows 11. GitHub `releases/latest` returns `v0.11.2`, and
 all four downloaded public assets match the files built from the release tag.
 The physical Windows 10 acceptance run remains pending.
 
+The local 0.11.3 candidate passes the C# shell build, receiver resilience
+checks, package review, installer build, and `git diff --check`. A candidate
+Setup executable was built locally. These automated gates do not establish
+iPhone interoperability: the physical Windows 11 and iPhone reconnect cases
+in `docs/TEST_PLAN_0.11.3.md` remain pending. No 0.11.3 tag, GitHub Release,
+or public asset has been created or accepted.
+
 ## Manual acceptance still required
 
-Follow `docs/TEST_PLAN_0.11.2.md` on at least one physical Windows 10 PC and
-one physical Windows 11 PC before considering the published review patch fully
-accepted. The broader receiver acceptance in `docs/TEST_PLAN_0.11.1.md`
-remains required before 1.0. The highest-priority scenarios are:
+The automated and provenance gates allow the still-unpublished 0.11.3 build to
+be published only as an explicitly labelled review candidate and only with
+explicit user authorization. Use that candidate to run
+`docs/TEST_PLAN_0.11.3.md` on a physical Windows 11 PC before accepting the
+reconnect patch, then repeat it on a physical Windows 10 PC before 1.0. The
+published 0.11.2 update regression plan and the broader receiver acceptance in
+`docs/TEST_PLAN_0.11.1.md` also remain required. The highest-priority scenarios
+are:
 
-1. Windows/AeroMirror starts before Wi-Fi becomes available.
-2. VPN enabled and disabled over the same physical LAN.
-3. Three consecutive connect/stream/disconnect cycles.
-4. iPhone or physical-network loss during active mirroring.
-5. In-app updates from both 0.11.0 and 0.11.1 without a directory-lock error.
+1. Five clean disconnect/immediate-reconnect cycles without a core restart.
+2. First-attempt recovery after iPhone Wi-Fi is turned off and on.
+3. Weak Wi-Fi without a false full-core reset.
+4. Discovery after ten minutes idle, before and after a completed session.
+5. Private/Public physical-network and optional/required PIN behavior, with
+   VPN enabled and disabled.
+6. In-app updates without the 0.11.2 installed-directory lock regression.
 
 A crash, missing rediscovery, or recovery substantially slower than the
 documented bound blocks the 1.0 designation and should include a redacted log.
 
 ## Immediate next steps
 
-1. Run the public in-app update from the user's installed 0.11.0 to 0.11.2 and
-   preserve shortcuts and per-user state.
-2. Run in-app updates from 0.11.0 and 0.11.1 on a physical Windows 10 PC and
-   Windows 11 PCs, preserving shortcuts and per-user state.
-3. Collect and record the remaining receiver-stability results.
+1. Publish a new immutable normal `v0.11.3` Release only as an explicitly
+   labelled review candidate, with explicit user authorization, now that the
+   automated and provenance gates pass; never replace the public 0.11.2 assets.
+2. Run `docs/TEST_PLAN_0.11.3.md` with the user's iPhone on physical Windows
+   11, including exact reconnect timings and a redacted log.
+3. Repeat the plan on physical Windows 10 and complete the remaining 0.11.2
+   in-place-update acceptance cases before 1.0.
 4. If the stability gate passes, begin 0.12 development with an explicit
    repository-structure plan before moving files.
 5. Introduce resource-based UI localization in 0.12: follow the Windows

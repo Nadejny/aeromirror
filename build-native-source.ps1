@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.11.2"
+    [string]$Version = "0.11.3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -231,11 +231,14 @@ try {
         Copy-Item -LiteralPath (Join-Path $upstream $relative) `
             -Destination (Join-Path $sourceRoot $relative) -Force
     }
-    Copy-Item -LiteralPath (
-        Join-Path $libuxplay "renderers\video_renderer.c") `
-        -Destination (
-            Join-Path $sourceRoot "libuxplay\renderers\video_renderer.c") `
-        -Force
+    foreach ($relative in @(
+        "renderers\video_renderer.c",
+        "uxplay.cpp"
+    )) {
+        Copy-Item -LiteralPath (Join-Path $libuxplay $relative) `
+            -Destination (Join-Path $sourceRoot "libuxplay\$relative") `
+            -Force
+    }
 
     New-Item -ItemType Directory -Force -Path $inputsRoot | Out-Null
     foreach ($name in @(
@@ -257,6 +260,17 @@ try {
     Copy-Item -LiteralPath (
         $bonjourHeader) `
         -Destination $inputsRoot
+
+    foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
+        $stagedSourcePath = Join-Path $sourceRoot (
+            $sourceProperty.Name.Replace('/', '\'))
+        if (-not (Test-Path -LiteralPath $stagedSourcePath -PathType Leaf)) {
+            throw "Packaged patched source is missing: $stagedSourcePath"
+        }
+        Assert-FileHash -Path $stagedSourcePath `
+            -Expected ([string]$sourceProperty.Value) `
+            -Description ("Packaged patched source " + $sourceProperty.Name)
+    }
 
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Force
