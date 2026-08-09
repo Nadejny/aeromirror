@@ -6,6 +6,35 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
+## Local candidate
+
+- Candidate version: `0.12.3`
+- Status: integrated local working tree; not committed, tagged, or published
+- Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
+- Native core: unchanged pinned build first shipped in 0.11.1
+- Public channel: still serves immutable `v0.12.2`
+
+The 0.12.3 candidate keeps a persistent managed placeholder after a confirmed
+fatal stream loss. It uses a softened screen snapshot only when the renderer
+is visibly in the foreground; otherwise it shows a dark fallback. The image is
+memory-only, the placeholder survives the bounded native discovery renewal,
+and it closes on a new mirroring start, explicit user close, receiver stop, or
+application exit. Benign feedback warnings and ordinary clean disconnects do
+not open it.
+
+The candidate also persists normal renderer bounds and their DPI, restores
+them on the next session, scales for monitor-DPI changes, and clamps a stale or
+oversized placement into an available work area. Automatic fitting preserves
+the restored center and approximate client area. An early phone-shaped raw
+video marker is now retained before the 350 ms stability debounce, preventing
+the recorded direct-in-Photos `998x2160` then `3840x2160` startup sequence from
+using the media canvas as its device baseline.
+
+The tray fallback is renamed **Restore window proportions**, and the settings
+Back control has a larger arrow and hit target. Localization is not part of
+this patch; D-006 remains the planned resource-based system-language/manual-
+override design.
+
 ## Latest public release
 
 - Version: `v0.12.2`
@@ -14,84 +43,62 @@ next step changes.
 - Published: `2026-08-09T22:16:12Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
 - Updater status: current `releases/latest` public review Release
-- Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
 - Public assets: Setup, AeroMirror source, prepared native corresponding
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.12.2` tag and its four assets are immutable. Any correction must use
+The `v0.12.2` tag and its four assets are immutable. Any correction uses
 `0.12.3` or a later version; never move the tag or replace a published file.
-Exact evidence is recorded in `docs/releases/0.12.2/BUILD_REPORT.md`.
+Exact 0.12.2 evidence remains in
+`docs/releases/0.12.2/BUILD_REPORT.md`.
 
-The immutable public 0.12.1 and 0.12.0 releases and their verification remain
-under `docs/releases/`. Historical 0.11 tags, assets, plans, and build reports
-also remain unchanged release history.
+## Candidate verification
 
-## What 0.12.2 changes
+The integrated 0.12.3 managed x64 build and receiver resilience suite pass,
+including placeholder state/exclusion, early Photos-marker, renderer-placement,
+settings-schema, WinEvent-callback, and existing regression assertions.
+The foreground-only/memory-only placeholder source audit, current version/link
+audit, `git diff --check`, review packaging, Setup/lifecycle verification, and
+native corresponding-source validation also pass. The exact-tag release gate
+remains pending. No tag or release asset exists yet. The acceptance matrix is
+`docs/releases/0.12.3/TEST_PLAN.md`.
 
-- A fatal lost-client marker survives quick native mirror cleanup and selects
-  exactly one bounded discovery renewal. A clean disconnect still leaves the
-  healthy receiver running without a restart.
-- The first exact video size seeds a per-session device-frame aspect. Later
-  matching ratios drive physical rotation; a non-matching Photos
-  `3840x2160` canvas retains a learned `998x2160` device orientation.
-- Interactive renderer resize completion queues a short aspect-preserving fit
-  on the supervision thread. Move-only/minimized/maximized states and an
-  explicit automatic-fit opt-out are respected.
-- The fitting setting and tray fallback have clearer Russian labels.
+No physical Windows/iPhone result is claimed by source inspection or automated
+checks.
 
-The pinned native UxPlay core, third-party runtime, receiver identity and trust
-state, settings format, update path, and Public/Unknown network fail-closed
-policy are unchanged.
+## Known limitations and physical blockers
 
-## Automated verification
-
-Passed against the exact source published as `v0.12.2`:
-
-1. managed x64 shell build;
-2. receiver resilience suite, including clean versus abnormal disconnect,
-   one-shot recovery consumption, reconnect cancellation, Photos-canvas
-   suppression, physical 16:9 rotation, resize-end classification, and
-   explicit automatic-fit opt-out;
-3. existing settings, update-parser, network-policy, diagnostics-redaction,
-   lifecycle, and source assertions within the same resilience suite.
-4. the versioned review payload built successfully with `package-review.ps1`;
-5. Setup built successfully and its installer lifecycle self-check passed;
-6. the prepared native corresponding-source archive built and passed pinned
-   source-provenance validation.
-
-Shell/Setup source-version consistency, current release-link targets,
-`git diff --check`, exact-tag `release.ps1` packaging, and final checksums pass.
-All four public assets were downloaded again with matching byte sizes and
-SHA-256 values, and all GitHub API digest fields match. Installed-update
-acceptance and all physical Windows/iPhone gates remain pending.
-
-## Pending physical verification and known limitations
-
-- Windows 11 x64 + iPhone: abnormal Wi-Fi loss, disappearance/reappearance,
-  first reconnect attempt, clean disconnect, and repeated reconnect timing;
-- Windows 10 1809+ x64 + iPhone: the same reconnect matrix plus renderer resize
-  and Photos/fullscreen-video orientation behavior;
-- Windows 10/11: default automatic fit, explicit off, move-only, minimize,
-  maximize, taskbar, and mixed-DPI behavior;
-- a session that starts directly inside a media canvas may seed the wrong
-  device aspect until a new mirroring session;
-- an iOS stale-row tap may fail before any request reaches Windows, and iOS may
-  delay browse-cache refresh even after the receiver is ready;
-- native same-port DNS-SD/BLE re-publication after internal reset remains a
-  TODO; 0.12.2 uses one bounded managed process renewal instead.
-
-No physical Windows/iPhone result is claimed by the automated gates.
+- The inner Photos presentation is not fully fixed. iOS may send a
+  `3840x2160` encoded canvas with the photo and black bars already inside it.
+  AeroMirror can keep the outer phone-shaped window, but the current stdout
+  contract provides no safe content rectangle, crop metadata, or pixel-level
+  signal with which to enlarge only the photo. Physical diagnostics and a
+  native metadata or validated pixel-analysis design are still required.
+- If a session provides only a generic media canvas and never emits an early
+  phone-shaped marker, device orientation remains ambiguous; AeroMirror does
+  not guess that a generic 16:9 canvas is an iPhone frame.
+- The memory-only loss placeholder is a continuity aid, not a reconnection
+  accelerator. An iOS stale-row tap may still fail before reaching Windows,
+  and iOS may delay browse-cache refresh after the core is ready.
+- Native same-port DNS-SD/BLE re-publication after internal reset remains a
+  TODO; the managed shell still uses one bounded process renewal.
+- Fatal-loss placeholder timing, quick Wi-Fi recovery, manual dismissal,
+  clean-disconnect exclusion, saved bounds, offline-monitor clamping,
+  mixed-DPI restoration, Photos startup, and physical rotation all require
+  Windows 10/11 plus iPhone acceptance.
 
 ## Immediate next steps
 
-1. Install or update to public 0.12.2 and verify the complete in-place update
-   path from 0.12.1, including settings, trust state, shortcuts, and autostart.
-2. Run and record the physical matrix in
-   `docs/releases/0.12.2/TEST_PLAN.md` on Windows 11 and Windows 10.
-3. If a defect is found, use 0.12.3 or later; never modify the immutable
-   0.12.2 tag or assets.
+1. Create and verify the exact immutable `v0.12.3` tag and four release assets.
+2. The user has authorized publishing subsequent patch versions. Publish
+   0.12.3 as a clearly
+   labelled public review candidate; physical rows may remain pending and do
+   not permit a 1.0 claim.
+3. Run the complete physical matrix in
+   `docs/releases/0.12.3/TEST_PLAN.md`, and record hashes and public re-download
+   evidence in a post-release `BUILD_REPORT.md`
+   without modifying 0.12.2.
 
 ## Where information belongs
 

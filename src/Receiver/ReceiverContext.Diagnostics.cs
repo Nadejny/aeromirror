@@ -210,6 +210,7 @@ namespace AirPlayReceiverMvp
         private void Quit()
         {
             quitting = true;
+            CloseLostConnectionPlaceholder();
             monitorTimer.Stop();
             NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
             restartPending = false;

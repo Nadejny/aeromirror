@@ -32,9 +32,10 @@ Framework `AeroMirror.exe` assembly:
   atomic replacement of `settings.ini`;
 - `Receiver` owns the tray application context, native process lifecycle,
   discovery and reconnect supervision, renderer-window policy, diagnostics,
-  and logging;
+  fatal-loss presentation continuity, and logging;
 - `UI` owns the active settings window, diagnostic viewer, theme helpers,
-  application icon, and custom controls;
+  application icon, the managed lost-connection placeholder, and custom
+  controls;
 - `Updates` owns release parsing, update metadata, download, and digest
   verification;
 - `Network` owns physical-adapter selection and Private/Public/Unknown trust
@@ -69,7 +70,9 @@ The current shell depends on these native integration behaviors:
    stop, and lost-client observations. A fatal loss marker arms one bounded
    recovery decision: an active stalled session restarts, while completed
    native cleanup triggers exactly one discovery renewal. A normal clean
-   disconnect does not restart the receiver.
+   disconnect does not restart the receiver. The same confirmed fatal marker
+   can open a managed continuity placeholder; a benign feedback warning or
+   clean disconnect cannot.
 6. The reviewed libuxplay patch writes a stable
    `AEROMIRROR_VIDEO_SIZE source=<w>x<h> encoded=<w>x<h>` line when the
    incoming video size changes.
@@ -95,15 +98,21 @@ must never produce a false ready state.
 
 Renderer-window discovery is still a heuristic Win32 boundary. When a new
 renderer is found, the shell applies a provisional iPhone-aspect fit if the
-native size marker has not arrived yet. The first stable exact encoded size in
-each session becomes that session's device-frame baseline. Later sizes whose
-normalized aspect matches within `0.03` are authoritative rotation events;
-other ratios retain the learned device orientation. This prevents a Photos
+native size marker has not arrived yet. Raw markers continue through a 350 ms
+stability debounce, but the first marker with a conservative modern-iPhone
+shape is retained immediately as an early device-frame candidate. This covers
+the recorded direct-in-Photos sequence in which `998x2160` arrives about
+130 ms before the stable `3840x2160` presentation canvas. A generic 16:9
+marker is never promoted through this early path.
+
+The first stable exact size uses that early candidate when available; otherwise
+the existing conservative baseline rules apply. Later sizes whose normalized
+aspect matches within `0.03` are authoritative rotation events, while other
+ratios retain the learned device orientation. This prevents a Photos
 `3840x2160` presentation canvas from reshaping a window after a `998x2160`
-device frame, while still allowing physical `1080x1920`/`1920x1080` devices.
-If mirroring begins directly in a media canvas, that first frame may seed the
-wrong baseline until the next session because stdout exposes no independent
-device-orientation metadata.
+device frame and still allows physical `1080x1920`/`1920x1080` devices. A
+session that exposes only a generic media canvas remains ambiguous because
+stdout still provides no independent device-orientation metadata.
 
 The shell installs an out-of-context WinEvent hook scoped to the active native
 core process and watches interactive move/size completion. A real resize queues
@@ -116,11 +125,41 @@ one-shot fallback and resolves through the same learned device-frame baseline,
 so invoking it during a later Photos canvas does not recreate a false
 landscape fit.
 
+Normal renderer outer bounds and their DPI are persisted through the existing
+atomic settings path after a queued initial, manual, or automatic fit, or after
+move/resize work reaches the supervision timer. A new renderer first restores
+those bounds, scales them for its target DPI, and clamps stale, oversized, or
+disconnected-monitor coordinates into an available Windows work area. The
+subsequent provisional and exact-size fits preserve the restored center and
+approximate client area. Minimized/maximized states are not saved, and the
+out-of-context WinEvent callback performs no window mutation or file I/O.
+
 The marker reports the encoded stream dimensions; it is not remote-control
 input, pixel-aspect metadata, or a guarantee that an iPhone application itself
-has not letterboxed content inside the video frame. A future versioned IPC
-contract should replace stdout parsing and expose explicit stream and
-orientation events.
+has not letterboxed content inside the video frame. In particular, Photos may
+place a small image and black bars inside the encoded `3840x2160` canvas. The
+managed shell can choose the outer window aspect but cannot safely crop or zoom
+that inner content without a native content rectangle or validated pixel
+analysis. A future versioned IPC contract should replace stdout parsing and
+expose explicit stream, orientation, and content-layout events.
+
+## Fatal-loss presentation continuity
+
+The native renderer remains an external window owned by the core process, so
+it closes when bounded fatal-loss recovery replaces that process. Before that
+cleanup completes, the managed shell remembers its bounds and may copy the
+visible foreground pixels inside those bounds. The copy is softened and
+darkened in process memory; it is never written to settings, logs, diagnostics,
+or a temporary file. If foreground capture is unsafe or unavailable, the form
+uses a dark fallback.
+
+This managed placeholder is presentation continuity, not protocol state or a
+second renderer. It remains through native process renewal and a reconnect
+handshake, then closes only on a new mirroring-start marker, explicit user
+close, manual receiver stop, settings-driven shutdown, or application exit.
+Its taskbar and always-on-top policy follow the stream-window settings. A clean
+disconnect and benign client-feedback warnings never open it. Discovery speed
+and stale iOS browse rows remain properties of the native/network path.
 
 ## Native build provenance
 

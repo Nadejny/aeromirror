@@ -113,6 +113,11 @@ lost-client marker and completed native cleanup. It does not replace the
 native service registration in place, and it cannot force an iPhone to discard
 a stale browse result that never reaches Windows.
 
+Version 0.12.3 adds a managed, memory-only continuity placeholder for a
+confirmed fatal loss. It deliberately stays separate from readiness: keeping
+the last visible frame on screen does not mean discovery or reconnection has
+completed.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -180,22 +185,31 @@ sender, not merely the requested preset.
 
 ### Orientation and photo/video sizing
 
-Version 0.12.2 extends the interim path: a newly discovered renderer receives a
-provisional fit, then the first stable exact encoded size in the session seeds
-a device-frame baseline. Later normalized ratios within `0.03` follow physical
-rotation, while a different media-canvas ratio retains the learned orientation.
-Interactive resize completion also restores the learned proportions by default
-without overriding an explicit opt-out. The unchecked work below covers richer
-metadata, versioned IPC, a direct-media-first ambiguity, device validation, and
-edge cases still required before this behavior is considered complete.
+Version 0.12.3 extends the interim path: a newly discovered renderer receives a
+provisional fit, and an early marker with a conservative phone shape is retained
+before the stable-size debounce. This covers the observed `998x2160` then
+`3840x2160` direct-in-Photos startup sequence. Later normalized ratios within
+`0.03` follow physical rotation, while a different media-canvas ratio retains
+the learned orientation. Interactive resize completion restores the learned
+proportions by default, and normal renderer bounds/DPI persist across sessions
+with work-area clamping. The unchecked work below covers richer metadata,
+versioned IPC, sessions without any phone-shaped marker, inner encoded-canvas
+sizing, device validation, and edge cases still required before this behavior
+is considered complete.
 
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
   baseline has been learned for the current session.
-- [ ] Resolve sessions that start directly inside a media canvas without
-  guessing that the first exact frame is the physical device ratio.
+- [x] Retain an early phone-shaped raw marker before the debounce so the known
+  direct-in-Photos startup sequence cannot lose its device baseline.
+- [ ] Resolve sessions that start with only a generic media canvas and no early
+  phone-shaped marker, without guessing that the canvas is the physical device
+  ratio.
 - [ ] Pass source-size/orientation events through native IPC.
+- [ ] Expose a trustworthy content rectangle/crop signal or validate a
+  conservative pixel-analysis design for Photos canvases that contain their
+  own encoded black bars; do not crop real dark content by guesswork.
 - [ ] Resize or letterbox the viewer without cropping content, repeatedly
   shrinking the window, or creating a resize feedback loop.
 - [ ] Respect iPhone orientation lock: AeroMirror should follow the stream

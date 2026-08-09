@@ -272,11 +272,11 @@ namespace AirPlayReceiverMvp
             settingsContent.BackColor = BackColor;
             settingsPage.Controls.Add(settingsContent);
 
-            var back = MakeButton("‹  Назад", 20, 16, 90, 34, false);
+            var back = MakeBackButton(20, 14);
             back.Click += delegate { TryLeaveSettingsToHome(); };
             settingsContent.Controls.Add(back);
 
-            var settingsTitle = MakeLabel("Настройки", 126, 17);
+            var settingsTitle = MakeLabel("Настройки", 138, 17);
             settingsTitle.Font = new Font("Segoe UI Semibold", 18F);
             settingsContent.Controls.Add(settingsTitle);
 
@@ -459,11 +459,11 @@ namespace AirPlayReceiverMvp
             advancedPage.Visible = false;
             Controls.Add(advancedPage);
 
-            var advancedBack = MakeButton("‹  Назад", 20, 16, 90, 34, false);
+            var advancedBack = MakeBackButton(20, 14);
             advancedBack.Click += delegate { TryLeaveAdvancedToSettings(); };
             advancedPage.Controls.Add(advancedBack);
 
-            var advancedTitle = MakeLabel("Дополнительные настройки", 126, 17);
+            var advancedTitle = MakeLabel("Дополнительные настройки", 138, 17);
             advancedTitle.Font = new Font("Segoe UI Semibold", 18F);
             advancedPage.Controls.Add(advancedTitle);
 
@@ -535,11 +535,11 @@ namespace AirPlayReceiverMvp
             updatesPage.Visible = false;
             Controls.Add(updatesPage);
 
-            var updatesBack = MakeButton("‹  Назад", 20, 16, 90, 34, false);
+            var updatesBack = MakeBackButton(20, 14);
             updatesBack.Click += delegate { ShowHomePage(); };
             updatesPage.Controls.Add(updatesBack);
 
-            var updatesTitle = MakeLabel("Обновления", 126, 17);
+            var updatesTitle = MakeLabel("Обновления", 138, 17);
             updatesTitle.Font = new Font("Segoe UI Semibold", 18F);
             updatesPage.Controls.Add(updatesTitle);
 
@@ -1483,6 +1483,14 @@ namespace AirPlayReceiverMvp
                 button.BackColor = Color.FromArgb(0, 95, 184);
                 button.ForeColor = Color.White;
             }
+            return button;
+        }
+
+        private static Button MakeBackButton(int x, int y)
+        {
+            var button = MakeButton("←  Назад", x, y, 102, 38, false);
+            button.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
+            button.TextAlign = ContentAlignment.MiddleCenter;
             return button;
         }
 

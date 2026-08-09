@@ -106,6 +106,9 @@ namespace AirPlayReceiverMvp
         internal static extern bool IsZoomed(IntPtr window);
 
         [DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
         internal static extern IntPtr SetWinEventHook(
             uint eventMinimum, uint eventMaximum, IntPtr eventHookModule,
             WinEventProc eventProc, uint processId, uint threadId, uint flags);
@@ -262,6 +265,21 @@ namespace AirPlayReceiverMvp
 
         [DllImport("user32.dll")]
         internal static extern bool GetClientRect(IntPtr window, out RECT rectangle);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr window);
+
+        internal static int GetWindowDpi(IntPtr window)
+        {
+            try
+            {
+                uint dpi = GetDpiForWindow(window);
+                if (dpi >= 48 && dpi <= 768)
+                    return (int)dpi;
+            }
+            catch { }
+            return 96;
+        }
 
         [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int virtualKey);

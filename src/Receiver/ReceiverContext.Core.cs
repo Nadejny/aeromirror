@@ -226,6 +226,7 @@ namespace AirPlayReceiverMvp
 
         public void StopCore()
         {
+            CloseLostConnectionPlaceholder();
             startAfterNetworkCheck = false;
             Interlocked.Exchange(
                 ref discoveryRefreshAfterNetworkCheck, 0);
@@ -245,6 +246,7 @@ namespace AirPlayReceiverMvp
         private void StopCoreInternal(
             string reason, bool graceful, bool resetRapidExit)
         {
+            FlushStreamWindowPlacementBeforeCoreStop();
             Process process = coreProcess;
             coreProcess = null;
             Interlocked.Exchange(ref activeCorePid, 0);
@@ -296,6 +298,7 @@ namespace AirPlayReceiverMvp
             }
             if (IsCoreRunning)
             {
+                FlushStreamWindowPlacementBeforeCoreStop();
                 Process process = coreProcess;
                 coreProcess = null;
                 Interlocked.Exchange(ref activeCorePid, 0);
@@ -434,6 +437,7 @@ namespace AirPlayReceiverMvp
                         pendingVideoSizeGeneration = 0;
                         currentVideoSize = Size.Empty;
                         currentVideoSizeGeneration = 0;
+                        earlyDeviceFrameVideoSize = Size.Empty;
                         deviceFrameVideoSize = Size.Empty;
                         lastSuppressedVideoSize = Size.Empty;
                     }
@@ -474,14 +478,28 @@ namespace AirPlayReceiverMvp
                     width >= 64 && width <= 8192 &&
                     height >= 64 && height <= 8192)
                 {
+                    bool capturedEarlyDeviceFrame = false;
                     lock (videoSizeSync)
                     {
-                        pendingVideoSize = new Size(width, height);
+                        Size observedVideoSize = new Size(width, height);
+                        if (earlyDeviceFrameVideoSize.IsEmpty &&
+                            IsLikelyModernIPhoneDeviceFrame(observedVideoSize))
+                        {
+                            earlyDeviceFrameVideoSize = observedVideoSize;
+                            capturedEarlyDeviceFrame = true;
+                        }
+                        pendingVideoSize = observedVideoSize;
                         pendingVideoSizeGeneration =
                             Interlocked.CompareExchange(
                                 ref mirrorSessionGeneration, 0, 0);
                         pendingVideoSizeDueUtc =
                             DateTime.UtcNow.AddMilliseconds(350);
+                    }
+                    if (capturedEarlyDeviceFrame)
+                    {
+                        Log("Captured early phone-shaped device frame " +
+                            width + "x" + height +
+                            " before video-size debounce.");
                     }
                 }
             }
@@ -577,6 +595,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
                 Interlocked.Exchange(ref mirrorSessionActive, 1);
+                QueueLostConnectionPlaceholderClose();
                 canceledDeferredRestart = Interlocked.Exchange(
                     ref mirrorSessionEndedPending, 0) == 1;
                 Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
@@ -821,6 +840,7 @@ namespace AirPlayReceiverMvp
                     ref lostConnectionRecoveryDueTicks,
                     DateTime.UtcNow.AddSeconds(3).Ticks);
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 1);
+                QueueLostConnectionPlaceholder();
                 Log("UxPlay reported a " + marker + "; waiting three seconds " +
                     "for its internal reset before host recovery.");
             }
@@ -855,6 +875,7 @@ namespace AirPlayReceiverMvp
                 pendingVideoSizeGeneration = 0;
                 currentVideoSize = Size.Empty;
                 currentVideoSizeGeneration = 0;
+                earlyDeviceFrameVideoSize = Size.Empty;
                 deviceFrameVideoSize = Size.Empty;
                 lastSuppressedVideoSize = Size.Empty;
             }
@@ -1642,10 +1663,12 @@ namespace AirPlayReceiverMvp
                 }
               }
             }
+            HandleLostConnectionPlaceholder();
             HandleLostConnectionRecovery();
             HandleCoreDiscoveryRecovery();
             HandleAutomaticDiscoveryMaintenance();
             ApplyTopMost();
+            ApplyLostConnectionPlaceholderPolicy();
             if (form != null && !form.IsDisposed)
             {
                 form.SyncTheme();

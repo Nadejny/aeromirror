@@ -20,7 +20,7 @@ namespace AirPlayReceiverMvp
 {
     internal sealed class AppSettings
     {
-        public int SettingsVersion = 9;
+        public int SettingsVersion = 10;
         public string ReceiverName = Environment.MachineName;
         public string PairingMode = "none";
         public string FixedPin = "";
@@ -39,6 +39,11 @@ namespace AirPlayReceiverMvp
         public bool ShowStreamInTaskbar = true;
         public bool Notify = true;
         public bool DismissPinSuggestion = false;
+        public int StreamWindowLeft = 0;
+        public int StreamWindowTop = 0;
+        public int StreamWindowWidth = 0;
+        public int StreamWindowHeight = 0;
+        public int StreamWindowDpi = 0;
 
         public static string Folder
         {
@@ -162,7 +167,12 @@ namespace AirPlayReceiverMvp
                 AlwaysOnTop = AlwaysOnTop,
                 ShowStreamInTaskbar = ShowStreamInTaskbar,
                 Notify = Notify,
-                DismissPinSuggestion = DismissPinSuggestion
+                DismissPinSuggestion = DismissPinSuggestion,
+                StreamWindowLeft = StreamWindowLeft,
+                StreamWindowTop = StreamWindowTop,
+                StreamWindowWidth = StreamWindowWidth,
+                StreamWindowHeight = StreamWindowHeight,
+                StreamWindowDpi = StreamWindowDpi
             };
         }
 
@@ -227,6 +237,31 @@ namespace AirPlayReceiverMvp
                     case "DismissPinSuggestion":
                         if (bool.TryParse(value, out flag)) settings.DismissPinSuggestion = flag;
                         break;
+                    case "StreamWindowLeft":
+                        int streamWindowLeft;
+                        if (int.TryParse(value, out streamWindowLeft))
+                            settings.StreamWindowLeft = streamWindowLeft;
+                        break;
+                    case "StreamWindowTop":
+                        int streamWindowTop;
+                        if (int.TryParse(value, out streamWindowTop))
+                            settings.StreamWindowTop = streamWindowTop;
+                        break;
+                    case "StreamWindowWidth":
+                        int streamWindowWidth;
+                        if (int.TryParse(value, out streamWindowWidth))
+                            settings.StreamWindowWidth = streamWindowWidth;
+                        break;
+                    case "StreamWindowHeight":
+                        int streamWindowHeight;
+                        if (int.TryParse(value, out streamWindowHeight))
+                            settings.StreamWindowHeight = streamWindowHeight;
+                        break;
+                    case "StreamWindowDpi":
+                        int streamWindowDpi;
+                        if (int.TryParse(value, out streamWindowDpi))
+                            settings.StreamWindowDpi = streamWindowDpi;
+                        break;
                 }
             }
 
@@ -275,6 +310,11 @@ namespace AirPlayReceiverMvp
                 settings.SettingsVersion = 9;
                 settings.DismissPinSuggestion = false;
             }
+            if (!hasSettingsVersion || settings.SettingsVersion < 10)
+            {
+                settings.SettingsVersion = 10;
+                settings.ClearStreamWindowPlacement();
+            }
             settings.NormalizePersistedValues();
             return settings;
         }
@@ -302,7 +342,12 @@ namespace AirPlayReceiverMvp
                 "AlwaysOnTop=" + AlwaysOnTop,
                 "ShowStreamInTaskbar=" + ShowStreamInTaskbar,
                 "Notify=" + Notify,
-                "DismissPinSuggestion=" + DismissPinSuggestion
+                "DismissPinSuggestion=" + DismissPinSuggestion,
+                "StreamWindowLeft=" + StreamWindowLeft,
+                "StreamWindowTop=" + StreamWindowTop,
+                "StreamWindowWidth=" + StreamWindowWidth,
+                "StreamWindowHeight=" + StreamWindowHeight,
+                "StreamWindowDpi=" + StreamWindowDpi
             };
             WriteAllLinesAtomically(FilePath, lines);
         }
@@ -338,6 +383,26 @@ namespace AirPlayReceiverMvp
                 AudioOutput, "default", "default", "mute");
             ThemeMode = NormalizeChoice(
                 ThemeMode, "system", "system", "light", "dark");
+            if (!HasValidStreamWindowPlacement())
+                ClearStreamWindowPlacement();
+        }
+
+        internal bool HasValidStreamWindowPlacement()
+        {
+            return StreamWindowWidth >= 100 && StreamWindowWidth <= 32767 &&
+                StreamWindowHeight >= 100 && StreamWindowHeight <= 32767 &&
+                StreamWindowLeft >= -100000 && StreamWindowLeft <= 100000 &&
+                StreamWindowTop >= -100000 && StreamWindowTop <= 100000 &&
+                StreamWindowDpi >= 48 && StreamWindowDpi <= 768;
+        }
+
+        internal void ClearStreamWindowPlacement()
+        {
+            StreamWindowLeft = 0;
+            StreamWindowTop = 0;
+            StreamWindowWidth = 0;
+            StreamWindowHeight = 0;
+            StreamWindowDpi = 0;
         }
 
         private static string NormalizeChoice(

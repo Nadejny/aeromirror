@@ -28,6 +28,8 @@ $source = [string]::Join(
     @($sourcePaths | ForEach-Object {
         [IO.File]::ReadAllText($_)
     }))
+$lostConnectionUiSource = [IO.File]::ReadAllText(
+    (Join-Path $sourceRoot "UI\LostConnectionForm.cs"))
 Assert-True (-not $source.Contains("GetOrCreateReceiverDeviceId")) `
     "an upgrade must not invent a replacement AirPlay device ID"
 Assert-True ($source.Contains("GetSavedReceiverDeviceId")) `
@@ -118,6 +120,51 @@ Assert-True ($source.Contains("DateTime.UtcNow.AddMilliseconds(150)") -and
 Assert-True ($source.Contains("autoFit = MakeCheckBox(") -and
     $source.Contains("FitStreamWindow(true)")) `
     "automatic aspect fitting retains a settings control and manual tray fallback"
+Assert-True ($source.Contains("internal sealed class LostConnectionForm") -and
+    $lostConnectionUiSource.Contains("titleLabel.Text =") -and
+    $lostConnectionUiSource.Contains("detailLabel.Text =") -and
+    $lostConnectionUiSource.Contains("closeButton.Text =")) `
+    "fatal connection loss has a focused user-visible placeholder"
+Assert-True ($source.Contains("CopyFromScreen(") -and
+    -not $source.Contains("PrintWindow(")) `
+    "the placeholder uses only a non-blocking foreground screen snapshot"
+Assert-True ($source.Contains("GetForegroundWindow() == rendererWindow")) `
+    "desktop capture cannot include a foreground window covering the renderer"
+Assert-True ($lostConnectionUiSource.Contains("source.Width / 12") -and
+    $lostConnectionUiSource.Contains("source.Height / 12") -and
+    $lostConnectionUiSource.Contains(
+        "InterpolationMode.HighQualityBicubic")) `
+    "the captured frame is softened once in memory before display"
+Assert-True (-not [regex]::IsMatch(
+        $lostConnectionUiSource, '\.(?:Save|SaveAdd)\s*\(')) `
+    "the lost-frame placeholder never writes its snapshot to disk"
+$lostArmStart = $source.IndexOf("private void ArmLostConnectionRecovery")
+$lostArmEnd = $source.IndexOf(
+    "private void ResetCoreSessionTracking", $lostArmStart)
+Assert-True ($lostArmStart -ge 0 -and $lostArmEnd -gt $lostArmStart) `
+    "fatal-loss arming has a focused implementation boundary"
+$lostArmSource = $source.Substring(
+    $lostArmStart, $lostArmEnd - $lostArmStart)
+Assert-True ($lostArmSource.Contains("QueueLostConnectionPlaceholder()") -and
+    -not $lostArmSource.Contains("CopyFromScreen(") -and
+    -not $lostArmSource.Contains("new LostConnectionForm")) `
+    "the native output callback only queues placeholder UI work"
+$placeholderCloseCallCount = [regex]::Matches(
+    $source, 'CloseLostConnectionPlaceholder\s*\(\s*\)').Count
+Assert-True ($placeholderCloseCallCount -ge 5) `
+    "manual stop, disabled receiver startup, app exit, and UI close consume the placeholder"
+$sessionResetStart = $source.IndexOf(
+    "private void ResetCoreSessionTracking")
+$sessionResetEnd = $source.IndexOf(
+    "private void ResetIdleDiscoveryRenewalLimit", $sessionResetStart)
+Assert-True ($sessionResetStart -ge 0 -and
+    $sessionResetEnd -gt $sessionResetStart) `
+    "core-session reset has a focused implementation boundary"
+$sessionResetSource = $source.Substring(
+    $sessionResetStart, $sessionResetEnd - $sessionResetStart)
+Assert-True (-not $sessionResetSource.Contains(
+        "LostConnectionPlaceholder")) `
+    "a native core restart does not automatically dismiss the placeholder"
 $moveSizeCallbackStart = $source.IndexOf(
     "private void OnRendererMoveSizeEvent")
 $moveSizeCallbackEnd = $source.IndexOf(
@@ -130,8 +177,35 @@ $moveSizeCallbackSource = $source.Substring(
     $moveSizeCallbackStart,
     $moveSizeCallbackEnd - $moveSizeCallbackStart)
 Assert-True (-not $moveSizeCallbackSource.Contains("FitRendererWindow") -and
-    -not $moveSizeCallbackSource.Contains("SetWindowPos")) `
-    "the WinEvent callback only records and queues instead of resizing directly"
+    -not $moveSizeCallbackSource.Contains("SetWindowPos") -and
+    -not $moveSizeCallbackSource.Contains("settings.Save") -and
+    -not $moveSizeCallbackSource.Contains("GetWindowRect")) `
+    "the WinEvent callback only records and queues instead of resizing or writing settings"
+$placementQueueIndex = $moveSizeCallbackSource.IndexOf(
+    "QueueStreamWindowPlacementSave")
+$fitDecisionIndex = $moveSizeCallbackSource.IndexOf(
+    "ShouldQueueManualRendererFit")
+Assert-True ($placementQueueIndex -ge 0 -and
+    $fitDecisionIndex -gt $placementQueueIndex) `
+    "move-only and automatic-fit-disabled completion still queues placement persistence"
+$placementQueueCallCount = [regex]::Matches(
+    $source, 'QueueStreamWindowPlacementSave\s*\(').Count
+Assert-True ($placementQueueCallCount -ge 7 -and
+    $source.Contains("SavePendingStreamWindowPlacement(window)")) `
+    "interactive and programmatic fits persist through the supervision timer"
+$placementFlushCount = [regex]::Matches(
+    $source, 'FlushStreamWindowPlacementBeforeCoreStop\s*\(\s*\)').Count
+Assert-True ($placementFlushCount -ge 3) `
+    "manual stop and asynchronous restart flush placement before detaching the core"
+Assert-True ($source.Contains("settings.StreamWindowLeft = oldLeft") -and
+    $source.Contains("settings.StreamWindowDpi = oldDpi") -and
+    $source.Contains("streamWindowPlacementSaveFailures < 2")) `
+    "a failed atomic placement save restores memory and receives a bounded retry"
+$restoredAreaFitCount = [regex]::Matches(
+    $source,
+    'FitRendererWindow\(\s*window, automaticVideoSize,\s*restoredStreamWindowPlacementWindow == window\)').Count
+Assert-True ($restoredAreaFitCount -eq 2) `
+    "initial and exact-size refinement preserve restored center and client area"
 
 $assembly = [Reflection.Assembly]::LoadFrom(
     [IO.Path]::GetFullPath($AssemblyPath))
@@ -147,6 +221,39 @@ $instanceFlags = [Reflection.BindingFlags]::Instance -bor `
 $staticFlags = [Reflection.BindingFlags]::Static -bor `
     [Reflection.BindingFlags]::NonPublic -bor `
     [Reflection.BindingFlags]::Public
+
+$decideLostPlaceholder = $contextType.GetMethod(
+    "DecideLostConnectionPlaceholderAction", $staticFlags)
+Assert-True ($null -ne $decideLostPlaceholder) `
+    "lost-frame placeholder exposes a deterministic state transition"
+Assert-True ($decideLostPlaceholder.Invoke(
+        $null, [object[]]@($true, $false, $false)).ToString() -eq "Show") `
+    "a first fatal-loss request opens the placeholder"
+Assert-True ($decideLostPlaceholder.Invoke(
+        $null, [object[]]@($true, $false, $true)).ToString() -eq "None") `
+    "a repeated request cannot duplicate an existing placeholder"
+Assert-True ($decideLostPlaceholder.Invoke(
+        $null, [object[]]@($true, $true, $false)).ToString() -eq "Close") `
+    "a reconnect or shutdown close request wins over a stale show request"
+$clampLostPlaceholderBounds = $contextType.GetMethod(
+    "ClampLostConnectionPlaceholderBounds", $staticFlags)
+Assert-True ($null -ne $clampLostPlaceholderBounds) `
+    "lost-frame placement exposes a deterministic screen-clamp path"
+$placeholderWorkArea = [Drawing.Rectangle]::new(0, 0, 1920, 1080)
+$rememberedRendererBounds = [Drawing.Rectangle]::new(140, 90, 520, 920)
+Assert-True ([Drawing.Rectangle]$clampLostPlaceholderBounds.Invoke(
+        $null, [object[]]@(
+            $rememberedRendererBounds, $placeholderWorkArea)) -eq
+        $rememberedRendererBounds) `
+    "an on-screen placeholder reuses the last renderer bounds"
+$disconnectedMonitorBounds = [Drawing.Rectangle]::new(
+    2400, 1200, 520, 920)
+$clampedRendererBounds = [Drawing.Rectangle]$clampLostPlaceholderBounds.Invoke(
+    $null, [object[]]@(
+        $disconnectedMonitorBounds, $placeholderWorkArea))
+Assert-True ($clampedRendererBounds -eq
+        [Drawing.Rectangle]::new(1400, 160, 520, 920)) `
+    "a remembered window from a disconnected monitor returns fully on-screen"
 
 $shouldQueueManualFit = $contextType.GetMethod(
     "ShouldQueueManualRendererFit", $staticFlags)
@@ -169,6 +276,65 @@ Assert-True (-not [bool]$shouldQueueManualFit.Invoke(
         $null, [object[]]@($false, $startClientSize,
             [Drawing.Size]::new(700, 1000)))) `
     "an explicit disabled automatic-fit setting remains authoritative"
+
+$clampSavedStreamWindowBounds = $contextType.GetMethod(
+    "ClampSavedStreamWindowBounds", $staticFlags)
+Assert-True ($null -ne $clampSavedStreamWindowBounds) `
+    "saved renderer bounds normalization is independently testable"
+function Invoke-ClampSavedRendererBounds(
+    [Drawing.Rectangle]$Saved,
+    [Drawing.Rectangle]$Current,
+    [Drawing.Rectangle[]]$WorkAreas,
+    [int]$SavedDpi,
+    [int]$TargetDpi) {
+    $arguments = [Array]::CreateInstance([object], 5)
+    $arguments.SetValue($Saved, 0)
+    $arguments.SetValue($Current, 1)
+    $arguments.SetValue($WorkAreas, 2)
+    $arguments.SetValue($SavedDpi, 3)
+    $arguments.SetValue($TargetDpi, 4)
+    return [Drawing.Rectangle]$clampSavedStreamWindowBounds.Invoke(
+        $null, $arguments)
+}
+$dualMonitorAreas = [Drawing.Rectangle[]]@(
+    [Drawing.Rectangle]::new(0, 0, 1920, 1040),
+    [Drawing.Rectangle]::new(1920, 0, 1920, 1040))
+$secondaryPlacement = Invoke-ClampSavedRendererBounds `
+    ([Drawing.Rectangle]::new(2100, 40, 600, 900)) `
+    ([Drawing.Rectangle]::new(100, 100, 460, 1000)) `
+    $dualMonitorAreas 96 96
+Assert-True ($secondaryPlacement -eq
+    [Drawing.Rectangle]::new(2100, 40, 600, 900)) `
+    "a placement on an available secondary monitor is retained"
+$primaryArea = [Drawing.Rectangle[]]@(
+    [Drawing.Rectangle]::new(0, 0, 1920, 1040))
+$disconnectedPlacement = Invoke-ClampSavedRendererBounds `
+    ([Drawing.Rectangle]::new(2500, 200, 600, 800)) `
+    ([Drawing.Rectangle]::new(100, 100, 460, 1000)) `
+    $primaryArea 96 96
+Assert-True ($primaryArea[0].Contains($disconnectedPlacement)) `
+    "a placement from a disconnected monitor is clamped into the current work area"
+$dpiScaledPlacement = Invoke-ClampSavedRendererBounds `
+    ([Drawing.Rectangle]::new(100, 100, 400, 600)) `
+    ([Drawing.Rectangle]::new(100, 100, 460, 1000)) `
+    $primaryArea 96 144
+Assert-True ($dpiScaledPlacement.Width -eq 600 -and
+    $dpiScaledPlacement.Height -eq 900) `
+    "saved renderer size follows a target monitor DPI change"
+$minimumVisiblePlacement = Invoke-ClampSavedRendererBounds `
+    ([Drawing.Rectangle]::new(100, 100, 100, 100)) `
+    ([Drawing.Rectangle]::new(100, 100, 460, 1000)) `
+    $primaryArea 144 96
+Assert-True ($minimumVisiblePlacement.Width -ge 100 -and
+    $minimumVisiblePlacement.Height -ge 100 -and
+    $primaryArea[0].Contains($minimumVisiblePlacement)) `
+    "DPI restoration keeps a sensible visible minimum including the title bar"
+$oversizedPlacement = Invoke-ClampSavedRendererBounds `
+    ([Drawing.Rectangle]::new(-100, -100, 4000, 3000)) `
+    ([Drawing.Rectangle]::new(100, 100, 460, 1000)) `
+    $primaryArea 96 96
+Assert-True ($primaryArea[0].Contains($oversizedPlacement)) `
+    "an oversized saved placement is uniformly constrained to the work area"
 
 $networkHelpType = $assembly.GetType(
     "AirPlayReceiverMvp.NetworkHelpGlyph", $true)
@@ -199,12 +365,37 @@ $normalizeSettings = $settingsType.GetMethod(
 Assert-True ($null -ne $normalizeSettings) `
     "persisted settings normalization exists"
 $settingsProbe = [Activator]::CreateInstance($settingsType, $true)
+Assert-True ([int]$settingsProbe.SettingsVersion -eq 10) `
+    "new settings profiles use the renderer-placement schema"
 Assert-True ([bool]$settingsProbe.AutoFitWindow) `
     "automatic renderer aspect fitting is enabled for a new settings profile"
 $settingsProbe.AutoFitWindow = $false
 $normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
 Assert-True (-not [bool]$settingsProbe.AutoFitWindow) `
     "settings normalization preserves an explicit automatic-fit opt-out"
+$hasValidStreamWindowPlacement = $settingsType.GetMethod(
+    "HasValidStreamWindowPlacement", $instanceFlags)
+Assert-True ($null -ne $hasValidStreamWindowPlacement) `
+    "persisted renderer placement validation exists"
+$settingsProbe.StreamWindowLeft = -1200
+$settingsProbe.StreamWindowTop = 80
+$settingsProbe.StreamWindowWidth = 620
+$settingsProbe.StreamWindowHeight = 920
+$settingsProbe.StreamWindowDpi = 144
+Assert-True ([bool]$hasValidStreamWindowPlacement.Invoke(
+        $settingsProbe, [object[]]@())) `
+    "a valid mixed-monitor renderer placement survives normalization"
+$settingsCopy = $settingsType.GetMethod("Copy", $instanceFlags).Invoke(
+    $settingsProbe, [object[]]@())
+Assert-True ($settingsCopy.StreamWindowLeft -eq -1200 -and
+    $settingsCopy.StreamWindowWidth -eq 620 -and
+    $settingsCopy.StreamWindowDpi -eq 144) `
+    "ordinary settings edits preserve the saved stream-window placement"
+$settingsProbe.StreamWindowDpi = 0
+$normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
+Assert-True ($settingsProbe.StreamWindowWidth -eq 0 -and
+    $settingsProbe.StreamWindowHeight -eq 0) `
+    "an incomplete persisted renderer placement is cleared as one unit"
 $settingsProbe.PairingMode = "garbage"
 $settingsProbe.FixedPin = "1234"
 $settingsProbe.QualityPreset = "unknown-quality"
@@ -256,14 +447,14 @@ try {
     [IO.Directory]::CreateDirectory($atomicRoot) | Out-Null
     [IO.File]::WriteAllText($atomicPath, "old=value")
     $atomicLines = [Array]::CreateInstance([string], 2)
-    $atomicLines.SetValue("SettingsVersion=9", 0)
+    $atomicLines.SetValue("SettingsVersion=10", 0)
     $atomicLines.SetValue("PairingMode=none", 1)
     $atomicArguments = [Array]::CreateInstance([object], 2)
     $atomicArguments.SetValue([string]$atomicPath, 0)
     $atomicArguments.SetValue($atomicLines, 1)
     $atomicWriter.Invoke($null, $atomicArguments) | Out-Null
     $atomicText = [IO.File]::ReadAllText($atomicPath)
-    Assert-True ($atomicText.Contains("SettingsVersion=9") -and
+    Assert-True ($atomicText.Contains("SettingsVersion=10") -and
         $atomicText.Contains("PairingMode=none")) `
         "atomic settings replacement publishes the complete new file"
     Assert-True (([IO.Directory]::GetFiles(
@@ -328,7 +519,11 @@ $clientGraceDue = Field "clientActivityGraceDueTicks"
 $physicalNetworkRestartDeferred = Field "physicalNetworkRestartDeferred"
 $maintenanceSync = Field "postSessionMaintenanceSync"
 $videoSizeSync = Field "videoSizeSync"
+$streamWindowPlacementSync = Field "streamWindowPlacementSync"
+$pendingVideoSize = Field "pendingVideoSize"
+$pendingVideoSizeDueUtc = Field "pendingVideoSizeDueUtc"
 $currentVideoSize = Field "currentVideoSize"
+$earlyDeviceFrameVideoSize = Field "earlyDeviceFrameVideoSize"
 $deviceFrameVideoSize = Field "deviceFrameVideoSize"
 $lastSuppressedVideoSize = Field "lastSuppressedVideoSize"
 $startAfterNetwork = Field "startAfterNetworkCheck"
@@ -342,18 +537,24 @@ $discoveryRecoveryPending = Field "coreDiscoveryRecoveryPending"
 $discoveryRecoveryAttempts = Field "coreDiscoveryRecoveryAttempts"
 $discoveryRecoveryPid = Field "coreDiscoveryRecoveryPid"
 $discoveryRecoveryDue = Field "coreDiscoveryRecoveryDueTicks"
+$placeholderShowPending = Field "lostConnectionPlaceholderShowPending"
+$placeholderClosePending = Field "lostConnectionPlaceholderClosePending"
 
 $maintenanceSync.SetValue($context, (New-Object object))
 $videoSizeSync.SetValue($context, (New-Object object))
+$streamWindowPlacementSync.SetValue($context, (New-Object object))
 $activePid.SetValue($context, 42)
 $mirrorActive.SetValue($context, 1)
 $sameDeviceAspect = $contextType.GetMethod(
     "HaveEquivalentDeviceFrameAspect", $staticFlags)
+$likelyModernIPhoneFrame = $contextType.GetMethod(
+    "IsLikelyModernIPhoneDeviceFrame", $staticFlags)
 $resolveAutomaticVideo = $contextType.GetMethod(
     "ResolveAutomaticVideoSize", $instanceFlags)
 $resolveManualFitVideo = $contextType.GetMethod(
     "ResolveManualFitVideoSize", $instanceFlags)
 Assert-True ($null -ne $sameDeviceAspect -and
+    $null -ne $likelyModernIPhoneFrame -and
     $null -ne $resolveAutomaticVideo -and
     $null -ne $resolveManualFitVideo) `
     "renderer orientation uses a session device-frame baseline"
@@ -370,6 +571,16 @@ Assert-True ([bool]$sameDeviceAspect.Invoke(
 Assert-True (-not [bool]$sameDeviceAspect.Invoke(
         $null, [object[]]@($portraitFrame, $presentationCanvas))) `
     "the Photos presentation canvas does not impersonate device rotation"
+Assert-True ([bool]$likelyModernIPhoneFrame.Invoke(
+        $null, [object[]]@($portraitFrame)) -and
+    [bool]$likelyModernIPhoneFrame.Invoke(
+        $null, [object[]]@($landscapeFrame))) `
+    "phone-shaped portrait and landscape markers qualify as early device frames"
+Assert-True (-not [bool]$likelyModernIPhoneFrame.Invoke(
+        $null, [object[]]@($presentationCanvas)) -and
+    -not [bool]$likelyModernIPhoneFrame.Invoke(
+        $null, [object[]]@($sixteenByNinePortrait))) `
+    "a generic 16:9 canvas is never guessed to be the early iPhone baseline"
 
 function Resolve-AutomaticVideoSize([Drawing.Size]$VideoSize) {
     $arguments = [object[]]@($VideoSize, $false, $false)
@@ -458,6 +669,66 @@ $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 
 $observe = $contextType.GetMethod("ObserveCoreOutput", $instanceFlags)
 Assert-True ($null -ne $observe) "core-output observer exists"
+$getStableVideoSize = $contextType.GetMethod(
+    "GetStableVideoSize", $instanceFlags)
+Assert-True ($null -ne $getStableVideoSize) `
+    "video-size debounce exposes a deterministic stable-frame boundary"
+
+# Recorded Photos sequence: 998x2160 was followed by the app's 3840x2160
+# presentation canvas about 130 ms later, before the 350 ms debounce elapsed.
+$pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$earlyDeviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_SIZE source=998x2160 encoded=998x2160")) |
+    Out-Null
+Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
+    $portraitFrame) `
+    "the first raw phone-shaped marker is retained before debounce"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_SIZE source=3840x2160 encoded=3840x2160")) |
+    Out-Null
+Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
+    $portraitFrame -and
+    [Drawing.Size]$pendingVideoSize.GetValue($context) -eq
+        $presentationCanvas) `
+    "the later Photos canvas cannot overwrite the early device-frame candidate"
+$pendingVideoSizeDueUtc.SetValue(
+    $context, [DateTime]::UtcNow.AddMilliseconds(-1))
+$stableArguments = [object[]]@(0)
+$recordedStableCanvas = [Drawing.Size]$getStableVideoSize.Invoke(
+    $context, $stableArguments)
+$recordedPhotosResult = Resolve-AutomaticVideoSize $recordedStableCanvas
+Assert-True ($recordedStableCanvas -eq $presentationCanvas -and
+    -not $recordedPhotosResult.OrientationAuthoritative -and
+    $recordedPhotosResult.Size -eq $portraitFrame -and
+    $recordedPhotosResult.SuppressionChanged) `
+    "the recorded direct-in-Photos sequence keeps the portrait window baseline"
+
+$pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$earlyDeviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_SIZE source=3840x2160 encoded=3840x2160")) |
+    Out-Null
+Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty) `
+    "a first raw 16:9 canvas is not blindly promoted to an iPhone candidate"
+$pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+
 $readiness = $contextType.GetMethod(
     "IsCoreReadinessConfirmed", $staticFlags)
 Assert-True ($null -ne $readiness) "core-readiness predicate exists"
@@ -653,6 +924,8 @@ Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
     "DNS-SD success cancels recovery even when BLE is unavailable"
 
 $recoveryPending.SetValue($context, 0)
+$placeholderShowPending.SetValue($context, 0)
+$placeholderClosePending.SetValue($context, 0)
 $restartPending.SetValue($context, $false)
 $mirrorActive.SetValue($context, 1)
 $observe.Invoke(
@@ -664,6 +937,8 @@ Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
     "a client-feedback delay warning does not arm the lost-client watchdog"
 Assert-True (-not [bool]$restartPending.GetValue($context)) `
     "a client-feedback delay warning does not schedule a core restart"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0) `
+    "a client-feedback delay warning does not show a lost-frame placeholder"
 
 $observe.Invoke(
     $context,
@@ -672,6 +947,8 @@ Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
     "a clean mirror shutdown does not arm abnormal-loss recovery"
 Assert-True (-not [bool]$restartPending.GetValue($context)) `
     "a clean mirror shutdown does not schedule a receiver restart"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0) `
+    "a clean mirror shutdown does not show a lost-frame placeholder"
 
 $mirrorActive.SetValue($context, 1)
 
@@ -682,6 +959,8 @@ $observe.Invoke(
 $armedDue = [long]$recoveryDue.GetValue($context)
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 1) `
     "fatal mirror recv error arms recovery"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1) `
+    "fatal mirror recv error queues the lost-frame placeholder"
 Assert-True ($armedDue -ge $before + [TimeSpan]::FromSeconds(2).Ticks) `
     "recovery grace is not shorter than two seconds"
 Assert-True ($armedDue -le [DateTime]::UtcNow.AddSeconds(4).Ticks) `
@@ -723,6 +1002,9 @@ Assert-True ([int]$recoveryPid.GetValue($context) -eq 0) `
     "a reconnect request clears the abnormal-loss owner"
 Assert-True ([long]$recoveryDue.GetValue($context) -eq 0) `
     "a reconnect request clears the abnormal-loss deadline"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
+    [int]$placeholderClosePending.GetValue($context) -eq 0) `
+    "a reconnect handshake keeps the placeholder until mirroring really starts"
 
 $clientGraceDue.SetValue($context, [long]0)
 $recoveryPending.SetValue($context, 1)
@@ -924,12 +1206,18 @@ $coreReadinessAttempts.SetValue($context, 1)
 $coreReadinessPid.SetValue($context, 42)
 $clientReadyPending.SetValue($context, 0)
 $physicalNetworkRestartDeferred.SetValue($context, 1)
+$earlyDeviceFrameVideoSize.SetValue($context, $portraitFrame)
 $deviceFrameVideoSize.SetValue($context, $landscapeFrame)
 $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
 $observe.Invoke(
     $context,
     [object[]]@(42, "raop_rtp_mirror starting mirroring")) | Out-Null
-Assert-True ([Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0 -and
+    [int]$placeholderClosePending.GetValue($context) -eq 1) `
+    "a new mirroring start dismisses the lost-frame placeholder"
+Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty) `
@@ -1074,10 +1362,13 @@ $resetCoreSession = $contextType.GetMethod(
     "ResetCoreSessionTracking", $instanceFlags)
 Assert-True ($null -ne $resetCoreSession) `
     "core shutdown exposes a complete session-state reset"
+$earlyDeviceFrameVideoSize.SetValue($context, $portraitFrame)
 $deviceFrameVideoSize.SetValue($context, $landscapeFrame)
 $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
 $resetCoreSession.Invoke($context, [object[]]@($false)) | Out-Null
-Assert-True ([Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty) `

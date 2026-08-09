@@ -95,6 +95,7 @@ namespace AirPlayReceiverMvp
         private int pendingVideoSizeGeneration;
         private Size currentVideoSize = Size.Empty;
         private int currentVideoSizeGeneration;
+        private Size earlyDeviceFrameVideoSize = Size.Empty;
         private Size deviceFrameVideoSize = Size.Empty;
         private Size lastSuppressedVideoSize = Size.Empty;
         private int mirrorSessionGeneration;
@@ -110,6 +111,11 @@ namespace AirPlayReceiverMvp
         private IntPtr pendingManualFitWindow = IntPtr.Zero;
         private long pendingManualFitDueTicks;
         private int pendingManualFit;
+        private readonly object streamWindowPlacementSync = new object();
+        private IntPtr pendingStreamWindowPlacementWindow = IntPtr.Zero;
+        private DateTime pendingStreamWindowPlacementDueUtc = DateTime.MinValue;
+        private int streamWindowPlacementSaveFailures;
+        private IntPtr restoredStreamWindowPlacementWindow = IntPtr.Zero;
         private int lostConnectionRecoveryPending;
         private int lostConnectionRecoveryPid;
         private long lostConnectionRecoveryDueTicks;
@@ -160,7 +166,7 @@ namespace AirPlayReceiverMvp
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(autoStartItem);
             menu.Items.Add(topMostItem);
-            menu.Items.Add("Подогнать окно сейчас", null, delegate { FitStreamWindow(true); });
+            menu.Items.Add("Восстановить пропорции окна", null, delegate { FitStreamWindow(true); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Диагностика", null, delegate { ShowDiagnostics(); });
             menu.Items.Add("Открыть журнал", null, delegate { OpenLog(); });
@@ -283,7 +289,7 @@ namespace AirPlayReceiverMvp
             string previousArguments = BuildUxPlayArguments();
             bool wasRunning = IsCoreRunning;
             settings = updated;
-            settings.SettingsVersion = 9;
+            settings.SettingsVersion = 10;
             settings.Save();
             ApplyAutostart(settings.AutoStartWindows);
             autoStartItem.Checked = IsAutostartEnabled();
@@ -296,6 +302,7 @@ namespace AirPlayReceiverMvp
 
             if (!settings.AutoStartReceiver)
             {
+                CloseLostConnectionPlaceholder();
                 restartPending = false;
                 restartAfterStop = false;
                 startAfterNetworkCheck = false;

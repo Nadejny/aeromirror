@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.12.3 — connection-loss continuity and remembered stream windows
+
+### Added
+
+- After a confirmed fatal stream loss, AeroMirror can keep a softened view of
+  the last visible renderer frame at the same bounds while the receiver renews
+  discovery. The placeholder stays available through core replacement, offers
+  an explicit close action, and disappears when a new mirroring session starts,
+  the receiver is stopped, or AeroMirror exits. The captured frame remains in
+  process memory and is never written to disk.
+- The renderer's last normal position, outer size, and DPI are saved after a
+  valid fit, move, or resize and restored for the next stream. Bounds from a
+  disconnected monitor are clamped into an available Windows work area, and
+  size follows a changed monitor DPI.
+
+### Fixed
+
+- When mirroring starts directly inside Photos, a phone-shaped raw size marker
+  that arrives before the 350 ms debounce is retained as the device-frame
+  candidate. A later `3840x2160` Photos canvas in the same startup burst no
+  longer steals that portrait baseline.
+- Automatic fitting now preserves the restored window center and approximate
+  client area while applying the learned stream proportions.
+- The tray fallback is labelled **Restore window proportions**, and the
+  settings-page Back control has a larger arrow and hit target.
+
+### Compatibility and verification status
+
+- This patch changes the managed shell and settings schema only. The pinned
+  UxPlay executable, third-party runtime, receiver identity and trust state,
+  update path, and physical-network protection policy are unchanged.
+- The managed x64 build and receiver resilience suite pass. Installer,
+  packaging, exact-tag, and physical Windows 10/11 plus iPhone acceptance
+  remain pending for the local candidate.
+- This does **not** fully fix Photos content sizing. iOS can send a
+  `3840x2160` encoded canvas with the photo and black bars already inside it;
+  the shell can preserve the outer phone orientation but cannot safely crop or
+  zoom those inner pixels without native content metadata or validated pixel
+  analysis. A session that exposes only a generic media canvas and no early
+  phone-shaped marker also remains ambiguous.
+- Localization is not included in this patch. The current UI remains Russian;
+  the planned resource-based `System / English / Russian` design is tracked by
+  decision D-006.
+
 ## 0.12.2 — reconnect recovery, media orientation, and automatic fitting
 
 ### Fixed

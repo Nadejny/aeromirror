@@ -58,6 +58,8 @@ namespace AirPlayReceiverMvp
             rendererMoveSizeWindow = IntPtr.Zero;
             rendererMoveSizeStartClientSize = Size.Empty;
             ClearPendingManualRendererFit();
+            ClearPendingStreamWindowPlacementSave();
+            restoredStreamWindowPlacementWindow = IntPtr.Zero;
             if (hook != IntPtr.Zero)
             {
                 try { NativeMethods.UnhookWinEvent(hook); }
@@ -112,8 +114,17 @@ namespace AirPlayReceiverMvp
             Size endSize;
             if (NativeMethods.IsIconic(window) ||
                 NativeMethods.IsZoomed(window) ||
-                !TryGetRendererClientSize(window, out endSize) ||
-                !ShouldQueueManualRendererFit(
+                !TryGetRendererClientSize(window, out endSize))
+            {
+                ClearPendingManualRendererFit();
+                return;
+            }
+
+            // The out-of-context callback only queues persistence work.
+            // Outer-bounds capture, normalization and the atomic settings
+            // write run later on the WinForms supervision timer.
+            QueueStreamWindowPlacementSave(window, 200);
+            if (!ShouldQueueManualRendererFit(
                     settings.AutoFitWindow, startSize, endSize))
             {
                 ClearPendingManualRendererFit();
@@ -194,7 +205,297 @@ namespace AirPlayReceiverMvp
                 ? orientation : GetWindowOrientation(window);
             Log("Automatically fitted renderer window after manual resize" +
                 VideoSizeLogSuffix(videoSize) + ".");
+            QueueStreamWindowPlacementSave(window, 250);
             return true;
+        }
+
+        private void QueueStreamWindowPlacementSave(
+            IntPtr window, int delayMilliseconds)
+        {
+            if (window == IntPtr.Zero)
+                return;
+            lock (streamWindowPlacementSync)
+            {
+                pendingStreamWindowPlacementWindow = window;
+                pendingStreamWindowPlacementDueUtc = DateTime.UtcNow.AddMilliseconds(
+                    Math.Max(0, delayMilliseconds));
+                streamWindowPlacementSaveFailures = 0;
+            }
+        }
+
+        private void ClearPendingStreamWindowPlacementSave()
+        {
+            lock (streamWindowPlacementSync)
+            {
+                pendingStreamWindowPlacementWindow = IntPtr.Zero;
+                pendingStreamWindowPlacementDueUtc = DateTime.MinValue;
+                streamWindowPlacementSaveFailures = 0;
+            }
+        }
+
+        private void SavePendingStreamWindowPlacement(IntPtr currentWindow)
+        {
+            IntPtr targetWindow;
+            lock (streamWindowPlacementSync)
+            {
+                if (pendingStreamWindowPlacementWindow == IntPtr.Zero ||
+                    DateTime.UtcNow < pendingStreamWindowPlacementDueUtc)
+                    return;
+                targetWindow = pendingStreamWindowPlacementWindow;
+                pendingStreamWindowPlacementWindow = IntPtr.Zero;
+                pendingStreamWindowPlacementDueUtc = DateTime.MinValue;
+            }
+
+            if (targetWindow != currentWindow)
+                return;
+            SaveStreamWindowPlacement(targetWindow, true);
+        }
+
+        private bool SaveStreamWindowPlacement(
+            IntPtr targetWindow, bool allowRetry)
+        {
+            if (targetWindow == IntPtr.Zero ||
+                !NativeMethods.IsWindow(targetWindow) ||
+                !NativeMethods.IsWindowVisible(targetWindow) ||
+                NativeMethods.IsIconic(targetWindow) ||
+                NativeMethods.IsZoomed(targetWindow))
+                return false;
+
+            Rectangle bounds;
+            if (!TryGetRendererOuterBounds(targetWindow, out bounds))
+                return false;
+            if (bounds.Width < 100 || bounds.Height < 100)
+                return false;
+            int dpi = NativeMethods.GetWindowDpi(targetWindow);
+            if (settings.StreamWindowLeft == bounds.Left &&
+                settings.StreamWindowTop == bounds.Top &&
+                settings.StreamWindowWidth == bounds.Width &&
+                settings.StreamWindowHeight == bounds.Height &&
+                settings.StreamWindowDpi == dpi)
+            {
+                lock (streamWindowPlacementSync)
+                    streamWindowPlacementSaveFailures = 0;
+                return true;
+            }
+
+            int oldVersion = settings.SettingsVersion;
+            int oldLeft = settings.StreamWindowLeft;
+            int oldTop = settings.StreamWindowTop;
+            int oldWidth = settings.StreamWindowWidth;
+            int oldHeight = settings.StreamWindowHeight;
+            int oldDpi = settings.StreamWindowDpi;
+            settings.StreamWindowLeft = bounds.Left;
+            settings.StreamWindowTop = bounds.Top;
+            settings.StreamWindowWidth = bounds.Width;
+            settings.StreamWindowHeight = bounds.Height;
+            settings.StreamWindowDpi = dpi;
+            settings.SettingsVersion = 10;
+            try
+            {
+                settings.Save();
+                Log("Remembered renderer window placement " +
+                    bounds.Left + "," + bounds.Top + " " +
+                    bounds.Width + "x" + bounds.Height +
+                    " at " + dpi + " DPI.");
+                lock (streamWindowPlacementSync)
+                    streamWindowPlacementSaveFailures = 0;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                settings.SettingsVersion = oldVersion;
+                settings.StreamWindowLeft = oldLeft;
+                settings.StreamWindowTop = oldTop;
+                settings.StreamWindowWidth = oldWidth;
+                settings.StreamWindowHeight = oldHeight;
+                settings.StreamWindowDpi = oldDpi;
+                Log("Renderer window placement could not be saved: " +
+                    ex.Message);
+                if (allowRetry)
+                {
+                    lock (streamWindowPlacementSync)
+                    {
+                        if (pendingStreamWindowPlacementWindow == IntPtr.Zero &&
+                            streamWindowPlacementSaveFailures < 2)
+                        {
+                            streamWindowPlacementSaveFailures++;
+                            pendingStreamWindowPlacementWindow = targetWindow;
+                            pendingStreamWindowPlacementDueUtc =
+                                DateTime.UtcNow.AddSeconds(
+                                    streamWindowPlacementSaveFailures);
+                        }
+                    }
+                }
+                return false;
+            }
+        }
+
+        private void FlushStreamWindowPlacementBeforeCoreStop()
+        {
+            IntPtr window;
+            if (!TryGetRendererWindow(out window))
+                return;
+            SaveStreamWindowPlacement(window, false);
+            RememberRendererBounds(window);
+        }
+
+        private bool TryRestoreStreamWindowPlacement(IntPtr window)
+        {
+            if (!settings.HasValidStreamWindowPlacement())
+                return false;
+
+            Rectangle currentBounds;
+            if (!TryGetRendererOuterBounds(window, out currentBounds))
+                return false;
+
+            Rectangle[] workAreas;
+            try
+            {
+                Screen[] screens = Screen.AllScreens;
+                workAreas = new Rectangle[screens.Length];
+                for (int index = 0; index < screens.Length; index++)
+                    workAreas[index] = screens[index].WorkingArea;
+            }
+            catch
+            {
+                workAreas = new[] { Screen.FromHandle(window).WorkingArea };
+            }
+
+            Rectangle savedBounds = new Rectangle(
+                settings.StreamWindowLeft,
+                settings.StreamWindowTop,
+                settings.StreamWindowWidth,
+                settings.StreamWindowHeight);
+            Rectangle preliminary = ClampSavedStreamWindowBounds(
+                savedBounds, currentBounds, workAreas,
+                settings.StreamWindowDpi, settings.StreamWindowDpi);
+            if (preliminary.IsEmpty || !SetRendererOuterBounds(window, preliminary))
+                return false;
+
+            int targetDpi = NativeMethods.GetWindowDpi(window);
+            Rectangle restored = ClampSavedStreamWindowBounds(
+                savedBounds, preliminary, workAreas,
+                settings.StreamWindowDpi, targetDpi);
+            if (restored.IsEmpty || !SetRendererOuterBounds(window, restored))
+                return false;
+
+            Log("Restored renderer window placement " +
+                restored.Left + "," + restored.Top + " " +
+                restored.Width + "x" + restored.Height +
+                " at " + targetDpi + " DPI.");
+            QueueStreamWindowPlacementSave(window, 250);
+            return true;
+        }
+
+        private static Rectangle ClampSavedStreamWindowBounds(
+            Rectangle savedBounds, Rectangle currentBounds,
+            Rectangle[] workAreas, int savedDpi, int targetDpi)
+        {
+            if (savedBounds.Width <= 0 || savedBounds.Height <= 0 ||
+                workAreas == null || workAreas.Length == 0)
+                return Rectangle.Empty;
+
+            Rectangle targetArea = FindBestRendererWorkArea(
+                savedBounds, workAreas);
+            if (targetArea.IsEmpty)
+                targetArea = FindBestRendererWorkArea(
+                    currentBounds, workAreas);
+            if (targetArea.IsEmpty)
+            {
+                foreach (Rectangle candidate in workAreas)
+                {
+                    if (candidate.Width > 0 && candidate.Height > 0)
+                    {
+                        targetArea = candidate;
+                        break;
+                    }
+                }
+            }
+            if (targetArea.IsEmpty)
+                return Rectangle.Empty;
+
+            double dpiScale = savedDpi >= 48 && savedDpi <= 768 &&
+                targetDpi >= 48 && targetDpi <= 768
+                ? (double)targetDpi / savedDpi
+                : 1.0;
+            int width = Math.Max(1, (int)Math.Round(
+                Math.Min(100000.0, savedBounds.Width * dpiScale)));
+            int height = Math.Max(1, (int)Math.Round(
+                Math.Min(100000.0, savedBounds.Height * dpiScale)));
+            double fitScale = Math.Min(
+                1.0,
+                Math.Min(
+                    (double)targetArea.Width / width,
+                    (double)targetArea.Height / height));
+            if (fitScale < 1.0)
+            {
+                width = Math.Max(1, (int)Math.Floor(width * fitScale));
+                height = Math.Max(1, (int)Math.Floor(height * fitScale));
+            }
+            width = Math.Min(width, targetArea.Width);
+            height = Math.Min(height, targetArea.Height);
+            width = Math.Max(Math.Min(100, targetArea.Width), width);
+            height = Math.Max(Math.Min(100, targetArea.Height), height);
+
+            int maximumLeft = targetArea.Right - width;
+            int maximumTop = targetArea.Bottom - height;
+            int left = Math.Max(targetArea.Left,
+                Math.Min(savedBounds.Left, maximumLeft));
+            int top = Math.Max(targetArea.Top,
+                Math.Min(savedBounds.Top, maximumTop));
+            return new Rectangle(left, top, width, height);
+        }
+
+        private static Rectangle FindBestRendererWorkArea(
+            Rectangle bounds, Rectangle[] workAreas)
+        {
+            Rectangle best = Rectangle.Empty;
+            long bestArea = 0;
+            if (bounds.Width <= 0 || bounds.Height <= 0 || workAreas == null)
+                return best;
+            foreach (Rectangle candidate in workAreas)
+            {
+                if (candidate.Width <= 0 || candidate.Height <= 0)
+                    continue;
+                long left = Math.Max((long)bounds.Left, candidate.Left);
+                long top = Math.Max((long)bounds.Top, candidate.Top);
+                long right = Math.Min((long)bounds.Right, candidate.Right);
+                long bottom = Math.Min((long)bounds.Bottom, candidate.Bottom);
+                long overlap = Math.Max(0, right - left) *
+                    Math.Max(0, bottom - top);
+                if (overlap > bestArea)
+                {
+                    bestArea = overlap;
+                    best = candidate;
+                }
+            }
+            return best;
+        }
+
+        private static bool TryGetRendererOuterBounds(
+            IntPtr window, out Rectangle bounds)
+        {
+            bounds = Rectangle.Empty;
+            NativeMethods.RECT outer;
+            if (!NativeMethods.GetWindowRect(window, out outer))
+                return false;
+            int width = outer.Right - outer.Left;
+            int height = outer.Bottom - outer.Top;
+            if (width <= 0 || height <= 0)
+                return false;
+            bounds = new Rectangle(outer.Left, outer.Top, width, height);
+            return true;
+        }
+
+        private static bool SetRendererOuterBounds(
+            IntPtr window, Rectangle bounds)
+        {
+            return bounds.Width > 0 && bounds.Height > 0 &&
+                NativeMethods.SetWindowPos(
+                    window, IntPtr.Zero, bounds.Left, bounds.Top,
+                    bounds.Width, bounds.Height,
+                    NativeMethods.SWP_NOZORDER |
+                    NativeMethods.SWP_NOACTIVATE);
         }
 
         private bool TryGetRendererWindow(out IntPtr rendererWindow)
@@ -253,6 +554,7 @@ namespace AirPlayReceiverMvp
             IntPtr window;
             if (!TryGetRendererWindow(out window))
                 return;
+            RememberRendererBounds(window);
 
             NativeMethods.SetWindowText(window, "iPhone · AeroMirror");
             NativeMethods.SetToolWindowStyle(
@@ -268,6 +570,9 @@ namespace AirPlayReceiverMvp
                 initialFitPendingWindow = window;
                 exactVideoSizeFitGeneration = -1;
                 appliedVideoOrientation = 0;
+                restoredStreamWindowPlacementWindow =
+                    TryRestoreStreamWindowPlacement(window)
+                        ? window : IntPtr.Zero;
             }
 
             int videoSizeGeneration;
@@ -299,7 +604,8 @@ namespace AirPlayReceiverMvp
                 if (initialFitPendingWindow == window)
                 {
                     if (FitRendererWindow(
-                            window, automaticVideoSize, false))
+                            window, automaticVideoSize,
+                            restoredStreamWindowPlacementWindow == window))
                     {
                         ClearPendingManualRendererFit();
                         initialFitPendingWindow = IntPtr.Zero;
@@ -309,6 +615,7 @@ namespace AirPlayReceiverMvp
                             ? automaticOrientation : GetWindowOrientation(window);
                         Log("Applied initial renderer window fit" +
                             VideoSizeLogSuffix(automaticVideoSize) + ".");
+                        QueueStreamWindowPlacementSave(window, 250);
                     }
                 }
                 else if (videoSizeWindow == window &&
@@ -316,7 +623,8 @@ namespace AirPlayReceiverMvp
                     exactVideoSizeFitGeneration != videoSizeGeneration)
                 {
                     if (FitRendererWindow(
-                            window, automaticVideoSize, false))
+                            window, automaticVideoSize,
+                            restoredStreamWindowPlacementWindow == window))
                     {
                         ClearPendingManualRendererFit();
                         exactVideoSizeFitGeneration = videoSizeGeneration;
@@ -325,6 +633,7 @@ namespace AirPlayReceiverMvp
                             "device-frame size " +
                             automaticVideoSize.Width + "x" +
                             automaticVideoSize.Height + ".");
+                        QueueStreamWindowPlacementSave(window, 250);
                     }
                 }
                 else if (videoSizeWindow == window &&
@@ -343,6 +652,7 @@ namespace AirPlayReceiverMvp
                             " device frame " +
                             automaticVideoSize.Width + "x" +
                             automaticVideoSize.Height + ".");
+                        QueueStreamWindowPlacementSave(window, 250);
                     }
                 }
                 else if (appliedVideoOrientation == 0 && orientation != 0)
@@ -352,6 +662,8 @@ namespace AirPlayReceiverMvp
                 ApplyPendingManualRendererFit(
                     window, automaticVideoSize, videoSizeGeneration);
             }
+            SavePendingStreamWindowPlacement(window);
+            RememberRendererBounds(window);
             NativeMethods.SetWindowPos(window,
                 settings.AlwaysOnTop
                     ? NativeMethods.HWND_TOPMOST
@@ -400,6 +712,8 @@ namespace AirPlayReceiverMvp
                         ? orientation : GetWindowOrientation(window);
                     Log("Renderer window fitted manually" +
                         VideoSizeLogSuffix(videoSize) + ".");
+                    QueueStreamWindowPlacementSave(window, 250);
+                    RememberRendererBounds(window);
                     return;
                 }
                 Log("Manual renderer window fit failed for the visible " +
@@ -462,6 +776,12 @@ namespace AirPlayReceiverMvp
 
             lock (videoSizeSync)
             {
+                if (deviceFrameVideoSize.IsEmpty &&
+                    !earlyDeviceFrameVideoSize.IsEmpty)
+                {
+                    deviceFrameVideoSize = earlyDeviceFrameVideoSize;
+                }
+
                 if (deviceFrameVideoSize.IsEmpty)
                 {
                     deviceFrameVideoSize = videoSize;
@@ -492,6 +812,14 @@ namespace AirPlayReceiverMvp
             double secondAspect = NormalizedVideoAspect(second);
             return firstAspect > 0.0 && secondAspect > 0.0 &&
                 Math.Abs(firstAspect - secondAspect) <=
+                    DeviceFrameAspectTolerance;
+        }
+
+        private static bool IsLikelyModernIPhoneDeviceFrame(Size videoSize)
+        {
+            double aspect = NormalizedVideoAspect(videoSize);
+            return aspect > 0.0 &&
+                Math.Abs(aspect - ProvisionalIPhoneAspect) <=
                     DeviceFrameAspectTolerance;
         }
 
