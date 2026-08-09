@@ -12,3 +12,50 @@ index ea1c450..a04bdff 100644
      logger_log(logger, LOGGER_DEBUG, "begin video stream wxh = %dx%d; source %dx%d", width, height, width_source, height_source);
  }
  
+diff --git a/uxplay.cpp b/uxplay.cpp
+index d10edd4..2b27bff 100644
+--- a/uxplay.cpp
++++ b/uxplay.cpp
+@@ -1919,6 +1919,8 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
+ static int register_dnssd() {
+     int dnssd_error;
+     uint64_t features;
++    bool raop_registered = false;
++    bool airplay_registered = false;
+     
+     dnssd_error = dnssd_register_raop(dnssd, raop_port);
+     if (dnssd_error) {
+@@ -1935,10 +1937,13 @@ static int register_dnssd() {
+                      "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
+                      "(see Apple's dns_sd.h)", dnssd_error);
+             }
++            LOGI("AEROMIRROR_DNSSD_DEGRADED");
+             return -3;
+         } else {
+             LOGI("dnssd_register_raop failed: ignoring because Bluetooth LE service discovery may be available");
+         }
++    } else {
++        raop_registered = true;
+     }
+ 
+     dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
+@@ -1947,12 +1952,19 @@ static int register_dnssd() {
+             LOGE("dnssd_register_airplay failed with error code %d\n"
+                  "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
+                  "(see Apple's dns_sd.h)", dnssd_error);
++            LOGI("AEROMIRROR_DNSSD_DEGRADED");
+             return -4;
+         } else {
+             LOGI("dnssd_register_airplay failed: ignoring because Bluetooth LE service discovery may be available");   
+         }
++    } else {
++        airplay_registered = true;
+     }
+ 
++    LOGI("%s", raop_registered && airplay_registered
++         ? "AEROMIRROR_DNSSD_READY"
++         : "AEROMIRROR_DNSSD_DEGRADED");
++
+     LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
+          dnssd_get_airplay_features(dnssd));
+     return 0;

@@ -17,8 +17,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("AeroMirror Setup")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCompany("AeroMirror open-source project")]
-[assembly: AssemblyVersion("0.11.0.0")]
-[assembly: AssemblyFileVersion("0.11.0.0")]
+[assembly: AssemblyVersion("0.11.1.0")]
+[assembly: AssemblyFileVersion("0.11.1.0")]
 
 namespace AirPlayReceiverSetup
 {
@@ -27,6 +27,7 @@ namespace AirPlayReceiverSetup
         [STAThread]
         private static void Main(string[] args)
         {
+            bool updateRequested = HasArgument(args, "/update");
             if (!Environment.Is64BitOperatingSystem)
             {
                 MessageBox.Show(
@@ -50,6 +51,25 @@ namespace AirPlayReceiverSetup
                 catch (Exception ex)
                 {
                     SetupLog.Write("Runtime verification failed: " + ex);
+                    Environment.ExitCode = 2;
+                }
+                return;
+            }
+            if (args.Length > 0 &&
+                string.Equals(
+                    args[0], "/verify-shortcut-selection",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    InstallerOperations.VerifyShortcutSelectionLogic();
+                    SetupLog.Write(
+                        "Shortcut selection verification completed successfully.");
+                }
+                catch (Exception ex)
+                {
+                    SetupLog.Write(
+                        "Shortcut selection verification failed: " + ex);
                     Environment.ExitCode = 2;
                 }
                 return;
@@ -109,7 +129,18 @@ namespace AirPlayReceiverSetup
                 return;
             }
 
-            Application.Run(new SetupForm());
+            Application.Run(new SetupForm(updateRequested));
+        }
+
+        private static bool HasArgument(string[] args, string expected)
+        {
+            foreach (string arg in args)
+            {
+                if (string.Equals(
+                    arg, expected, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         private static void BeginUninstall()
@@ -259,7 +290,7 @@ namespace AirPlayReceiverSetup
 
     internal sealed class SetupForm : Form
     {
-        private static readonly Version SetupVersion = new Version(0, 11, 0);
+        internal static readonly Version SetupVersion = new Version(0, 11, 1);
         private readonly CheckBox startMenu;
         private readonly CheckBox desktop;
         private readonly CheckBox launch;
@@ -267,9 +298,11 @@ namespace AirPlayReceiverSetup
         private readonly ProgressBar progress;
         private readonly Label state;
         private readonly Version installedVersion;
+        private readonly bool updateRequested;
 
-        public SetupForm()
+        public SetupForm(bool updateRequested)
         {
+            this.updateRequested = updateRequested;
             installedVersion = InstallerOperations.GetInstalledVersion();
             Text = "Установка AeroMirror";
             Icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
@@ -296,7 +329,9 @@ namespace AirPlayReceiverSetup
 
             var subtitle = new Label();
             subtitle.Text = installedVersion == null
-                ? "Установка для текущего пользователя · без прав администратора"
+                ? updateRequested
+                ? "Обновление AeroMirror · текущие настройки сохранятся"
+                : "Установка для текущего пользователя · без прав администратора"
                 : installedVersion.CompareTo(SetupVersion) < 0
                 ? "Обновление " + installedVersion.ToString(3) +
                     " → " + SetupVersion.ToString(3) +
@@ -331,18 +366,17 @@ namespace AirPlayReceiverSetup
             runtimeNotice.ForeColor = Color.DimGray;
             Controls.Add(runtimeNotice);
 
-            bool keepStartMenu = installedVersion == null
-                ? true
-                : File.Exists(InstallPaths.StartMenuShortcut) ||
-                    File.Exists(InstallPaths.LegacyStartMenuShortcut);
-            bool keepDesktop = installedVersion == null
-                ? false
-                : File.Exists(InstallPaths.DesktopShortcut) ||
-                    File.Exists(InstallPaths.LegacyDesktopShortcut);
+            bool preserveShortcutChoice =
+                updateRequested || installedVersion != null;
+            ShortcutSelection shortcutSelection =
+                InstallerOperations.GetShortcutSelection(
+                    preserveShortcutChoice);
             startMenu = MakeCheckBox(
-                "Добавить ярлык в меню «Пуск»", 28, 224, keepStartMenu);
+                "Добавить ярлык в меню «Пуск»", 28, 224,
+                shortcutSelection.StartMenu);
             desktop = MakeCheckBox(
-                "Добавить ярлык на рабочий стол", 28, 255, keepDesktop);
+                "Добавить ярлык на рабочий стол", 28, 255,
+                shortcutSelection.Desktop);
             launch = MakeCheckBox("Запустить AeroMirror после установки", 28, 286, true);
             Controls.Add(startMenu);
             Controls.Add(desktop);
@@ -362,7 +396,7 @@ namespace AirPlayReceiverSetup
 
             install = new Button();
             install.Text = installedVersion == null
-                ? "Установить"
+                ? updateRequested ? "Обновить" : "Установить"
                 : installedVersion.CompareTo(SetupVersion) < 0
                 ? "Обновить"
                 : "Переустановить";
@@ -406,7 +440,11 @@ namespace AirPlayReceiverSetup
             bool launchAfter = launch.Checked;
             ThreadPool.QueueUserWorkItem(delegate
             {
-                SetupLog.Write("Interactive installation started.");
+                SetupLog.Write(
+                    "Interactive installation started. Update requested=" +
+                    updateRequested + "; Start menu shortcut=" +
+                    createStartMenu + "; Desktop shortcut=" +
+                    createDesktop + ".");
                 try
                 {
                     string executable = InstallerOperations.Install(
@@ -528,6 +566,18 @@ namespace AirPlayReceiverSetup
         internal static readonly string LegacyDesktopShortcut = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
             "AirPlay Receiver.lnk");
+    }
+
+    internal sealed class ShortcutSelection
+    {
+        internal readonly bool StartMenu;
+        internal readonly bool Desktop;
+
+        internal ShortcutSelection(bool startMenu, bool desktop)
+        {
+            StartMenu = startMenu;
+            Desktop = desktop;
+        }
     }
 
     internal static class InstallerOperations
@@ -774,6 +824,69 @@ namespace AirPlayReceiverSetup
             }
             catch { }
             return null;
+        }
+
+        internal static ShortcutSelection GetShortcutSelection(
+            bool preserveExistingChoice)
+        {
+            return ResolveShortcutSelection(
+                preserveExistingChoice,
+                File.Exists(InstallPaths.StartMenuShortcut),
+                File.Exists(InstallPaths.LegacyStartMenuShortcut),
+                File.Exists(InstallPaths.DesktopShortcut),
+                File.Exists(InstallPaths.LegacyDesktopShortcut));
+        }
+
+        internal static ShortcutSelection ResolveShortcutSelection(
+            bool preserveExistingChoice,
+            bool hasStartMenu,
+            bool hasLegacyStartMenu,
+            bool hasDesktop,
+            bool hasLegacyDesktop)
+        {
+            if (!preserveExistingChoice)
+                return new ShortcutSelection(true, false);
+            return new ShortcutSelection(
+                hasStartMenu || hasLegacyStartMenu,
+                hasDesktop || hasLegacyDesktop);
+        }
+
+        internal static void VerifyShortcutSelectionLogic()
+        {
+            AssertShortcutSelection(
+                ResolveShortcutSelection(
+                    false, false, false, false, false),
+                true, false, "fresh install defaults");
+            AssertShortcutSelection(
+                ResolveShortcutSelection(
+                    true, true, false, false, false),
+                true, false, "Start menu-only update");
+            AssertShortcutSelection(
+                ResolveShortcutSelection(
+                    true, false, false, true, false),
+                false, true, "Desktop-only update");
+            AssertShortcutSelection(
+                ResolveShortcutSelection(
+                    true, false, true, false, true),
+                true, true, "legacy shortcut update");
+            AssertShortcutSelection(
+                ResolveShortcutSelection(
+                    true, false, false, false, false),
+                false, false, "update without shortcuts");
+        }
+
+        private static void AssertShortcutSelection(
+            ShortcutSelection actual,
+            bool expectedStartMenu,
+            bool expectedDesktop,
+            string scenario)
+        {
+            if (actual.StartMenu != expectedStartMenu ||
+                actual.Desktop != expectedDesktop)
+            {
+                throw new InvalidOperationException(
+                    "Shortcut selection check failed for " + scenario + ".");
+            }
         }
 
         internal static void VerifyRuntimePayload()
@@ -1063,7 +1176,7 @@ namespace AirPlayReceiverSetup
             using (var client = new PinnedDownloadClient())
             {
                 client.Headers[HttpRequestHeader.UserAgent] =
-                    "AeroMirror-Setup/0.11.0";
+                    "AeroMirror-Setup/" + SetupForm.SetupVersion.ToString(3);
                 client.DownloadFile(RuntimeUrl, archive);
             }
             if (!string.Equals(
@@ -1503,7 +1616,8 @@ namespace AirPlayReceiverSetup
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey))
             {
                 key.SetValue("DisplayName", "AeroMirror");
-                key.SetValue("DisplayVersion", "0.11.0");
+                key.SetValue(
+                    "DisplayVersion", SetupForm.SetupVersion.ToString(3));
                 key.SetValue("Publisher", "AeroMirror open-source project");
                 key.SetValue("InstallLocation", InstallPaths.InstallDirectory);
                 key.SetValue("DisplayIcon", executable);

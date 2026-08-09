@@ -21,8 +21,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("AeroMirror open-source project")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("0.11.0.0")]
-[assembly: AssemblyFileVersion("0.11.0.0")]
+[assembly: AssemblyVersion("0.11.1.0")]
+[assembly: AssemblyFileVersion("0.11.1.0")]
 
 namespace AirPlayReceiverMvp
 {
@@ -132,7 +132,81 @@ namespace AirPlayReceiverMvp
         public static string FilePath { get { return Path.Combine(Folder, "settings.ini"); } }
         public static string LogPath { get { return Path.Combine(Folder, "receiver.log"); } }
         public static string ReceiverKeyPath { get { return Path.Combine(Folder, "receiver-key.pem"); } }
+        public static string ReceiverDeviceIdPath { get { return Path.Combine(Folder, "receiver-device-id.txt"); } }
         public static string TrustedClientsPath { get { return Path.Combine(Folder, "trusted-clients.txt"); } }
+
+        private static readonly object ReceiverDeviceIdSync = new object();
+        private static string cachedReceiverDeviceId = "";
+
+        public static string GetSavedReceiverDeviceId()
+        {
+            lock (ReceiverDeviceIdSync)
+            {
+                if (IsValidReceiverDeviceId(cachedReceiverDeviceId))
+                    return cachedReceiverDeviceId;
+
+                try
+                {
+                    if (File.Exists(ReceiverDeviceIdPath))
+                    {
+                        string saved = File.ReadAllText(
+                            ReceiverDeviceIdPath, Encoding.UTF8).Trim();
+                        if (IsValidReceiverDeviceId(saved))
+                        {
+                            cachedReceiverDeviceId = saved.ToUpperInvariant();
+                            return cachedReceiverDeviceId;
+                        }
+                    }
+                }
+                catch { }
+                return "";
+            }
+        }
+
+        public static void RememberReceiverDeviceId(string value)
+        {
+            if (!IsValidReceiverDeviceId(value))
+                return;
+            string normalized = value.Trim().ToUpperInvariant();
+            lock (ReceiverDeviceIdSync)
+            {
+                if (IsValidReceiverDeviceId(GetSavedReceiverDeviceId()))
+                    return;
+                string temporaryPath = ReceiverDeviceIdPath + "." +
+                    Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    File.WriteAllText(
+                        temporaryPath,
+                        normalized + Environment.NewLine,
+                        new UTF8Encoding(false));
+                    if (File.Exists(ReceiverDeviceIdPath))
+                        File.Replace(
+                            temporaryPath, ReceiverDeviceIdPath, null, true);
+                    else
+                        File.Move(temporaryPath, ReceiverDeviceIdPath);
+                    cachedReceiverDeviceId = normalized;
+                }
+                catch { }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(temporaryPath))
+                            File.Delete(temporaryPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        private static bool IsValidReceiverDeviceId(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(
+                value.Trim(),
+                @"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$",
+                RegexOptions.CultureInvariant);
+        }
 
         public AppSettings Copy()
         {
@@ -351,6 +425,7 @@ namespace AirPlayReceiverMvp
         private bool networkProfileKnown;
         private string networkProfileName = "";
         private string networkInterfaceName = "";
+        private string physicalNetworkAddresses = "";
         private string networkSignature = "";
         private int nonPhysicalProfileCount;
         private int publicNonPhysicalProfileCount;
@@ -377,6 +452,12 @@ namespace AirPlayReceiverMvp
         private int coreReadinessRecoveryAttempts;
         private int coreSocketsReady;
         private long coreSocketsReadyDueTicks;
+        private int coreDnsSdStatus;
+        private int coreBleStatus;
+        private int coreDiscoveryRecoveryPending;
+        private int coreDiscoveryRecoveryAttempts;
+        private int coreDiscoveryRecoveryPid;
+        private long coreDiscoveryRecoveryDueTicks;
         private int activeCorePid;
         private int mirrorSessionActive;
         private int mirrorSessionEndedPending;
@@ -396,7 +477,11 @@ namespace AirPlayReceiverMvp
         private IntPtr initialFitPendingWindow = IntPtr.Zero;
         private int exactVideoSizeFitGeneration = -1;
         private int appliedVideoOrientation;
+        private int lostConnectionRecoveryPending;
+        private int lostConnectionRecoveryPid;
+        private long lostConnectionRecoveryDueTicks;
         private bool startAfterNetworkCheck;
+        private int discoveryRefreshAfterNetworkCheck;
         private bool resumeAfterSafeNetwork;
         private string receiverStateText = "Приёмник остановлен";
 
@@ -478,10 +563,7 @@ namespace AirPlayReceiverMvp
             Log("Executable: " +
                 Path.GetFileName(Assembly.GetExecutingAssembly().Location));
             BeginNetworkProfileRefresh();
-            if (settings.AutoStartReceiver &&
-                settings.PairingMode != "none")
-                StartCore(!startup);
-            else if (settings.AutoStartReceiver)
+            if (settings.AutoStartReceiver)
             {
                 startAfterNetworkCheck = true;
                 SetState(false, "Проверяем безопасность сети…");
@@ -505,6 +587,15 @@ namespace AirPlayReceiverMvp
         public AppSettings CurrentSettings { get { return settings; } }
         public bool IsPublicNetwork { get { return publicNetwork; } }
         public bool IsNetworkProfileKnown { get { return networkProfileKnown; } }
+        public bool IsWaitingForNetwork
+        {
+            get
+            {
+                return startAfterNetworkCheck ||
+                    Interlocked.CompareExchange(
+                        ref discoveryRefreshAfterNetworkCheck, 0, 0) == 1;
+            }
+        }
         public string NetworkProfileName { get { return networkProfileName; } }
         public string NetworkInterfaceName { get { return networkInterfaceName; } }
         public bool HasNetworkOverlay
@@ -578,6 +669,8 @@ namespace AirPlayReceiverMvp
                 restartPending = false;
                 restartAfterStop = false;
                 startAfterNetworkCheck = false;
+                Interlocked.Exchange(
+                    ref discoveryRefreshAfterNetworkCheck, 0);
                 resumeAfterSafeNetwork = false;
                 if (IsCoreRunning)
                     StopCore();
@@ -644,6 +737,11 @@ namespace AirPlayReceiverMvp
             publicNetwork = profile.IsPublic;
             networkProfileName = profile.Name;
             networkInterfaceName = profile.InterfaceName;
+            physicalNetworkAddresses = profile.IsKnown
+                ? profile.Addresses
+                : "";
+            bool physicalNetworkReady = profile.IsKnown &&
+                FirstNumericIpv4(physicalNetworkAddresses).Length > 0;
             nonPhysicalProfileCount = profile.NonPhysicalProfileCount;
             publicNonPhysicalProfileCount =
                 profile.PublicNonPhysicalProfileCount;
@@ -711,7 +809,7 @@ namespace AirPlayReceiverMvp
             if (!unsafeAccess)
                 networkWarningShown = false;
 
-            if (profile.IsKnown && !unsafeAccess &&
+            if (physicalNetworkReady && !unsafeAccess &&
                 resumeAfterSafeNetwork && settings.AutoStartReceiver &&
                 !IsCoreRunning)
             {
@@ -723,9 +821,35 @@ namespace AirPlayReceiverMvp
 
             if (form != null && !form.IsDisposed)
                 form.SyncStatus();
+
+            bool discoveryRefreshPending =
+                Interlocked.CompareExchange(
+                    ref discoveryRefreshAfterNetworkCheck, 0, 0) == 1;
+            if (discoveryRefreshPending && physicalNetworkReady)
+            {
+                Interlocked.Exchange(
+                    ref discoveryRefreshAfterNetworkCheck, 0);
+                startAfterNetworkCheck = false;
+                networkUnknownRetries = 0;
+                if (!unsafeAccess)
+                {
+                    if (IsCoreRunning)
+                    {
+                        ScheduleRestart(
+                            "manual discovery refresh after network check",
+                            false, 500);
+                        receiverStartedByProfile = true;
+                    }
+                    else
+                    {
+                        StartCore(false);
+                        receiverStartedByProfile = IsCoreRunning;
+                    }
+                }
+            }
             if (startAfterNetworkCheck)
             {
-                if (profile.IsKnown)
+                if (physicalNetworkReady)
                 {
                     startAfterNetworkCheck = false;
                     networkUnknownRetries = 0;
@@ -735,25 +859,37 @@ namespace AirPlayReceiverMvp
                         receiverStartedByProfile = IsCoreRunning;
                     }
                 }
-                else if (networkUnknownRetries < 3)
+                else
                 {
                     networkUnknownRetries++;
+                    int retrySeconds = networkUnknownRetries <= 3 ? 2 : 5;
                     Interlocked.Exchange(
                         ref networkRefreshDueTicks,
-                        DateTime.UtcNow.AddSeconds(5).Ticks);
+                        DateTime.UtcNow.AddSeconds(retrySeconds).Ticks);
                     Interlocked.Exchange(ref networkRefreshPending, 1);
                     SetState(false,
                         "Проверяем сеть ещё раз…");
-                    Log("Initial physical network check returned Unknown; " +
-                        "retry " + networkUnknownRetries + " scheduled.");
+                    if (networkUnknownRetries <= 3 ||
+                        networkUnknownRetries % 12 == 0)
+                        Log("Initial physical network check returned Unknown; " +
+                            "retry " + networkUnknownRetries + " scheduled in " +
+                            retrySeconds + " seconds.");
                 }
-                else
-                {
-                    SetState(false,
-                        "Не удалось определить сеть · включите PIN");
-                    Log("Initial physical network check remained Unknown " +
-                        "after three retries; receiver stays paused.");
-                }
+            }
+            else if (discoveryRefreshPending && !physicalNetworkReady)
+            {
+                networkUnknownRetries++;
+                int retrySeconds = networkUnknownRetries <= 3 ? 2 : 5;
+                Interlocked.Exchange(
+                    ref networkRefreshDueTicks,
+                    DateTime.UtcNow.AddSeconds(retrySeconds).Ticks);
+                Interlocked.Exchange(ref networkRefreshPending, 1);
+                SetState(false, "Ждём адрес Wi-Fi/Ethernet…");
+                if (networkUnknownRetries <= 3 ||
+                    networkUnknownRetries % 12 == 0)
+                    Log("Discovery refresh is still waiting for a physical " +
+                        "IPv4 address; retry " + networkUnknownRetries +
+                        " scheduled in " + retrySeconds + " seconds.");
             }
             return changed && !receiverStartedByProfile;
         }
@@ -781,7 +917,8 @@ namespace AirPlayReceiverMvp
         {
             ResetRapidExitWindow();
             coreReadinessRecoveryAttempts = 0;
-            if (!networkProfileKnown && settings.PairingMode == "none")
+            Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+            if (!networkProfileKnown)
             {
                 startAfterNetworkCheck = true;
                 SetState(false, "Проверяем безопасность сети…");
@@ -804,7 +941,7 @@ namespace AirPlayReceiverMvp
                 try
                 {
                     int staleCode = coreProcess.ExitCode;
-                    coreProcess.WaitForExit();
+                    CancelCoreOutputReads(coreProcess);
                     Log("Disposing exited core before a new start; code " +
                         staleCode + ".");
                 }
@@ -823,6 +960,17 @@ namespace AirPlayReceiverMvp
             if (IsCoreRunning)
                 return;
             restartPending = false;
+
+            string beaconIpv4 = FirstNumericIpv4(physicalNetworkAddresses);
+            if (!networkProfileKnown || beaconIpv4.Length == 0)
+            {
+                startAfterNetworkCheck = true;
+                SetState(false, "Ждём адрес Wi-Fi/Ethernet…");
+                Log("Receiver start deferred until the physical " +
+                    "Wi-Fi/Ethernet profile has a usable IPv4 address.");
+                BeginNetworkProfileRefresh();
+                return;
+            }
 
             if (!networkProfileKnown && settings.PairingMode == "none")
             {
@@ -860,7 +1008,9 @@ namespace AirPlayReceiverMvp
             {
                 var start = new ProcessStartInfo();
                 start.FileName = CorePath;
-                start.Arguments = "--headless --uxplay " + BuildUxPlayArguments();
+                start.Arguments = "--headless --beacon-ipv4 " +
+                    QuoteArgument(beaconIpv4) + " --uxplay " +
+                    BuildUxPlayArguments();
                 start.WorkingDirectory = Path.GetDirectoryName(CorePath);
                 start.UseShellExecute = false;
                 start.CreateNoWindow = true;
@@ -875,6 +1025,8 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref coreSocketsReadyDueTicks, 0);
                 if (!process.Start())
                     throw new InvalidOperationException("UxPlay process did not start.");
+                Log("BLE discovery bound to physical IPv4 " +
+                    beaconIpv4 + ".");
                 coreProcess = process;
                 coreJob = NativeMethods.CreateKillOnCloseJob(process);
                 if (coreJob == IntPtr.Zero)
@@ -933,8 +1085,7 @@ namespace AirPlayReceiverMvp
                         if (!coreProcess.HasExited)
                             coreProcess.Kill();
                         coreProcess.WaitForExit(1500);
-                        if (coreProcess.HasExited)
-                            coreProcess.WaitForExit();
+                        CancelCoreOutputReads(coreProcess);
                     }
                     catch { }
                     coreProcess.Dispose();
@@ -955,6 +1106,8 @@ namespace AirPlayReceiverMvp
         public void StopCore()
         {
             startAfterNetworkCheck = false;
+            Interlocked.Exchange(
+                ref discoveryRefreshAfterNetworkCheck, 0);
             resumeAfterSafeNetwork = false;
             restartPending = false;
             ResetCoreSessionTracking(true);
@@ -1004,6 +1157,7 @@ namespace AirPlayReceiverMvp
         private void RestartCore(bool notify)
         {
             coreReadinessRecoveryAttempts = 0;
+            Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
             ScheduleRestart("manual restart", notify, 1000);
         }
 
@@ -1068,13 +1222,22 @@ namespace AirPlayReceiverMvp
                 if (!exited)
                 {
                     if (jobHandle != IntPtr.Zero)
-                        NativeMethods.CloseHandleSafe(ref jobHandle);
+                        NativeMethods.TerminateAndCloseJobSafe(ref jobHandle);
                     else
                         process.Kill();
                     exited = process.WaitForExit(2500);
                 }
-                if (exited)
-                    process.WaitForExit();
+                if (!exited)
+                {
+                    Log("Core PID " + process.Id +
+                        " did not exit after Job Object termination; " +
+                        "using the direct process kill fallback.");
+                    try { process.Kill(); }
+                    catch { }
+                    try { exited = process.WaitForExit(1500); }
+                    catch { exited = false; }
+                }
+                CancelCoreOutputReads(process);
                 NativeMethods.CloseHandleSafe(ref jobHandle);
                 Log("Core stop completed; exited: " + exited + ".");
             }
@@ -1089,13 +1252,29 @@ namespace AirPlayReceiverMvp
             }
         }
 
+        private static void CancelCoreOutputReads(Process process)
+        {
+            if (process == null)
+                return;
+            try { process.CancelOutputRead(); }
+            catch { }
+            try { process.CancelErrorRead(); }
+            catch { }
+        }
+
         public void RefreshDiscovery()
         {
             ResetRapidExitWindow();
             coreReadinessRecoveryAttempts = 0;
+            Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
             ResetIdleDiscoveryRenewalLimit();
             Log("Manual AirPlay discovery refresh requested.");
-            ScheduleRestart("manual discovery refresh", false, 1200);
+            Interlocked.Exchange(
+                ref discoveryRefreshAfterNetworkCheck, 1);
+            networkUnknownRetries = 0;
+            Log("Discovery refresh will re-register AirPlay after the latest " +
+                "physical network profile and IPv4 address are confirmed.");
+            BeginNetworkProfileRefresh();
         }
 
         private void ObserveCoreOutput(int processId, string line)
@@ -1104,10 +1283,23 @@ namespace AirPlayReceiverMvp
                     ref activeCorePid, 0, 0) != processId)
                 return;
 
+            ObserveCoreDiscoveryMarker(processId, line);
+
+            Match chosenDeviceId = Regex.Match(
+                line,
+                @"\busing (?:system|user-set|randomly-generated) MAC address " +
+                    @"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (chosenDeviceId.Success)
+                AppSettings.RememberReceiverDeviceId(
+                    chosenDeviceId.Groups[1].Value);
+
             if (line.IndexOf(
                     "raop_rtp_mirror starting mirroring",
                     StringComparison.OrdinalIgnoreCase) >= 0)
             {
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
                 Interlocked.Exchange(ref mirrorSessionActive, 1);
                 Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
                 Interlocked.Increment(ref mirrorSessionGeneration);
@@ -1121,6 +1313,18 @@ namespace AirPlayReceiverMvp
                 }
                 ResetIdleDiscoveryRenewalLimit();
             }
+
+            bool lostClient = line.IndexOf(
+                "lost connection with client",
+                StringComparison.OrdinalIgnoreCase) >= 0;
+            bool mirrorReceiveError = line.IndexOf(
+                "raop_rtp_mirror error in recv",
+                StringComparison.OrdinalIgnoreCase) >= 0;
+            if ((lostClient || mirrorReceiveError) && IsMirrorSessionActive)
+                ArmLostConnectionRecovery(
+                    processId,
+                    lostClient ? "lost mirroring client" :
+                        "fatal mirror receive error");
 
             Match videoSize = Regex.Match(
                 line,
@@ -1151,6 +1355,8 @@ namespace AirPlayReceiverMvp
                     "raop_rtp_mirror->running is no longer true",
                     StringComparison.OrdinalIgnoreCase) >= 0)
             {
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
                 if (Interlocked.Exchange(ref mirrorSessionActive, 0) == 1)
                 {
                     Interlocked.Exchange(
@@ -1166,12 +1372,128 @@ namespace AirPlayReceiverMvp
             }
         }
 
+        private void ObserveCoreDiscoveryMarker(int processId, string line)
+        {
+            bool discoveryReady = false;
+            bool discoveryDegraded = false;
+
+            if (line.IndexOf(
+                    "AEROMIRROR_DNSSD_READY",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Interlocked.Exchange(ref coreDnsSdStatus, 1);
+                discoveryReady = true;
+            }
+            else if (line.IndexOf(
+                    "AEROMIRROR_DNSSD_DEGRADED",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Interlocked.Exchange(ref coreDnsSdStatus, -1);
+                discoveryDegraded = true;
+            }
+
+            bool bleMarkerLine = line.IndexOf(
+                    "AEROMIRROR_BLE",
+                    StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf(
+                    "[beacon]",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+            if (bleMarkerLine)
+            {
+                if (line.IndexOf(
+                        "Advertising started",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Interlocked.Exchange(ref coreBleStatus, 1);
+                    discoveryReady = true;
+                }
+                else if (line.IndexOf(
+                            "Advertising failed",
+                            StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         line.IndexOf(
+                            "Failed to start",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Interlocked.Exchange(ref coreBleStatus, -1);
+                    discoveryDegraded = true;
+                }
+            }
+
+            if (discoveryReady)
+            {
+                CancelCoreDiscoveryRecovery(true);
+                return;
+            }
+
+            if (discoveryDegraded)
+                ArmCoreDiscoveryRecovery(processId);
+        }
+
+        private void ArmCoreDiscoveryRecovery(int processId)
+        {
+            if (Interlocked.CompareExchange(
+                    ref coreDnsSdStatus, 0, 0) != -1 ||
+                Interlocked.CompareExchange(
+                    ref coreBleStatus, 0, 0) != -1)
+                return;
+            if (Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryPending, 2, 0) != 0)
+                return;
+
+            Interlocked.Exchange(ref coreDiscoveryRecoveryPid, processId);
+            Interlocked.Exchange(
+                ref coreDiscoveryRecoveryDueTicks,
+                DateTime.UtcNow.AddSeconds(5).Ticks);
+            Interlocked.Exchange(ref coreDiscoveryRecoveryPending, 1);
+
+            if (Interlocked.CompareExchange(
+                    ref coreDnsSdStatus, 0, 0) != -1 ||
+                Interlocked.CompareExchange(
+                    ref coreBleStatus, 0, 0) != -1)
+            {
+                CancelCoreDiscoveryRecovery(false);
+                return;
+            }
+
+            Log("Both native discovery registrations reported a failure; " +
+                "waiting five seconds before bounded host recovery.");
+        }
+
+        private void CancelCoreDiscoveryRecovery(bool resetAttempts)
+        {
+            Interlocked.Exchange(ref coreDiscoveryRecoveryPending, 0);
+            Interlocked.Exchange(ref coreDiscoveryRecoveryPid, 0);
+            Interlocked.Exchange(ref coreDiscoveryRecoveryDueTicks, 0);
+            if (resetAttempts)
+                Interlocked.Exchange(ref coreDiscoveryRecoveryAttempts, 0);
+        }
+
+        private void ArmLostConnectionRecovery(int processId, string marker)
+        {
+            if (Interlocked.CompareExchange(
+                    ref lostConnectionRecoveryPending, 2, 0) != 0)
+                return;
+            Interlocked.Exchange(ref lostConnectionRecoveryPid, processId);
+            Interlocked.Exchange(
+                ref lostConnectionRecoveryDueTicks,
+                DateTime.UtcNow.AddSeconds(3).Ticks);
+            Interlocked.Exchange(ref lostConnectionRecoveryPending, 1);
+            Log("UxPlay reported a " + marker + "; waiting three seconds " +
+                "for its internal reset before host recovery.");
+        }
+
         private void ResetCoreSessionTracking(bool clearDeferredRestart)
         {
             Interlocked.Exchange(ref mirrorSessionActive, 0);
             Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
             Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
             Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+            Interlocked.Exchange(ref coreDnsSdStatus, 0);
+            Interlocked.Exchange(ref coreBleStatus, 0);
+            CancelCoreDiscoveryRecovery(false);
             if (clearDeferredRestart)
                 Interlocked.Exchange(ref settingsRestartDeferred, 0);
             lock (videoSizeSync)
@@ -1286,6 +1608,97 @@ namespace AirPlayReceiverMvp
             ScheduleRestart("idle discovery renewal", false, 1200);
         }
 
+        private void HandleLostConnectionRecovery()
+        {
+            if (Interlocked.CompareExchange(
+                    ref lostConnectionRecoveryPending, 0, 0) != 1)
+                return;
+            long dueTicks = Interlocked.Read(
+                ref lostConnectionRecoveryDueTicks);
+            if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
+                return;
+
+            int recoveryPid = Interlocked.CompareExchange(
+                ref lostConnectionRecoveryPid, 0, 0);
+            if (!IsCoreRunning || !IsMirrorSessionActive ||
+                recoveryPid <= 0 ||
+                Interlocked.CompareExchange(ref activeCorePid, 0, 0) !=
+                    recoveryPid)
+            {
+                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                return;
+            }
+            if (restartPending || Interlocked.CompareExchange(
+                    ref restartStopInProgress, 0, 0) == 1)
+                return;
+
+            Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+            Log("UxPlay did not finish its internal lost-client reset within " +
+                "three seconds; restarting the receiver process.");
+            ScheduleRestart("stalled mirror after lost client", false, 500);
+        }
+
+        private void HandleCoreDiscoveryRecovery()
+        {
+            if (Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryPending, 0, 0) != 1)
+                return;
+            long dueTicks = Interlocked.Read(
+                ref coreDiscoveryRecoveryDueTicks);
+            if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
+                return;
+
+            if (coreReadyPending || IsMirrorSessionActive)
+            {
+                Interlocked.Exchange(
+                    ref coreDiscoveryRecoveryDueTicks,
+                    DateTime.UtcNow.AddSeconds(10).Ticks);
+                return;
+            }
+            if (restartPending || Interlocked.CompareExchange(
+                    ref restartStopInProgress, 0, 0) == 1)
+                return;
+            if (Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryPending, 2, 1) != 1)
+                return;
+
+            int recoveryPid = Interlocked.CompareExchange(
+                ref coreDiscoveryRecoveryPid, 0, 0);
+            bool stillFailed =
+                Interlocked.CompareExchange(
+                    ref coreDnsSdStatus, 0, 0) == -1 &&
+                Interlocked.CompareExchange(
+                    ref coreBleStatus, 0, 0) == -1;
+            bool sameRunningCore = IsCoreRunning && recoveryPid > 0 &&
+                Interlocked.CompareExchange(ref activeCorePid, 0, 0) ==
+                    recoveryPid;
+            bool socketsReady = Interlocked.CompareExchange(
+                ref coreSocketsReady, 0, 0) == 1;
+            if (!sameRunningCore || !stillFailed || !socketsReady)
+            {
+                CancelCoreDiscoveryRecovery(false);
+                return;
+            }
+
+            if (Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryAttempts, 1, 0) == 0)
+            {
+                CancelCoreDiscoveryRecovery(false);
+                Log("DNS-SD and BLE discovery both remained degraded; " +
+                    "performing the single automatic registration recovery.");
+                ScheduleRestart(
+                    "native discovery registration recovery", false, 1200);
+                return;
+            }
+
+            CancelCoreDiscoveryRecovery(false);
+            Log("DNS-SD and BLE discovery remain degraded after the bounded " +
+                "recovery. The socket-ready receiver stays running; no " +
+                "automatic restart loop will be started.");
+        }
+
         private void ResetRapidExitWindow()
         {
             rapidExitCount = 0;
@@ -1305,6 +1718,12 @@ namespace AirPlayReceiverMvp
             parts.Add("-n");
             parts.Add(QuoteArgument(name));
             parts.Add("-nh");
+            string receiverDeviceId = AppSettings.GetSavedReceiverDeviceId();
+            if (receiverDeviceId.Length > 0)
+            {
+                parts.Add("-m");
+                parts.Add(receiverDeviceId);
+            }
             parts.Add("-key");
             parts.Add(QuoteArgument(AppSettings.ReceiverKeyPath));
 
@@ -1383,6 +1802,23 @@ namespace AirPlayReceiverMvp
                 return 0;
             return addresses.Split(new[] { ',' },
                 StringSplitOptions.RemoveEmptyEntries).Length;
+        }
+
+        private static string FirstNumericIpv4(string addresses)
+        {
+            if (string.IsNullOrWhiteSpace(addresses))
+                return "";
+            foreach (string candidate in addresses.Split(new[] { ',' },
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                IPAddress parsed;
+                string value = candidate.Trim();
+                if (IPAddress.TryParse(value, out parsed) &&
+                    parsed.GetAddressBytes().Length == 4 &&
+                    !IPAddress.IsLoopback(parsed))
+                    return value;
+            }
+            return "";
         }
 
         private static string RedactSensitiveText(
@@ -1509,6 +1945,37 @@ namespace AirPlayReceiverMvp
             text.AppendLine("Ядро: " + (File.Exists(CorePath) ? "найдено" : "НЕ НАЙДЕНО"));
             text.AppendLine("Путь ядра: " + MaskSecrets(CorePath));
             text.AppendLine("Процесс ядра: " + (IsCoreRunning ? "работает, PID " + coreProcess.Id : "остановлен"));
+            bool coreRunningSnapshot = IsCoreRunning;
+            text.AppendLine("Runtime state: coreReady=" +
+                (coreRunningSnapshot && !coreReadyPending) +
+                "; socketsReady=" +
+                (Interlocked.CompareExchange(
+                    ref coreSocketsReady, 0, 0) == 1) +
+                "; mirrorActive=" + IsMirrorSessionActive +
+                "; lostRecovery=" +
+                (Interlocked.CompareExchange(
+                    ref lostConnectionRecoveryPending, 0, 0) == 1) +
+                "; restartPending=" + restartPending +
+                "; stopPending=" +
+                (Interlocked.CompareExchange(
+                    ref restartStopInProgress, 0, 0) == 1) +
+                "; networkWait=" + IsWaitingForNetwork + ".");
+            text.AppendLine("Discovery registration: DNS-SD=" +
+                DiscoveryMarkerStatus(
+                    Interlocked.CompareExchange(
+                        ref coreDnsSdStatus, 0, 0),
+                    "degraded") +
+                "; BLE=" +
+                DiscoveryMarkerStatus(
+                    Interlocked.CompareExchange(
+                        ref coreBleStatus, 0, 0),
+                    "failed") +
+                "; recoveryPending=" +
+                (Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryPending, 0, 0) == 1) +
+                "; recoveryAttempts=" +
+                Interlocked.CompareExchange(
+                    ref coreDiscoveryRecoveryAttempts, 0, 0) + ".");
             text.AppendLine("Bonjour Service: " + GetBonjourStatus());
             text.AppendLine("Автозапуск: " + (IsAutostartEnabled() ? "включён" : "выключен"));
             text.AppendLine("Запуск в трее: " + (settings.StartMinimized ? "включён" : "выключен"));
@@ -1529,12 +1996,16 @@ namespace AirPlayReceiverMvp
                 MaskSecrets(AppSettings.FilePath));
             text.AppendLine("Журнал: " + MaskSecrets(AppSettings.LogPath));
             text.AppendLine();
-            text.AppendLine("Исходники AeroMirror 0.11.0:");
+            string sourceVersion = AppVersion.Display;
+            text.AppendLine("Исходники AeroMirror " + sourceVersion + ":");
             text.AppendLine(
-                "https://github.com/Nadejny/aeromirror/tree/v0.11.0");
+                "https://github.com/Nadejny/aeromirror/tree/v" +
+                sourceVersion);
             text.AppendLine("Исходники изменённого GPL-ядра:");
             text.AppendLine(
-                "https://github.com/Nadejny/aeromirror/releases/download/v0.11.0/AeroMirror-native-source-0.11.0.zip");
+                "https://github.com/Nadejny/aeromirror/releases/download/v" +
+                sourceVersion + "/AeroMirror-native-source-" +
+                sourceVersion + ".zip");
             text.AppendLine("Неизменённый runtime загружается с:");
             text.AppendLine(
                 "https://github.com/leapbtw/uxplay-windows/releases/tag/2.0.0.1736");
@@ -1543,6 +2014,26 @@ namespace AirPlayReceiverMvp
             text.AppendLine("При первом запуске разрешите сетевой доступ в Windows Firewall.");
             text.AppendLine("Если устройство не видно, перезапустите Bonjour Service и приёмник.");
             return text.ToString();
+        }
+
+        private static string DiscoveryMarkerStatus(
+            int status, string negativeStatus)
+        {
+            if (status > 0)
+                return "ready";
+            if (status < 0)
+                return negativeStatus;
+            return "unknown";
+        }
+
+        private static bool IsCoreReadinessConfirmed(
+            bool socketsReady, bool bonjourRunning,
+            int dnsSdStatus, int bleStatus)
+        {
+            bool bothDiscoveryPathsFailed =
+                dnsSdStatus < 0 && bleStatus < 0;
+            return socketsReady && !bothDiscoveryPathsFailed &&
+                (bonjourRunning || dnsSdStatus == 1 || bleStatus == 1);
         }
 
         private void OnStartStop(object sender, EventArgs e)
@@ -1640,13 +2131,23 @@ namespace AirPlayReceiverMvp
                         ref coreSocketsReady, 0, 0) == 1 &&
                     DateTime.UtcNow.Ticks >= Interlocked.Read(
                         ref coreSocketsReadyDueTicks);
+                int dnsSdStatus = Interlocked.CompareExchange(
+                    ref coreDnsSdStatus, 0, 0);
+                int bleStatus = Interlocked.CompareExchange(
+                    ref coreBleStatus, 0, 0);
+                bool bonjourRunning = string.Equals(
+                    bonjourStatus, "Running",
+                    StringComparison.OrdinalIgnoreCase);
                 Log("Core readiness check " + coreReadyChecks +
                     "; Bonjour Service: " + bonjourStatus +
-                    "; sockets ready: " + socketsReady + ".");
-                if (string.Equals(
-                        bonjourStatus, "Running",
-                        StringComparison.OrdinalIgnoreCase) &&
-                    socketsReady)
+                    "; sockets ready: " + socketsReady +
+                    "; DNS-SD marker: " +
+                    DiscoveryMarkerStatus(dnsSdStatus, "degraded") +
+                    "; BLE marker: " +
+                    DiscoveryMarkerStatus(bleStatus, "failed") + ".");
+                if (IsCoreReadinessConfirmed(
+                        socketsReady, bonjourRunning,
+                        dnsSdStatus, bleStatus))
                 {
                     coreReadyPending = false;
                     coreReadinessRecoveryAttempts = 0;
@@ -1686,6 +2187,8 @@ namespace AirPlayReceiverMvp
                     }
                 }
             }
+            HandleLostConnectionRecovery();
+            HandleCoreDiscoveryRecovery();
             HandleAutomaticDiscoveryMaintenance();
             ApplyTopMost();
             if (form != null && !form.IsDisposed)
@@ -1705,7 +2208,7 @@ namespace AirPlayReceiverMvp
                 if (!exitedProcess.HasExited)
                     return;
                 int code = exitedProcess.ExitCode;
-                exitedProcess.WaitForExit();
+                CancelCoreOutputReads(exitedProcess);
                 uint status = unchecked((uint)code);
                 string codeHex = "0x" + status.ToString("X8");
                 Log("Core exited with code " + code + " (" + codeHex + ").");
@@ -1774,10 +2277,14 @@ namespace AirPlayReceiverMvp
 
         private void OnNetworkAddressChanged(object sender, EventArgs e)
         {
-            Interlocked.Exchange(
-                ref networkRefreshDueTicks,
-                DateTime.UtcNow.AddSeconds(5).Ticks);
-            Interlocked.Exchange(ref networkRefreshPending, 1);
+            long dueTicks = DateTime.UtcNow.AddMilliseconds(1500).Ticks;
+            long previousDueTicks = Interlocked.Read(
+                ref networkRefreshDueTicks);
+            int wasPending = Interlocked.Exchange(
+                ref networkRefreshPending, 1);
+            if (wasPending == 0 || previousDueTicks <= 0 ||
+                dueTicks < previousDueTicks)
+                Interlocked.Exchange(ref networkRefreshDueTicks, dueTicks);
         }
 
         private bool HasVisibleRendererWindow()
@@ -2204,7 +2711,7 @@ namespace AirPlayReceiverMvp
             Process.Start(new ProcessStartInfo(AppSettings.LogPath) { UseShellExecute = true });
         }
 
-        public void OpenProblemReport(IWin32Window owner)
+        public bool OpenProblemReport(IWin32Window owner)
         {
             try
             {
@@ -2244,23 +2751,31 @@ namespace AirPlayReceiverMvp
                     "https://github.com/Nadejny/aeromirror/issues/new" +
                     "?title=" + Uri.EscapeDataString("[Bug] ") +
                     "&body=" + Uri.EscapeDataString(issueBody);
-                Process.Start(new ProcessStartInfo(issueUrl)
-                {
-                    UseShellExecute = true
-                });
+                // Keep the hand-off understandable: first show the report that
+                // must be attached, then open GitHub shortly afterwards.  A
+                // success MessageBox here used to compete with both windows.
                 Process.Start(new ProcessStartInfo("explorer.exe")
                 {
                     Arguments = "/select,\"" + path + "\"",
                     UseShellExecute = true
                 });
-                MessageBox.Show(
-                    owner,
-                    "Открыта форма GitHub Issue и выделен обезличенный файл журнала.\r\n\r\n" +
-                    "Проверьте его и перетащите в форму — AeroMirror ничего не " +
-                    "отправляет автоматически.",
-                    AppTitle,
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    Thread.Sleep(900);
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(issueUrl)
+                        {
+                            UseShellExecute = true
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("GitHub issue form could not be opened: " +
+                            ex.Message);
+                    }
+                });
+                return true;
             }
             catch (Exception ex)
             {
@@ -2272,6 +2787,7 @@ namespace AirPlayReceiverMvp
                     AppTitle,
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
+                return false;
             }
         }
 
@@ -2461,6 +2977,8 @@ namespace AirPlayReceiverMvp
         private readonly Button settingsButton;
         private readonly Button updatesButton;
         private readonly LinkLabel reportProblem;
+        private readonly Label reportStatus;
+        private readonly System.Windows.Forms.Timer reportStatusTimer;
         private readonly Label homeQuality;
         private readonly ToolTip toolTips;
         private readonly TextBox receiverName;
@@ -2509,7 +3027,7 @@ namespace AirPlayReceiverMvp
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             ClientSize = new Size(620, 430);
-            MinimumSize = new Size(636, 369);
+            MinimumSize = new Size(636, 300);
             BackColor = Color.FromArgb(247, 247, 247);
             Font = new Font("Segoe UI", 9.5F);
 
@@ -2523,6 +3041,14 @@ namespace AirPlayReceiverMvp
             toolTips.InitialDelay = 350;
             toolTips.ReshowDelay = 100;
             toolTips.ShowAlways = true;
+
+            reportStatusTimer = new System.Windows.Forms.Timer();
+            reportStatusTimer.Interval = 8000;
+            reportStatusTimer.Tick += delegate
+            {
+                reportStatusTimer.Stop();
+                reportStatus.Text = "";
+            };
 
             var homeHeader = new Panel();
             homeHeader.Dock = DockStyle.Top;
@@ -2546,6 +3072,7 @@ namespace AirPlayReceiverMvp
             statusDot.Size = new Size(16, 24);
             statusDot.Font = new Font("Segoe UI", 11F);
             statusDot.AccessibleName = "Состояние приёмника";
+            statusDot.Cursor = Cursors.Help;
             homeHeader.Controls.Add(statusDot);
 
             status = MakeLabel("", 112, 53);
@@ -2565,23 +3092,35 @@ namespace AirPlayReceiverMvp
 
             networkCard = new Panel();
             networkCard.Location = new Point(24, 112);
-            networkCard.Size = new Size(572, 50);
+            networkCard.Size = new Size(572, 46);
             homePage.Controls.Add(networkCard);
 
-            networkTitle = MakeLabel("", 15, 10);
+            networkTitle = MakeLabel("", 16, 11);
             networkTitle.AutoSize = false;
-            networkTitle.Size = new Size(505, 27);
+            networkTitle.Size = new Size(506, 24);
             networkTitle.AutoEllipsis = true;
             networkTitle.Font = new Font("Segoe UI Semibold", 9.5F);
             networkCard.Controls.Add(networkTitle);
 
-            networkHelp = MakeLabel("?", 533, 10);
+            networkHelp = MakeLabel("?", 537, 12);
             networkHelp.AutoSize = false;
-            networkHelp.Size = new Size(24, 24);
+            networkHelp.Size = new Size(22, 22);
             networkHelp.TextAlign = ContentAlignment.MiddleCenter;
-            networkHelp.Font = new Font("Segoe UI Semibold", 10F);
+            networkHelp.Font = new Font("Segoe UI Semibold", 9F);
             networkHelp.Cursor = Cursors.Help;
             networkHelp.AccessibleName = "Подробнее о проверке сети";
+            networkHelp.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode =
+                    System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (var pen = new Pen(networkHelp.ForeColor, 1F))
+                {
+                    e.Graphics.DrawEllipse(
+                        pen, 1.5F, 1.5F,
+                        networkHelp.Width - 4F,
+                        networkHelp.Height - 4F);
+                }
+            };
             networkCard.Controls.Add(networkHelp);
 
             trustCard = new Panel();
@@ -2654,9 +3193,27 @@ namespace AirPlayReceiverMvp
             reportProblem.Location = new Point(452, 398);
             reportProblem.LinkClicked += delegate
             {
-                context.OpenProblemReport(this);
+                reportStatusTimer.Stop();
+                reportProblem.Enabled = false;
+                reportStatus.Text = "Подготавливаем обезличенный журнал…";
+                reportStatus.Refresh();
+                bool opened = context.OpenProblemReport(this);
+                reportStatus.Text = opened
+                    ? "Файл выделен в папке · GitHub откроется следом"
+                    : "Не удалось подготовить журнал";
+                reportProblem.Enabled = true;
+                reportStatusTimer.Start();
             };
+            toolTips.SetToolTip(
+                reportProblem,
+                "Подготовит обезличенный журнал, затем откроет папку и форму GitHub.");
             homePage.Controls.Add(reportProblem);
+
+            reportStatus = MakeLabel("", 26, 398);
+            reportStatus.AutoSize = false;
+            reportStatus.Size = new Size(414, 22);
+            reportStatus.ForeColor = Color.DimGray;
+            homePage.Controls.Add(reportStatus);
 
             settingsPage = new Panel();
             settingsPage.Dock = DockStyle.Fill;
@@ -3027,7 +3584,12 @@ namespace AirPlayReceiverMvp
                     }
                 }
             };
-            FormClosed += delegate { DeletePendingInstaller(); };
+            FormClosed += delegate
+            {
+                reportStatusTimer.Stop();
+                reportStatusTimer.Dispose();
+                DeletePendingInstaller();
+            };
         }
 
         public void SyncStatus()
@@ -3060,8 +3622,7 @@ namespace AirPlayReceiverMvp
                 statusDot.ForeColor = status.ForeColor;
                 startStop.Text = "Остановить";
             }
-            else if (!context.IsNetworkProfileKnown &&
-                context.CurrentSettings.PairingMode == "none")
+            else if (context.IsWaitingForNetwork)
             {
                 status.Text = "Проверяем сеть";
                 status.ForeColor = dark
@@ -3090,7 +3651,6 @@ namespace AirPlayReceiverMvp
                     : Color.FromArgb(196, 43, 43);
                 startStop.Text = "Включить";
             }
-            toolTips.SetToolTip(status, context.ReceiverStateText);
             toolTips.SetToolTip(statusDot, context.ReceiverStateText);
 
             string networkDetails;
@@ -3146,8 +3706,8 @@ namespace AirPlayReceiverMvp
                     : Color.FromArgb(0, 80, 145);
             }
             networkHelp.ForeColor = networkTitle.ForeColor;
+            networkHelp.Invalidate();
             toolTips.SetToolTip(networkHelp, networkDetails);
-            toolTips.SetToolTip(networkTitle, networkDetails);
 
             homeQuality.Text = "Качество: " +
                 QualityDisplayName(context.CurrentSettings.QualityPreset) +
@@ -3213,20 +3773,21 @@ namespace AirPlayReceiverMvp
             int actionTop;
             if (showTrustCard)
             {
-                trustCard.Location = new Point(24, 178);
-                actionTop = 286;
+                trustCard.Location = new Point(24, 174);
+                actionTop = 282;
             }
             else
             {
-                actionTop = 178;
+                actionTop = 174;
             }
             refreshDiscovery.Location = new Point(24, actionTop);
             startStop.Location = new Point(260, actionTop);
             updatesButton.Location = new Point(417, actionTop);
             homeQuality.Location = new Point(26, actionTop + 51);
-            reportProblem.Location = new Point(452, actionTop + 82);
+            reportStatus.Location = new Point(26, actionTop + 81);
+            reportProblem.Location = new Point(452, actionTop + 81);
             if (homePageSelected)
-                ClientSize = new Size(620, actionTop + 112);
+                ClientSize = new Size(620, actionTop + 113);
         }
 
         private void CloseOpenDropDowns()
@@ -5670,7 +6231,8 @@ namespace AirPlayReceiverMvp
                     "$category='Unknown';$name='';$alias='';$index=0;$addresses=''; " +
                     "if($p){$ips=@(Get-NetIPAddress -InterfaceIndex $p.InterfaceIndex " +
                     "-AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
-                    "Where-Object {$_.IPAddress -notlike '169.254.*'} | " +
+                    "Where-Object {$_.IPAddress -notlike '169.254.*' -and " +
+                    "$_.AddressState -eq 'Preferred' -and -not $_.SkipAsSource} | " +
                     "ForEach-Object {$_.IPAddress} | Sort-Object -Unique); " +
                     "$category=$p.NetworkCategory.ToString();$name=$p.Name;" +
                     "$alias=$p.InterfaceAlias;$index=[int]$p.InterfaceIndex;" +
@@ -5853,6 +6415,10 @@ namespace AirPlayReceiverMvp
             IntPtr job, IntPtr process);
 
         [DllImport("kernel32.dll")]
+        private static extern bool TerminateJobObject(
+            IntPtr job, uint exitCode);
+
+        [DllImport("kernel32.dll")]
         private static extern bool CloseHandle(IntPtr handle);
 
         internal static IntPtr CreateKillOnCloseJob(Process process)
@@ -5901,6 +6467,17 @@ namespace AirPlayReceiverMvp
             try { CloseHandle(handle); }
             catch { }
             handle = IntPtr.Zero;
+        }
+
+        internal static bool TerminateAndCloseJobSafe(ref IntPtr handle)
+        {
+            if (handle == IntPtr.Zero)
+                return false;
+            bool terminated = false;
+            try { terminated = TerminateJobObject(handle, 1); }
+            catch { }
+            CloseHandleSafe(ref handle);
+            return terminated;
         }
 
         [DllImport("dwmapi.dll")]

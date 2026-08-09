@@ -13,8 +13,11 @@ Upstream pins:
 and is used to create a MinGW import library for local builds.
 
 The source changes are recorded in `uxplay-windows-headless.patch` and
-`libuxplay-aeromirror.patch`. The latter adds only a stable video-size log
-marker used by the Windows shell for automatic portrait/landscape adaptation.
+`libuxplay-aeromirror.patch`. The latter adds stable video-size and DNS-SD
+readiness log markers used by the Windows shell for window adaptation and
+discovery diagnostics. The launcher accepts `--beacon-ipv4 <numeric IPv4>`
+before `--uxplay`, passes it to the Windows BLE helper, and forwards helper
+output to stdout with an `AEROMIRROR_BLE` prefix.
 
 ## Compatible Qt input
 

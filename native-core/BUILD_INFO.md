@@ -1,7 +1,7 @@
 # AeroMirror native build information
 
 This file documents the patched native executable shipped by AeroMirror
-0.11.0. The source bundle also contains the complete upstream trees and the
+0.11.1. The source bundle also contains the complete upstream trees and the
 patch both separately and applied in place.
 
 ## Exact inputs
@@ -13,8 +13,8 @@ patch both separately and applied in place.
 - AeroMirror patches: `uxplay-windows-headless.patch` and
   `libuxplay-aeromirror.patch`
 - Patched files: `src/airplayworker.cpp`, `src/main.cpp`,
-  `src/mainwindow.cpp`, `src/mainwindow.h`, and
-  `libuxplay/renderers/video_renderer.c`
+  `src/mainwindow.cpp`, `src/mainwindow.h`,
+  `libuxplay/renderers/video_renderer.c`, and `libuxplay/uxplay.cpp`
 - Architecture: x64, MSYS2 UCRT64
 - Compiler recorded in the binary:
   `gcc.exe (Rev6, Built by MSYS2 project) 16.1.0`
@@ -28,7 +28,7 @@ patch both separately and applied in place.
   `5F944B027F7FE2091985AA2EFA11531AA0AA7F57`
 - GStreamer: 1.28.5
 - Resulting patched executable SHA-256:
-  `B8A0C3687249CDC9925D54DC42DB539F6B6186F955DFE78F5A0A4033DCC405E6`
+  `984F58C053631005145B07DAB44EE0CFB7CD637A0CA5E67F5B61500284E2D5B9`
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.
@@ -38,13 +38,14 @@ Python requirements, CMake files, Bluetooth beacon recipe, Bonjour build
 script, packaging scripts, and verification scripts.
 
 The AeroMirror patches add the headless launcher integration,
-`--loader-test`, and one stable log marker with the source and encoded video
-dimensions. The shell uses that marker to adapt the renderer window when the
-iPhone changes orientation. The launcher patch also keeps the receiver process
-arguments alive for the full native startup call, avoiding invalid `char*`
-pointers when the argument storage grows. The source packaging script accepts
-only the five files listed above and verifies that both complete binary Git
-diffs exactly match the reviewed patches.
+`--loader-test`, a stable video-size marker, and stable DNS-SD readiness
+markers. The shell uses the video marker to adapt the renderer window when the
+iPhone changes orientation. `--beacon-ipv4` binds BLE discovery to the physical
+Wi-Fi/Ethernet IPv4 selected by the shell instead of letting a VPN default route
+choose the advertised address. The launcher also forwards beacon diagnostics
+to stdout with the `AEROMIRROR_BLE` prefix and keeps receiver arguments alive
+for the full native startup call. The source packaging script verifies that
+both complete binary Git diffs exactly match the reviewed patches.
 
 The resulting x64 PE imports `qt_version_tag_6_10`, does not import
 `qt_version_tag_6_11`, and its `--loader-test` passed with the unchanged
@@ -103,7 +104,7 @@ The actual `dns_sd.h` used for the interface and AeroMirror's `dnssd.def` are
 included in the source bundle. The Bluetooth beacon is reused unchanged from
 the pinned upstream runtime.
 
-The full offline runtime is not published by AeroMirror 0.11.0. The review
+The full offline runtime is not published by AeroMirror 0.11.1. The review
 installer downloads the unchanged, pinned upstream runtime asset directly
 from the upstream GitHub release and verifies its SHA-256 before installing
 it.

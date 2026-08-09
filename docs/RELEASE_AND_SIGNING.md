@@ -35,6 +35,13 @@ second installed application. The current setup:
 5. removes the backup only after success;
 6. restores the previous directory if installation fails.
 
+When AeroMirror launches the setup with `/update`, the installer reads the
+existing Start menu and desktop shortcuts before replacing files. The same
+choices are preselected in the update UI and then recreated: an update does
+not add a Start menu shortcut that the user removed or delete a desktop
+shortcut that the user kept. Legacy shortcut names are recognized and
+migrated to the current AeroMirror name.
+
 User settings, logs, the persistent receiver key, and trusted-iPhone register
 are stored separately under `%LOCALAPPDATA%\AirPlayReceiverMvp` and survive
 updates and normal uninstall.
@@ -59,7 +66,7 @@ update.
 
 For a working automatic update, every GitHub Release must include:
 
-- a semantic tag such as `v0.11.0`;
+- a semantic tag such as `v0.11.1`;
 - a setup asset named exactly
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` for that release version;
 - GitHub's SHA-256 asset digest;
@@ -72,6 +79,16 @@ marked **Pre-release** are not returned by this endpoint. If review builds
 later need a separate prerelease channel, the application update protocol must
 be changed before relying on GitHub's Pre-release flag.
 
+GitHub's **Code** tab and **Releases** are separate views. The Code tab shows
+commits from the selected branch (normally `main`), while a Release points to
+a tag and stores its own downloadable assets. Publishing or replacing a
+Release asset does not update `main`; push the reviewed release commit to
+`main` before creating the matching tag and Release.
+
+Before publishing 0.11.1, complete the Windows 10/11 scenarios in
+[TEST_PLAN_0.11.1.md](TEST_PLAN_0.11.1.md). This remains a bugfix candidate;
+do not label it 1.0 until those real-device checks pass.
+
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.
 It does not accept a similarly named executable or fall back to the first
@@ -81,9 +98,9 @@ from the Release tag.
 Recommended assets:
 
 ```text
-AeroMirror-Setup-0.11.0.exe
-AeroMirror-source-0.11.0.zip
-AeroMirror-native-source-0.11.0.zip
+AeroMirror-Setup-0.11.1.exe
+AeroMirror-source-0.11.1.zip
+AeroMirror-native-source-0.11.1.zip
 SHA256SUMS.txt
 ```
 

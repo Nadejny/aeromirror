@@ -1,6 +1,6 @@
 param(
     [string]$PortableZip = "",
-    [string]$Version = "0.11.0"
+    [string]$Version = "0.11.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,9 +100,9 @@ $installerSource = Get-Content -LiteralPath $source -Raw -Encoding UTF8
 $requiredVersionLiterals = @(
     ('[assembly: AssemblyVersion("' + $Version + '.0")]'),
     ('[assembly: AssemblyFileVersion("' + $Version + '.0")]'),
-    ('new Version(' + ($versionParts -join ', ') + ')'),
-    ('"AeroMirror-Setup/' + $Version + '"'),
-    ('key.SetValue("DisplayVersion", "' + $Version + '")')
+    ('SetupVersion = new Version(' + ($versionParts -join ', ') + ')'),
+    '"AeroMirror-Setup/" + SetupForm.SetupVersion.ToString(3)',
+    '"DisplayVersion", SetupForm.SetupVersion.ToString(3)'
 )
 foreach ($literal in $requiredVersionLiterals) {
     if (-not $installerSource.Contains($literal)) {
@@ -280,6 +280,17 @@ $builtVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
     $output).FileVersion
 if ($builtVersion -ne ($Version + ".0")) {
     throw "Built installer version $builtVersion does not match $Version."
+}
+$shortcutCheck = Start-Process `
+    -FilePath $output `
+    -ArgumentList "/verify-shortcut-selection" `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+if ($shortcutCheck.ExitCode -ne 0) {
+    throw (
+        "Installer shortcut-selection verification failed with exit code " +
+        $shortcutCheck.ExitCode + ".")
 }
 
 Write-Host "Built $output"

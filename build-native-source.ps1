@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.11.0"
+    [string]$Version = "0.11.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,7 +114,10 @@ $libModified = @(
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
         status --short --untracked-files=no
 )
-$expectedLibModified = @(" M renderers/video_renderer.c")
+$expectedLibModified = @(
+    " M renderers/video_renderer.c",
+    " M uxplay.cpp"
+)
 $libStatusDifferences = @(
     Compare-Object $libModified $expectedLibModified)
 if ($libStatusDifferences.Count -ne 0) {
@@ -162,7 +165,8 @@ try {
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
         diff --binary --no-ext-diff `
         ("--output=" + $actualLibPatch) -- `
-        "renderers/video_renderer.c"
+        "renderers/video_renderer.c" `
+        "uxplay.cpp"
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to generate the current libuxplay source diff."
     }

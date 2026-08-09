@@ -33,10 +33,32 @@ index 6cc919a..766eb42 100644
 \ No newline at end of file
 +}
 diff --git a/src/main.cpp b/src/main.cpp
-index d659491..4f5d8ad 100644
+index d659491..5d40497 100644
 --- a/src/main.cpp
 +++ b/src/main.cpp
-@@ -140,14 +140,30 @@ int main(int argc, char *argv[]) {
+@@ -93,6 +93,21 @@ static int runRuntimeSelfTest(const QString &appPath) {
+     return 2;
+ }
+ 
++static bool isNumericIpv4(const QString &value) {
++    const QStringList parts = value.split('.');
++    if (parts.size() != 4) {
++        return false;
++    }
++    for (const QString &part : parts) {
++        bool ok = false;
++        const int octet = part.toInt(&ok, 10);
++        if (!ok || part.isEmpty() || octet < 0 || octet > 255) {
++            return false;
++        }
++    }
++    return true;
++}
++
+ int main(int argc, char *argv[]) {
+ #ifdef _WIN32
+     // if the process was started from a console (CMD/PowerShell), attach to it so we can see qDebug() output.
+@@ -140,14 +155,46 @@ int main(int argc, char *argv[]) {
      if (app.arguments().contains("--self-test")) {
          return runRuntimeSelfTest(appPath);
      }
@@ -52,6 +74,22 @@ index d659491..4f5d8ad 100644
 +    const bool headless = applicationArguments.contains("--headless");
 +    QStringList uxplayArguments;
 +    const int uxplayMarker = applicationArguments.indexOf("--uxplay");
++    QString beaconIpv4;
++    const int beaconIpv4Marker =
++        applicationArguments.indexOf("--beacon-ipv4");
++    if (beaconIpv4Marker >= 0 &&
++        beaconIpv4Marker + 1 < applicationArguments.size() &&
++        (uxplayMarker < 0 || beaconIpv4Marker + 1 < uxplayMarker)) {
++        const QString candidate =
++            applicationArguments.at(beaconIpv4Marker + 1).trimmed();
++        if (isNumericIpv4(candidate)) {
++            beaconIpv4 = candidate;
++        } else {
++            qWarning().noquote()
++                << "[beacon] Ignoring invalid --beacon-ipv4 value:"
++                << candidate;
++        }
++    }
 +    if (uxplayMarker >= 0) {
 +        for (int index = uxplayMarker + 1;
 +             index < applicationArguments.size();
@@ -66,14 +104,22 @@ index d659491..4f5d8ad 100644
      }
  
 -    MainWindow window;
-+    MainWindow window(headless, uxplayArguments);
++    MainWindow window(headless, uxplayArguments, beaconIpv4);
      return app.exec();
  }
 diff --git a/src/mainwindow.cpp b/src/mainwindow.cpp
-index aeb732d..c8038a9 100644
+index aeb732d..c1f4814 100644
 --- a/src/mainwindow.cpp
 +++ b/src/mainwindow.cpp
-@@ -54,9 +54,17 @@ BOOL CALLBACK EnumWindowsProcRename(HWND hwnd, LPARAM lParam) {
+@@ -1,6 +1,7 @@
+ #include "mainwindow.h"
+ #include "airplayworker.h"
+ #include "mdns_responder.hpp"
++#include <cstdio>
+ #include <windows.h>
+ #include <winsvc.h>
+ 
+@@ -54,9 +55,19 @@ BOOL CALLBACK EnumWindowsProcRename(HWND hwnd, LPARAM lParam) {
      return TRUE;
  }
  
@@ -81,10 +127,12 @@ index aeb732d..c8038a9 100644
 +MainWindow::MainWindow(
 +    bool headless,
 +    const QStringList &argumentOverride,
++    const QString &beaconIpv4,
 +    QWidget *parent
 +) : QMainWindow(parent),
 +    m_headless(headless),
-+    m_argumentOverride(argumentOverride) {
++    m_argumentOverride(argumentOverride),
++    m_beaconIpv4(beaconIpv4) {
      ensureSettingsFileExists();
 -    setupTray();
 +    if (!m_headless) {
@@ -93,7 +141,7 @@ index aeb732d..c8038a9 100644
      setupUI();
  
      // If Bonjour Service is missing, we must install it; otherwise we exit.
-@@ -125,6 +133,12 @@ void MainWindow::ensureSettingsFileExists() {
+@@ -125,6 +136,12 @@ void MainWindow::ensureSettingsFileExists() {
  }
  
  QStringList MainWindow::getArgumentsFromFile() {
@@ -106,7 +154,7 @@ index aeb732d..c8038a9 100644
      const QString userPath = userArgumentsPath();
      const QString machinePath = machineArgumentsPath();
      const QString selectedPath = activeArgumentsPath();
-@@ -432,7 +446,11 @@ void MainWindow::onAirplayStopped() {
+@@ -432,7 +449,11 @@ void MainWindow::onAirplayStopped() {
  }
  
  void MainWindow::onAirplayError(const QString &message) {
@@ -119,11 +167,48 @@ index aeb732d..c8038a9 100644
  }
  
  void MainWindow::toggleAutostart(bool checked) {
+@@ -469,13 +490,31 @@ void MainWindow::startBluetoothBeacon(const QString &path) {
+     m_beacon->setProcessChannelMode(QProcess::MergedChannels);
+ 
+     connect(m_beacon, &QProcess::readyRead, this, [this]() {
+-        // Forward beacon logs to our debug console
+-        qDebug() << "[beacon output]" << m_beacon->readAll().trimmed();
++        // Qt debug output from a GUI-subsystem process is not reliably visible
++        // to the supervising shell. Forward helper diagnostics explicitly.
++        const QByteArray output = m_beacon->readAll();
++        if (!output.isEmpty()) {
++            fprintf(stdout, "AEROMIRROR_BLE ");
++            fwrite(output.constData(), 1,
++                   static_cast<size_t>(output.size()), stdout);
++            if (!output.endsWith('\n')) {
++                fputc('\n', stdout);
++            }
++            fflush(stdout);
++        }
+     });
+ 
+-    // Pass the explicit path to the beacon file
+-    m_beacon->start(exe, {"--path", path});
+-    qDebug() << "Beacon process started watching:" << path;
++    // Bind BLE discovery to the physical Wi-Fi/Ethernet address selected by
++    // the host shell. Letting the helper infer an address from the default
++    // route can advertise a VPN endpoint instead.
++    QStringList beaconArguments = {"--path", path};
++    if (!m_beaconIpv4.isEmpty()) {
++        beaconArguments << "--ipv4" << m_beaconIpv4;
++    }
++    m_beacon->start(exe, beaconArguments);
++    qDebug() << "Beacon process started watching:" << path
++             << "IPv4:" << (m_beaconIpv4.isEmpty()
++                 ? QString("automatic") : m_beaconIpv4);
+ }
+ 
+ void MainWindow::stopBluetoothBeacon() {
 diff --git a/src/mainwindow.h b/src/mainwindow.h
-index 163521f..1dd8163 100644
+index 163521f..045855b 100644
 --- a/src/mainwindow.h
 +++ b/src/mainwindow.h
-@@ -19,7 +19,11 @@ class MainWindow : public QMainWindow {
+@@ -19,7 +19,12 @@ class MainWindow : public QMainWindow {
      Q_OBJECT
  
  public:
@@ -131,15 +216,17 @@ index 163521f..1dd8163 100644
 +    explicit MainWindow(
 +        bool headless = false,
 +        const QStringList &argumentOverride = {},
++        const QString &beaconIpv4 = {},
 +        QWidget *parent = nullptr
 +    );
      ~MainWindow() override;
  
  protected:
-@@ -82,4 +86,6 @@ private:
+@@ -82,4 +87,7 @@ private:
  
      bool m_running = false;
      bool m_quitting = false;
 +    bool m_headless = false;
 +    QStringList m_argumentOverride;
++    QString m_beaconIpv4;
  };
