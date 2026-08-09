@@ -103,6 +103,11 @@ and download:
 AeroMirror-Setup-0.12.3.exe
 ```
 
+`v0.12.3` is the normal latest GitHub Release and is visible to the in-app
+updater. Its automated, exact-tag, checksum, and public re-download gates pass;
+the installed update path and physical Windows 10/11 plus iPhone matrix remain
+pending review evidence.
+
 The installer:
 
 - is a **network review installer**: it downloads the unchanged pinned
@@ -361,8 +366,9 @@ docs/
   TODO.md                    product and protocol roadmap
   releases/
     0.12.3/
-      RELEASE_NOTES.md       curated GitHub Release candidate text
+      RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           loss, placement, and Photos acceptance matrix
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.2/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           reconnect, orientation, and fitting acceptance matrix

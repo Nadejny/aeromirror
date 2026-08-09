@@ -31,9 +31,10 @@
 - This patch changes the managed shell and settings schema only. The pinned
   UxPlay executable, third-party runtime, receiver identity and trust state,
   update path, and physical-network protection policy are unchanged.
-- The managed x64 build and receiver resilience suite pass. Installer,
-  packaging, exact-tag, and physical Windows 10/11 plus iPhone acceptance
-  remain pending for the local candidate.
+- The managed build, resilience, installer, packaging, exact-tag, checksum,
+  and public re-download/API digest gates pass. The installed updater path and
+  physical Windows 10/11 plus iPhone acceptance remain pending for this public
+  review release.
 - This does **not** fully fix Photos content sizing. iOS can send a
   `3840x2160` encoded canvas with the photo and black bars already inside it;
   the shell can preserve the outer phone orientation but cannot safely crop or

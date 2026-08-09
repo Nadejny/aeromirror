@@ -62,13 +62,21 @@ clean Screen Mirroring disconnect do not open it.
 ## Verification status
 
 The integrated managed build, resilience suite, review package, Setup
-lifecycle checks, and native corresponding-source validation pass. The
-exact-tag gate and complete physical Windows 10/11 plus iPhone matrix remain
-pending. If published before that physical matrix is complete, 0.12.3 remains
-a public review candidate rather than an accepted or 1.0 release. A
-post-release `BUILD_REPORT.md` must record the exact tag, assets, automated
-results, and remaining physical rows.
+lifecycle checks, native corresponding-source validation, and clean exact-tag
+release package pass. Version `v0.12.3` is published as the normal latest
+GitHub Release:
+
+https://github.com/Nadejny/aeromirror/releases/tag/v0.12.3
+
+All four public assets were downloaded again with matching byte sizes and
+SHA-256 values, and every GitHub API digest field matches. The installed updater
+path and complete physical Windows 10/11 plus iPhone matrix remain pending, so
+0.12.3 is a public review release rather than a physically accepted or 1.0
+release. Exact evidence is recorded in `BUILD_REPORT.md`.
 
 The pinned UxPlay executable and runtime, receiver identity and trusted-client
 state, update protocol, and Public/Unknown physical-network fail-closed policy
 are unchanged from 0.12.2.
+
+The `v0.12.3` tag and public assets are immutable. Any correction will use
+0.12.4 or later rather than replacing this release's files.

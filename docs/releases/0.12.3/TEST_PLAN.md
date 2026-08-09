@@ -1,11 +1,17 @@
 # AeroMirror 0.12.3 — loss, placement, and Photos acceptance
 
-## Candidate status
+## Publication status
 
-Version `0.12.3` is a local, unpublished review candidate. The latest public
-release remains immutable `v0.12.2`. This plan separates automated checks from
-physical Windows/iPhone evidence and must not be used to claim interoperability
-before the physical rows pass.
+Version `v0.12.3` was published from commit
+`334001a8fa896c8e072465e624fda4f150ffa666` as the normal, non-draft,
+non-prerelease latest GitHub Release:
+
+https://github.com/Nadejny/aeromirror/releases/tag/v0.12.3
+
+The automated, exact-tag, and public-asset gates pass. The installed updater
+path and every physical Windows/iPhone scenario below remain pending. This plan
+must not be used to claim physical interoperability or 1.0 acceptance before
+those rows pass.
 
 ## Scope and risks
 
@@ -53,6 +59,11 @@ must not be generated or stored by AeroMirror itself.
 | Setup and lifecycle verifier | Network Setup builds, reports 0.12.3, and passes update/rollback/shortcut checks | PASS |
 | Native corresponding source | Prepared 0.12.3 archive validates unchanged pinned commits, patches, inputs, and executable hash | PASS |
 | Whitespace/diff audit | `git diff --check` passes and the candidate diff contains no unrelated generated output | PASS |
+| Exact-tag release package | Clean `v0.12.3` packages the tag commit and exactly four expected public assets | PASS |
+| Public Release and re-download | Normal latest channel; four local/re-downloaded hashes and four GitHub API digest fields match | PASS |
+
+Exact published byte sizes and SHA-256 values are recorded in
+`BUILD_REPORT.md`.
 
 ## Physical scenario A — fatal loss placeholder
 
@@ -163,22 +174,20 @@ content-metadata or validated pixel-analysis work.
 
 ## Acceptance gate
 
-The candidate can be tagged and published as a public review release when:
+The public-review publication gate is complete:
 
-1. every automated gate above passes against the final source;
-2. no mirrored frame is persisted by the placeholder;
+1. every automated gate above passed against the final source;
+2. the placeholder source/privacy audit found no persisted mirrored frame;
 3. shell and Setup report `0.12.3.0`, while UI, tag, and assets use `0.12.3`;
-4. the exact-tag release pipeline produces only Setup, AeroMirror source,
-   prepared native corresponding source, and `SHA256SUMS.txt`;
-5. publication is explicitly authorized. The user has already authorized
-   publishing subsequent AeroMirror patch versions in the current project.
+4. the exact-tag pipeline produced only Setup, AeroMirror source, prepared
+   native corresponding source, and `SHA256SUMS.txt`;
+5. publication was authorized, and all public re-download/API digest checks
+   passed.
 
-The Windows 10/11 and iPhone scenarios may remain `PENDING` for a public review
-candidate only if the Release body and post-release report state that clearly.
-They are mandatory before describing the behavior as physically accepted or
-using the 1.0 designation required by D-008.
+Physical acceptance is still pending. Complete the Windows 10/11 and iPhone
+scenarios above, including an installed in-app update from public 0.12.2, before
+describing the behavior as physically accepted or using the 1.0 designation
+required by D-008.
 
-After publication, create `BUILD_REPORT.md` with the exact tag commit, Release
-URL/channel, asset byte sizes and SHA-256 values, re-download/API digest
-evidence, and remaining physical limitations. Any correction must use 0.12.4
-or later; never move an immutable `v0.12.3` tag or replace its assets.
+The exact report is `BUILD_REPORT.md`. Any correction must use 0.12.4 or later;
+never move the immutable `v0.12.3` tag or replace its assets.
