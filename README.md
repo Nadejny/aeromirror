@@ -308,6 +308,7 @@ docs/
   BUILD_REPORT.md           historical 0.11.0 build report
   BUILD_REPORT_0.11.1.md   historical 0.11.1 candidate verification
   BUILD_REPORT_0.11.2.md   published 0.11.2 release verification
+  BUILD_REPORT_0.11.3.md   published 0.11.3 release verification
   TEST_PLAN_0.11.2.md      focused in-place update regression plan
   TEST_PLAN_0.11.3.md      focused reconnect and discovery regression plan
   RELEASE_AND_SIGNING.md   GitHub updates, Store, and signing plan

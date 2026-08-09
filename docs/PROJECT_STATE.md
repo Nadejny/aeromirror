@@ -8,9 +8,9 @@ step changes.
 
 ## Current release
 
-- Latest public release: `v0.11.2`
+- Latest public release: `v0.11.3`
 - Release type: normal GitHub Release labelled as a review candidate
-- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.11.2
+- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.11.3
 - Supported target: Windows 10 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
 - Update channel: `Nadejny/aeromirror` through GitHub `releases/latest`
@@ -18,9 +18,10 @@ step changes.
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.11.2` tag is immutable project history. Any correction discovered
-after publication must use `0.11.3` or a later version; do not replace the
-published 0.11.2 files.
+The `v0.11.3` tag points to commit
+`aba4c98277f965ce8cf52cea46ff08c26605a03f` and is immutable project history.
+Any correction discovered after publication must use `0.11.4` or a later
+version; do not move the tag or replace the published 0.11.3 files.
 
 ## Published 0.11.2 review patch
 
@@ -37,9 +38,11 @@ published 0.11.2 files.
   directory locks.
 - Acceptance plan: `docs/TEST_PLAN_0.11.2.md`
 
-## Pending 0.11.3 reconnect patch
+## Published 0.11.3 reconnect review patch
 
-- Candidate version: `0.11.3` (local development; not yet public)
+- Release commit: `aba4c98277f965ce8cf52cea46ff08c26605a03f`
+- Channel status: normal latest GitHub Release; `draft=false` and
+  `prerelease=false`
 - Confirmed blocker: after a normal disconnect, or after iPhone Wi-Fi is
   turned off and on, the first reconnect can wait for 20–30 seconds and fail
   while a second attempt succeeds.
@@ -55,7 +58,8 @@ published 0.11.2 files.
   at-most-once ten-minute idle discovery renewal.
 - Native core: the reviewed 0.11.1 executable and pinned runtime are reused
   unchanged.
-- Acceptance plan: `docs/TEST_PLAN_0.11.3.md`
+- Acceptance plan: `docs/TEST_PLAN_0.11.3.md`; physical Windows 11 + iPhone
+  results remain pending.
 
 ## What 0.11.1 addresses
 
@@ -78,27 +82,20 @@ published 0.11.2 files.
 - UI smoke and renderer-sizing probes;
 - exact public asset names, sizes, and GitHub SHA-256 digests.
 
-See `docs/BUILD_REPORT_0.11.2.md` for the release build record.
+See `docs/BUILD_REPORT_0.11.3.md` for the current release build record and
+`docs/BUILD_REPORT_0.11.2.md` for the previous update-fix release.
 
-The 0.11.2 shell build, receiver resilience checks, installer build, shortcut
-selection verifier, update-lifecycle verifier, and an explicit candidate run
-with Setup's inherited working directory inside the installed AeroMirror tree
-all pass locally on Windows 11. GitHub `releases/latest` returns `v0.11.2`, and
-all four downloaded public assets match the files built from the release tag.
-The physical Windows 10 acceptance run remains pending.
-
-The local 0.11.3 candidate passes the C# shell build, receiver resilience
-checks, package review, installer build, and `git diff --check`. A candidate
-Setup executable was built locally. These automated gates do not establish
-iPhone interoperability: the physical Windows 11 and iPhone reconnect cases
-in `docs/TEST_PLAN_0.11.3.md` remain pending. No 0.11.3 tag, GitHub Release,
-or public asset has been created or accepted.
+The 0.11.3 shell build, receiver resilience checks, package review, installer
+build, native corresponding-source provenance checks, and `git diff --check`
+pass. GitHub `releases/latest` returns the normal `v0.11.3` Release with
+`draft=false` and `prerelease=false`. All four re-downloaded public assets
+match the published byte sizes and SHA-256 digests recorded in the build
+report. These checks accept the release for review distribution only; the
+physical Windows 11 + iPhone reconnect cases remain pending.
 
 ## Manual acceptance still required
 
-The automated and provenance gates allow the still-unpublished 0.11.3 build to
-be published only as an explicitly labelled review candidate and only with
-explicit user authorization. Use that candidate to run
+Use the published 0.11.3 review candidate to run
 `docs/TEST_PLAN_0.11.3.md` on a physical Windows 11 PC before accepting the
 reconnect patch, then repeat it on a physical Windows 10 PC before 1.0. The
 published 0.11.2 update regression plan and the broader receiver acceptance in
@@ -118,13 +115,12 @@ documented bound blocks the 1.0 designation and should include a redacted log.
 
 ## Immediate next steps
 
-1. Publish a new immutable normal `v0.11.3` Release only as an explicitly
-   labelled review candidate, with explicit user authorization, now that the
-   automated and provenance gates pass; never replace the public 0.11.2 assets.
-2. Run `docs/TEST_PLAN_0.11.3.md` with the user's iPhone on physical Windows
+1. Run `docs/TEST_PLAN_0.11.3.md` with the user's iPhone on physical Windows
    11, including exact reconnect timings and a redacted log.
-3. Repeat the plan on physical Windows 10 and complete the remaining 0.11.2
+2. Repeat the plan on physical Windows 10 and complete the remaining 0.11.2
    in-place-update acceptance cases before 1.0.
+3. If a defect is found in the immutable public 0.11.3 files, prepare 0.11.4
+   or a later patch; never move the tag or replace an asset.
 4. If the stability gate passes, begin 0.12 development with an explicit
    repository-structure plan before moving files.
 5. Introduce resource-based UI localization in 0.12: follow the Windows
