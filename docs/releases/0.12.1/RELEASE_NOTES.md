@@ -2,9 +2,9 @@
 
 ## Summary
 
-This cosmetic review patch aligns the network card more cleanly, improves
-the help glyph at Windows DPI scales, and makes the two status explanations
-easier to discover without changing AirPlay behavior.
+This published cosmetic review patch aligns the network card more cleanly,
+improves the help glyph at Windows DPI scales, and makes the two status
+explanations easier to discover without changing AirPlay behavior.
 
 ## Should I update?
 
@@ -14,6 +14,9 @@ easier to discover without changing AirPlay behavior.
 - The patch is optional if the current interface looks correct to you. It does
   not contain a native receiver, discovery, reconnect, security-policy, or
   streaming change.
+- The in-app updater now sees 0.12.1 as the normal latest GitHub Release. The
+  public review release is available at
+  https://github.com/Nadejny/aeromirror/releases/tag/v0.12.1.
 
 ## What changed
 
@@ -42,6 +45,11 @@ narrow network-help hit target, and both receiver-status tooltip targets. A
 synthetic render of the actual custom glyph is centered, crisp, and unclipped
 in light and dark palettes at 100%, 150%, and 200% DPI.
 
+Exact-tag packaging and public verification also pass. Exactly four assets
+were re-downloaded with matching sizes and SHA-256 values, and every GitHub API
+digest matched the same local/public hash. See `BUILD_REPORT.md` for the
+immutable tag, asset, and checksum record.
+
 Physical inspection of the complete installed settings window on Windows 11
 at representative DPI scales and the Windows 10 compatibility smoke remain
 pending review checks. See `TEST_PLAN.md` and report any mismatch with an
@@ -59,6 +67,9 @@ existing Windows/iPhone acceptance work remains separate.
   ClearType configuration; acceptance is based on correct centering,
   clipping, and legibility rather than pixel-identical screenshots.
 - The installer remains unsigned and Windows SmartScreen may warn.
+
+The `v0.12.1` tag and its four assets are immutable. Any correction will use
+`0.12.2` or a later version rather than replacing this release's files.
 
 ## Reporting a problem
 

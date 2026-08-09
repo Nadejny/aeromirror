@@ -1,8 +1,14 @@
 # AeroMirror 0.12.1 — network-card and tooltip visual acceptance
 
-Status: local review candidate. Implementation, version integration, automated
-checks, and focused synthetic glyph rendering pass. Physical full-window
-inspection and publication are pending.
+Status: published cosmetic review release. Implementation, automation, focused
+synthetic rendering, exact-tag packaging, and public asset verification pass.
+Physical full-window Windows 11/DPI inspection and the Windows 10 visual smoke
+remain pending.
+
+`v0.12.1` was published from commit
+`2f457449653b11bc411982d200241cb82ea90587` as the normal, non-draft,
+non-prerelease latest Release. Publication does not complete the visual rows
+below and makes no physical AirPlay claim.
 
 This plan covers a cosmetic managed-shell patch. It does not accept native
 AirPlay, discovery, reconnect, streaming, installer, or physical-network
@@ -28,6 +34,8 @@ installer, and update protocol must remain unchanged.
 |---|---|---|---|
 | Final 0.12.1 source | N/A | Automated gates | Passed |
 | Synthetic custom-glyph render | Light and dark, 100%, 150%, 200% | Centering, clipping, and sharpness | Passed |
+| Exact `v0.12.1` packaging | N/A | Clean tag and four expected assets | Passed |
+| Public GitHub Release | N/A | Latest state, re-download, sizes, SHA-256, API digests | Passed |
 | Windows 11 x64 | Light, 100% | Full visual plan | Pending |
 | Windows 11 x64 | Dark, 100% | Full visual plan | Pending |
 | Windows 11 x64 | Light and dark, 125% or 150% | Full visual plan | Pending |
@@ -41,8 +49,8 @@ inspection alone.
 
 ## Automated gates
 
-After implementation and version integration, run from the final combined
-worktree:
+The following gates ran against the final source that became the `v0.12.1`
+tag:
 
 1. Build the managed shell:
 
@@ -68,8 +76,12 @@ worktree:
 
 The integrated candidate passes the managed build, receiver regression suite,
 focused UI/source assertions, unchanged-native-input check, PE version check,
-and `git diff --check`. A successful build or synthetic render does not
-substitute for the remaining physical full-window matrix.
+review payload, Setup lifecycle, native-source, exact-tag packaging, and
+`git diff --check` gates. Exactly four public assets were then re-downloaded;
+their sizes and SHA-256 values matched the local files, and all four GitHub API
+digests matched those hashes. See `BUILD_REPORT.md` for exact evidence. A
+successful build or synthetic render does not substitute for the remaining
+physical full-window matrix.
 
 ## Network-card alignment
 
@@ -162,23 +174,24 @@ the current public release plans and must be recorded separately.
 
 ## Acceptance gate
 
-The 0.12.1 cosmetic candidate may be published as an explicitly labelled
-review patch when:
+The 0.12.1 review-publication gate is **passed**:
 
-- all automated gates pass on the exact candidate commit;
-- the focused synthetic render passes in light and dark at representative DPI;
+- all automated gates passed on the exact tagged commit;
+- the focused synthetic render passed in light and dark at representative DPI;
 - pending physical Windows 11 and Windows 10 visual rows are stated explicitly
   in the release notes;
 - source and focused checks confirm the Private-network PIN sentence begins on
   tooltip line two and the receiver-state tooltip targets both dot and text;
 - no unintended receiver, native-core, network-policy, persistence, installer,
   or updater change is present;
-- explicit authorization is obtained before tag or publication.
+- exactly four public assets and all updater-facing API digests match;
+- publication had explicit authorization.
 
-The candidate is visually accepted only after every required physical
+The release is visually accepted only after every required physical
 Windows 11 theme/DPI row passes with retained screenshots and the Windows 10
 smoke result is recorded. A failure after review publication must be fixed in
 0.12.2 or later; the 0.12.1 tag and assets remain immutable.
 
-After publication, create `BUILD_REPORT.md`, verify every public asset and
-digest, update `docs/PROJECT_STATE.md`, and treat the tag/assets as immutable.
+Public evidence is recorded in `BUILD_REPORT.md`. Continue updating this test
+matrix and `docs/PROJECT_STATE.md` as physical visual results arrive; never
+replace the published tag or assets.

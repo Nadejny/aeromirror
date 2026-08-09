@@ -353,6 +353,7 @@ docs/
     0.12.1/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           cosmetic UI acceptance matrix
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.0/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           candidate acceptance and physical test matrix
