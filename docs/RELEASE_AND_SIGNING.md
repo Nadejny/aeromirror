@@ -85,9 +85,10 @@ a tag and stores its own downloadable assets. Publishing or replacing a
 Release asset does not update `main`; push the reviewed release commit to
 `main` before creating the matching tag and Release.
 
-Before publishing 0.11.1, complete the Windows 10/11 scenarios in
-[TEST_PLAN_0.11.1.md](TEST_PLAN_0.11.1.md). This remains a bugfix candidate;
-do not label it 1.0 until those real-device checks pass.
+Version 0.11.1 may be published as an explicitly labelled review candidate so
+the GitHub update path and multiple real PCs can be tested. Complete the
+Windows 10/11 scenarios in [TEST_PLAN_0.11.1.md](TEST_PLAN_0.11.1.md) before
+labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.
@@ -121,22 +122,22 @@ extracted archive.
 ## Release-note template
 
 ```markdown
-## Главное
+## Summary
 
-Одно короткое предложение о том, что изменилось для пользователя.
+One short sentence describing the user-visible outcome.
 
-## Стоит ли обновляться
+## Should I update?
 
-- Да — если вы сталкивались с …
-- Необязательно — если новая функция вам не нужна и текущая версия работает.
+- Yes, if you experienced …
+- Optional, if the new feature is not relevant and the installed version works.
 
-## Что изменилось
+## What changed
 
-- Добавлено: …
-- Исправлено: …
-- Изменено: …
+- Added: …
+- Fixed: …
+- Changed: …
 
-## Ограничения
+## Known limitations
 
 - …
 ```

@@ -1,210 +1,211 @@
-# История версий
+# Changelog
 
-## 0.11.1 — восстановление сеанса и стабильное обнаружение
+## 0.11.1 — session recovery and reliable discovery
 
-### Исправлено
+### Fixed
 
-- После потери соединения с iPhone зависший сеанс больше не блокирует
-  последующие подключения: AeroMirror ограниченно ждёт штатного завершения,
-  затем перезапускает дерево процессов ядра и Bluetooth-маяка.
-- Остановка ядра больше не может бесконечно ждать процесс с перенаправленным
-  выводом. Принудительное завершение ограничено по времени и охватывает всё
-  дочернее дерево процессов.
-- При запуске после Windows 10/11 AeroMirror сначала ждёт физический IPv4
-  активного Wi-Fi/Ethernet. Ядро не стартует на пустом интерфейсе и не
-  привязывает обнаружение к временному адресу VPN.
-- Bluetooth-маяк получает IPv4 именно физической сети, а нативное ядро
-  сообщает отдельные признаки готовности DNS-SD и BLE. Это упрощает
-  диагностику случаев, когда Bonjour запущен, но регистрация приёмника не
-  завершилась.
-- Ручное обновление обнаружения теперь сначала обновляет профиль сети, а
-  частые сетевые события объединяются без прежней длинной задержки.
-- «Сообщить о проблеме» больше не открывает поверх друг друга уведомление,
-  Проводник и браузер: приложение сначала выделяет обезличенный журнал, затем
-  открывает форму GitHub Issue и показывает состояние прямо в своём окне.
-- Подсказки состояния и сети срабатывают только на небольших индикаторах и
-  кнопке `?`, а отступы главного экрана стали ровнее.
-- Обновление через Setup сохраняет фактический выбор ярлыков меню «Пуск» и
-  рабочего стола, включая старые имена ярлыков и вариант без ярлыков.
+- A stalled session no longer blocks later connections after an iPhone drops:
+  AeroMirror waits a bounded amount of time for a normal shutdown, then
+  restarts the native core and Bluetooth-beacon process tree.
+- Stopping the core can no longer wait indefinitely for a process with
+  redirected output. Forced termination is bounded and covers the full child
+  process tree.
+- After Windows 10/11 starts, AeroMirror now waits for a usable IPv4 address
+  on the active physical Wi-Fi/Ethernet adapter. The core no longer starts
+  against an empty interface or binds discovery to a temporary VPN address.
+- The Bluetooth beacon receives the physical LAN IPv4 address, while the
+  native core reports separate DNS-SD and BLE readiness markers. This makes it
+  easier to diagnose cases where Bonjour is running but receiver registration
+  did not complete.
+- Manual discovery refresh now updates the network profile first, and bursts
+  of network events are coalesced without the previous long delay.
+- Report a problem no longer stacks a notification, Explorer, and the browser:
+  AeroMirror selects the redacted log first, opens the GitHub Issue form next,
+  and shows progress inside the application window.
+- Status and network tooltips now activate only on their small indicators and
+  the `?` button, and spacing on the home page is more consistent.
+- Setup updates preserve the user's actual Start menu and desktop shortcut
+  choices, including legacy shortcut names and the no-shortcuts configuration.
 
-### Диагностика и проверки
+### Diagnostics and validation
 
-- Отчёт содержит компактный снимок состояния ядра, сокетов, активного сеанса,
-  восстановления после потери клиента, ожидаемого перезапуска и ожидания
-  физической сети.
-- Добавлены стабильные маркеры готовности DNS-SD/BLE и автоматические проверки
-  восстановления потерянного сеанса, сетевого ожидания и сохранения ярлыков
-  при обновлении.
+- Diagnostic reports now include a compact snapshot of core, socket, active
+  session, lost-client recovery, pending restart, and physical-network wait
+  state.
+- Stable DNS-SD/BLE readiness markers and automated checks were added for
+  lost-session recovery, delayed network startup, and shortcut preservation
+  during updates.
 
-## 0.11.0 — интерфейс, ориентация и восстановление обнаружения
+## 0.11.0 — interface, orientation, and discovery recovery
 
-### Главное
+### Highlights
 
-- Главный экран стал компактнее: короткий статус с цветным индикатором,
-  лаконичная строка физической сети и пояснения по кнопке справки.
-- Настройки, включая тему и защиту подключения, применяются только после
-  нажатия «Сохранить».
-- Если PIN или другие параметры ядра меняются во время трансляции, AeroMirror
-  сохраняет выбор и безопасно перезапускает приёмник после отключения iPhone,
-  не обрывая текущий сеанс.
-- Новое окно трансляции сначала получает предварительную подгонку, затем
-  уточняется по первому точному размеру видео от нативного ядра. При реальном
-  переходе между портретной и альбомной ориентацией AeroMirror сохраняет
-  выбранный пользователем масштаб между поворотами.
-- Добавлено ограниченное самовосстановление AirPlay-обнаружения после
-  завершения сеанса и при долгом простое без циклических частых перезапусков.
+- The home page is more compact, with a short color-coded status, a concise
+  physical-network row, and help available from a dedicated indicator.
+- Settings, including theme and connection protection, are applied only after
+  the user selects Save.
+- If the PIN or another core setting changes during mirroring, AeroMirror
+  saves the choice and restarts the receiver safely after the iPhone
+  disconnects instead of interrupting the active session.
+- A new stream window receives a provisional fit first and is then refined
+  using the first exact video size reported by the native core. AeroMirror
+  preserves the user's chosen scale across real portrait/landscape changes.
+- AirPlay discovery receives bounded self-recovery after a completed session
+  and during long idle periods, without repeated restart loops.
 
-### Ограничения
+### Limitations
 
-- Автоповорот опирается на размер видеопотока, переданный iPhone. Если
-  приложение на телефоне само оставляет поля внутри кадра, AeroMirror не
-  обрезает их, чтобы не потерять часть экрана.
-- Управление iPhone мышью и жестами не входит в AirPlay Screen Mirroring и в
-  эту версию не добавлено.
-- Для изменения параметров, с которыми запускается UxPlay, всё ещё нужен
-  перезапуск приёмника; во время активной трансляции он откладывается до её
-  завершения.
+- Automatic rotation follows the video dimensions sent by the iPhone. If an
+  iPhone app adds its own bars inside the video frame, AeroMirror preserves
+  them to avoid cropping screen content.
+- Mouse and gesture control of the iPhone is not part of AirPlay Screen
+  Mirroring and is not included in this release.
+- Changing UxPlay startup parameters still requires a receiver restart. During
+  active mirroring, that restart is deferred until the session ends.
 
-## 0.10.0 — review build: стабильность и диагностика
+## 0.10.0 — review build: stability and diagnostics
 
-Эта версия предназначена для первой публичной раздачи знакомым и сбора
-воспроизводимых отчётов.
+This release was prepared for the first public distribution to testers and
+for collecting reproducible reports.
 
-### Исправлено
+### Fixed
 
-- Убраны слепые перезапуски Bonjour через 15 и 30 секунд после запуска.
-- Сетевые события объединяются с задержкой и перезапускают UxPlay только при
-  фактической смене физической Wi-Fi/Ethernet-сети.
-- Неопределённый профиль сети повторно проверяется с ограниченным grace
-  period; без PIN приёмник останавливается fail-closed и автоматически
-  возвращается после восстановления безопасной сети.
-- Ручное обновление обнаружения выполняет полный цикл
-  stop → короткая пауза → start.
-- Если готовность первого запуска не подтверждена, AeroMirror делает один
-  контролируемый полный stop/start; после повторной ошибки процесс не
-  оставляется работать с ложным зелёным статусом.
-- После остановки оболочка ждёт завершения процесса перед новым запуском,
-  чтобы два экземпляра не занимали одни порты.
-- Исправлена случайная порча аргументов нативного UxPlay при первом запуске:
-  память для `argv` теперь стабилизируется до передачи указателей ядру.
-  Именно этот дефект мог давать непредсказуемое зависание или вылет.
-- Три аварийных завершения за минуту отключают автоматический перезапуск;
-  постоянные ошибки загрузчика Windows (`0xC0000135`, `0xC0000139`,
-  `0xC000007B`) больше не запускают бесполезный цикл повторов.
-- При автозапуске Windows больше нет уведомления об успешном включении.
-- Предупреждение о публичной или неопределённой сети без PIN по-прежнему
-  показывается, даже при скрытом автозапуске; общий выключатель уведомлений
-  теперь распространяется и на ошибки ядра.
-- Один щелчок левой кнопкой по значку в трее открывает AeroMirror.
-- Колесо мыши над закрытым списком прокручивает страницу, а не меняет выбор.
-- Перехват колеса перенесён на уровень Win32: выбор качества, задержки, звука,
-  защиты и темы больше не меняется даже до события WinForms; открытый список
-  закрывается при прокрутке страницы и не «уезжает» отдельно от поля.
-- При выходе с несохранёнными изменениями предлагается сохранить, отбросить
-  или продолжить редактирование.
-- Подгонка окна выполняется один раз и больше не возвращает альбомные фото и
-  видео в принудительные портретные пропорции.
-- Ручная подгонка использует уже обнаруженное окно UxPlay и повторяет поиск,
-  поэтому не зависит от временной смены заголовка окна рендерера.
-- Парсер сетевого профиля стал fail-closed: физические Wi-Fi/Ethernet и
-  VPN/виртуальные профили разделяются явно, результат передаётся как JSON,
-  а неизвестная или повреждённая категория больше не может считаться
-  доверенной.
+- Removed blind Bonjour restarts 15 and 30 seconds after startup.
+- Network events are debounced and restart UxPlay only after an actual change
+  of the physical Wi-Fi/Ethernet network.
+- An unknown network profile is rechecked for a bounded grace period. Without
+  a PIN, the receiver fails closed and returns automatically after a safe
+  network becomes available.
+- Manual discovery refresh performs a full
+  stop → short pause → start cycle.
+- If readiness cannot be confirmed after the first start, AeroMirror performs
+  one controlled full stop/start. A second failure no longer leaves the
+  process running with a false green status.
+- The shell waits for the previous process to exit before starting another
+  instance, preventing two receivers from competing for the same ports.
+- Fixed corruption of native UxPlay arguments during the first launch:
+  storage for `argv` is now stabilized before pointers are passed to the
+  core. This defect could cause unpredictable stalls or crashes.
+- Three abnormal exits in one minute disable automatic restart. Persistent
+  Windows loader errors (`0xC0000135`, `0xC0000139`, and `0xC000007B`)
+  no longer trigger a useless retry loop.
+- A normal Windows autostart no longer displays a receiver-started
+  notification.
+- Public/unknown-network warnings without a PIN are still shown during hidden
+  startup, and the global notification setting now also covers core errors.
+- A single left click on the tray icon opens AeroMirror.
+- Scrolling over a closed list moves the page instead of changing the
+  selection.
+- Mouse-wheel handling moved to the Win32 level, so quality, latency, audio,
+  protection, and theme values no longer change before WinForms receives the
+  event. An open list closes when the page is scrolled instead of floating
+  away from its field.
+- Leaving a page with unsaved changes now offers Save, Discard, or Continue
+  editing.
+- Automatic fitting runs once and no longer forces landscape photos and
+  videos back into portrait proportions.
+- Manual fitting reuses an already detected UxPlay window and retries window
+  discovery, so it does not depend on a temporary renderer-title change.
+- Network-profile parsing now fails closed: physical Wi-Fi/Ethernet and
+  VPN/virtual profiles are separated explicitly, the result is passed as
+  JSON, and an unknown or malformed category can no longer be treated as
+  trusted.
 
-### Диагностика
+### Diagnostics
 
-- В `receiver.log` записываются stdout/stderr UxPlay, PID, причина остановки
-  и перезапуска, версия оболочки, Windows и физическая сеть.
-- PIN маскируется как `****`; журнал автоматически ротируется после 5 МБ.
-- Добавлены инструкция по диагностике и шаблон GitHub Issue для тестеров.
-- На главном экране и в трее добавлено «Сообщить о проблеме»: приложение
-  создаёт отдельную обезличенную копию журнала, открывает заполненный GitHub
-  Issue и выделяет файл для ручного прикрепления. Автозагрузки логов нет.
-- Случайный PIN UxPlay, пути профиля, MAC-адрес и имя сети также удаляются из
-  журнала перед записью; старые журналы санитизируются при запуске.
-- Отдельный `setup.log` записывает ошибки установки и обновления; отмеченный
-  криптографический материал в подробном выводе UxPlay маскируется.
+- `receiver.log` records UxPlay stdout/stderr, PID, stop/restart reason,
+  shell version, Windows version, and physical-network details.
+- PIN values are masked as `****`; the log rotates automatically after 5 MB.
+- Added troubleshooting instructions and a GitHub Issue template for testers.
+- Report a problem is available on the home page and in the tray. It creates a
+  separate redacted log copy, opens a prefilled GitHub Issue, and selects the
+  file for manual attachment. Logs are never uploaded automatically.
+- Random UxPlay PINs, user-profile paths, MAC addresses, and network names are
+  also removed before logs are written; existing logs are sanitized at
+  startup.
+- A separate `setup.log` records installation and update errors. Labelled
+  cryptographic material in detailed UxPlay output is redacted.
 
-### Распространение review-версии
+### Review distribution
 
-- Публичный Setup уменьшен до сетевого review-установщика: полный сторонний
-  runtime загружается неизменённым с закреплённого upstream Release и
-  принимается только при совпадении SHA-256.
-- Перед заменой установленной версии Setup запускает отдельный loader-test
-  собранного ядра внутри скачанного runtime и отменяет установку при
-  несовместимости DLL или Qt.
-- Setup дожидается полного завершения оболочки, ядра и Bluetooth-beacon перед
-  заменой каталога, а при ошибке восстанавливает предыдущую версию.
-- Обновление сохраняет выбранные пользователем ярлыки. Если замена не
-  завершается, Setup вместе со старым каталогом восстанавливает прежние
-  ярлыки, запись удаления и параметры автозапуска.
-- После проверки SHA-256 Setup сохраняет закреплённый upstream runtime в
-  content-addressed кэше. Повторная установка и последующие обновления с тем
-  же runtime используют кэш, заново проверяют его SHA-256 и всё равно
-  выполняют loader-test перед заменой приложения.
-- Рядом с Setup публикуются исходники AeroMirror и полное дерево изменённого
-  GPL-ядра. Offline portable пока не публикуется до завершения SBOM-аудита
-  всей Qt/GStreamer/FFmpeg/MSYS2-сборки.
-- Публичное нативное ядро собрано с детерминированным преобразованием путей и
-  без debug-секций, поэтому локальное имя пользователя и путь сборки в него
-  не попадают.
-- Архив нативных исходников содержит оба патча отдельно и уже применёнными,
-  а также `source-provenance.json`. Сценарий повторной сборки сверяет хэши
-  патчей, изменённых файлов и входных данных, создаёт `dnssd.lib` из
-  проверенного `dnssd.def` и отклоняет ядро с другим итоговым SHA-256.
-- Встроенное обновление принимает только Setup с точным именем
-  `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe`, соответствующим версии GitHub
-  Release; похожий или неверно названный файл не запускается.
+- The public Setup was reduced to a network review installer. It downloads the
+  unchanged pinned third-party runtime from the upstream GitHub Release and
+  accepts it only when its SHA-256 matches.
+- Before replacing an installed version, Setup runs a separate loader test
+  against the built core inside the downloaded runtime and cancels the
+  installation if its DLL or Qt dependencies are incompatible.
+- Setup waits for the shell, core, and Bluetooth beacon to exit fully before
+  replacing the application directory, and restores the previous version if
+  installation fails.
+- Updates preserve the user's shortcut selection. If replacement fails, Setup
+  restores the previous shortcuts, uninstall registration, and autostart
+  configuration together with the old application directory.
+- After SHA-256 verification, Setup stores the pinned upstream runtime in a
+  content-addressed cache. Reinstallation and later updates using the same
+  runtime reuse the cache, verify it again, and still run the loader test.
+- AeroMirror source and the complete modified GPL core source tree are
+  published alongside Setup. The offline portable package remains unpublished
+  until the complete Qt/GStreamer/FFmpeg/MSYS2 SBOM review is finished.
+- The public native core is built with deterministic path rewriting and
+  without debug sections, so local user names and build paths are not embedded
+  in it.
+- The native-source archive includes both patches separately and already
+  applied, plus `source-provenance.json`. Its rebuild script verifies patch,
+  modified-source, and build-input hashes, generates `dnssd.lib` from the
+  reviewed `dnssd.def`, and rejects a core with a different final SHA-256.
+- The built-in updater accepts only a Setup asset named exactly
+  `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` for the GitHub Release version;
+  a similarly named or incorrectly versioned file is not launched.
 
-### Интерфейс
+### Interface
 
-- Главный экран стал компактнее: состояние полностью помещается рядом с
-  названием, настройки открываются маленькой шестерёнкой, а обновления
-  находятся в одном ряду с действиями приёмника.
-- Добавлена короткая формулировка главного сценария: один раз настроить,
-  дальше AeroMirror автоматически запускается и ждёт подключения в трее.
-- Подсказка про PIN исчезает после настройки и может быть закрыта вручную.
-- Улучшены контраст и читаемость тёмной темы.
+- The home page is more compact: status fits beside the product name, settings
+  use a small gear button, and update checking shares a row with receiver
+  actions.
+- Added a short description of the main workflow: configure AeroMirror once,
+  then let it start automatically and wait in the tray.
+- The PIN suggestion disappears after configuration and can also be dismissed
+  manually.
+- Improved dark-theme contrast and readability.
 
-## 0.9.0 — Windows 10, обновления и оформление
+## 0.9.0 — Windows 10, updates, and visual design
 
-### Главное
+### Highlights
 
-Версия переименовывает приложение в AeroMirror и готовит его к обычной
-установке и последующим обновлениям:
-оно поддерживает Windows 10 1809+, обновляется поверх предыдущей версии и
-показывает понятное описание нового GitHub Release до скачивания.
+This release renamed the application to AeroMirror and prepared it for normal
+installation and future updates. It supports Windows 10 1809+, updates an
+existing installation in place, and shows a clear description of a new GitHub
+Release before downloading it.
 
-### Стоит ли обновляться
+### Should I update?
 
-- Да — если у вас установлена версия 0.7 или 0.8: установщик заменит её,
-  сохранит настройки и сможет восстановить прежние файлы при ошибке.
-- Да — если вы используете тёмную тему Windows или хотите вручную выбрать
-  светлое/тёмное оформление.
-- Необязательно — если текущая версия полностью устраивает и новые
-  возможности не нужны.
+- Yes, if version 0.7 or 0.8 is installed: Setup replaces it, preserves
+  settings, and can restore the previous files if updating fails.
+- Yes, if you use the Windows dark theme or want to choose light/dark
+  appearance manually.
+- Optional, if the installed version already works for you and you do not need
+  the new features.
 
-### Что изменилось
+### What changed
 
-- Добавлено: тема как в Windows, а также ручной светлый и тёмный режим.
-- Добавлено: страница проверки GitHub-обновлений с описанием релиза.
-- Добавлено: официальный канал обновлений `Nadejny/aeromirror`.
-- Добавлено: проверка SHA-256 скачанного установщика перед запуском.
-- Изменено: окно трансляции снова показывается на панели задач по умолчанию;
-  в настройках его можно скрыть.
-- Изменено: повторное обнаружение AirPlay получило более понятное название.
-- Исправлено: установщик определяет предыдущую версию, обновляет её на месте
-  и не создаёт вторую запись в списке приложений.
-- Исправлено: установщик закрывается до открытия основного приложения.
-- Исправлено: списки и поля корректно выглядят в тёмной теме.
-- Уточнено: выбранное качество гарантированно применяется при новом
-  подключении iPhone.
+- Added: Follow Windows, Light, and Dark appearance modes.
+- Added: a GitHub update-check page with release notes.
+- Added: the official `Nadejny/aeromirror` update channel.
+- Added: SHA-256 verification of a downloaded installer before launch.
+- Changed: the stream window appears on the taskbar by default again and can
+  be hidden through settings.
+- Changed: the AirPlay rediscovery action has a clearer name.
+- Fixed: Setup detects and updates an earlier installation in place instead of
+  creating a second entry in Installed apps.
+- Fixed: Setup closes before the main application opens.
+- Fixed: lists and fields render correctly in the dark theme.
+- Clarified: the selected quality is guaranteed to apply to the next iPhone
+  connection.
 
-### Ограничения
+### Limitations
 
-- Установщик пока не подписан, поэтому SmartScreen может показать
-  предупреждение о неизвестном издателе.
-- До публикации первого GitHub Release проверка обновлений сообщит, что
-  опубликованных версий пока нет.
-- Мгновенное изменение входящего качества без переподключения iPhone
-  текущим ядром UxPlay не поддерживается.
+- Setup is unsigned, so SmartScreen may warn about an unknown publisher.
+- Before the first GitHub Release is published, update checking reports that
+  no releases are available.
+- Instant incoming-quality changes without reconnecting the iPhone are not
+  supported by the current UxPlay core.

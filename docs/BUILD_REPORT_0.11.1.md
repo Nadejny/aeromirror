@@ -2,7 +2,8 @@
 
 Build date: 2026-08-09
 Target: Windows 10 1809+ / Windows 11, x64
-Publication status: local candidate; not tagged or uploaded
+Publication status: local pre-release candidate; final public hashes are
+recorded in the release `SHA256SUMS.txt`
 
 ## Scope
 

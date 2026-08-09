@@ -1,52 +1,58 @@
-# AeroMirror 0.11.1 — ручная приёмка кандидата
+# AeroMirror 0.11.1 — manual candidate acceptance
 
-0.11.1 — исправляющий кандидат, а не финальная 1.0. Версию 1.0 можно
-обозначить только после успешных реальных прогонов на Windows 10 и Windows 11.
+Version 0.11.1 is a stability candidate, not the final 1.0 release. Promote the
+project to 1.0 only after successful real-device runs on Windows 10 and
+Windows 11.
 
-Перед каждым прогоном сохраните обезличенный отчёт через «Сообщить о
-проблеме», если ожидание или восстановление выходит за указанные границы.
+Use Report a problem to save a redacted diagnostic report whenever discovery
+or recovery exceeds the expected bounds.
 
-## Матрица
+## Test matrix
 
-Повторить основной сценарий на:
+Repeat the primary scenarios on:
 
 - Windows 10 1809+ x64;
 - Windows 11 x64;
-- физическом Wi-Fi или Ethernet без VPN;
-- той же физической сети с включённым VPN, затем после его отключения.
+- a physical Wi-Fi or Ethernet network without a VPN;
+- the same physical network with a VPN enabled, then again after disabling it.
 
-## Сценарии
+## Scenarios
 
-1. **Обычный запуск.** Запустить AeroMirror при уже готовой сети. Приёмник
-   должен стать видимым на iPhone без ручного перезапуска; в журнале должен
-   быть физический IPv4 и признак готовности DNS-SD или BLE.
-2. **Windows загружается раньше Wi-Fi.** Включить компьютер с выключенным
-   Wi-Fi, дождаться автозапуска AeroMirror, затем подключить Wi-Fi. До появления
-   физического IPv4 ядро не должно запускаться на VPN/случайном интерфейсе;
-   после подключения приёмник должен появиться без ручного stop/start.
-3. **Сеть подключается позже.** При уже запущенном AeroMirror разорвать и
-   восстановить физическое подключение. Проверить повторную видимость
-   приёмника на iPhone после стабилизации сети.
-4. **VPN.** Включить VPN поверх домашней физической сети, запустить или
-   обновить обнаружение и подключиться с iPhone. BLE должен рекламировать IPv4
-   физической сети, а защита должна определяться категорией физического
-   профиля. Повторить после отключения VPN.
-5. **Три последовательных сеанса.** Три раза подключить iPhone, дождаться
-   изображения и штатно отключиться. После каждого отключения приёмник должен
-   снова стать видимым и принять следующий сеанс без перезапуска приложения.
-6. **Потеря клиента во время трансляции.** Во время активного mirroring
-   выключить Wi-Fi на iPhone или разорвать физическую сеть. Зависший сеанс
-   должен быть снят, а дерево ядра перезапущено примерно за 8 секунд или
-   быстрее после обнаружения потери соединения. После восстановления сети
-   приёмник должен снова появиться и принять новое подключение.
-7. **Обновление с 0.11.0.** Проверить варианты: только ярлык меню «Пуск»,
-   только ярлык рабочего стола, оба ярлыка и отсутствие ярлыков. Обновление до
-   0.11.1 должно сохранить этот выбор, `settings.ini`, ключ приёмника,
-   доверенные устройства и параметры автозапуска.
+1. **Normal startup.** Start AeroMirror after the network is ready. The
+   receiver should become visible on the iPhone without a manual restart; the
+   log should contain a physical IPv4 address and a DNS-SD or BLE readiness
+   marker.
+2. **Windows starts before Wi-Fi.** Boot the PC with Wi-Fi disabled, wait for
+   AeroMirror to autostart, then connect Wi-Fi. The native core must not start
+   on a VPN or arbitrary interface before a physical IPv4 is available. After
+   Wi-Fi connects, the receiver should appear without a manual stop/start.
+3. **Late network reconnection.** With AeroMirror already running, disconnect
+   and reconnect the physical network. Confirm that the receiver becomes
+   visible again after the network stabilizes.
+4. **VPN.** Enable a VPN over a trusted physical home network, start or refresh
+   discovery, and connect from the iPhone. BLE must advertise the physical
+   LAN IPv4 address, while connection protection must follow the physical
+   Windows network category. Repeat after disabling the VPN.
+5. **Three sequential sessions.** Connect the iPhone, wait for video, and
+   disconnect normally three times. After every disconnect, the receiver
+   should become visible and accept the next session without restarting the
+   application.
+6. **Client loss during mirroring.** While mirroring, disable Wi-Fi on the
+   iPhone or disconnect the physical network. The stalled session should be
+   cleared and the core process tree restarted in roughly eight seconds or
+   less after the loss is detected. After network recovery, the receiver
+   should reappear and accept a new connection.
+7. **Update from 0.11.0.** Test Start-menu-only, desktop-only, both-shortcuts,
+   and no-shortcuts configurations. Updating to 0.11.1 must preserve the
+   shortcut selection, `settings.ini`, receiver key, trusted devices, and
+   autostart configuration.
 
-## Условие выпуска
+## Acceptance gate
 
-Кандидат готов к публикации после успешного выполнения всех сценариев хотя бы
-на одном реальном компьютере с Windows 10 и одном с Windows 11. Сбой,
-пропавшая повторная видимость или восстановление заметно дольше 8 секунд
-блокируют обозначение версии 1.0 и требуют приложенного обезличенного журнала.
+Publishing 0.11.1 as an explicitly labelled review candidate is allowed so
+the GitHub update path and multiple real PCs can be tested. Do not call the
+project 1.0 until every scenario passes on at least one real Windows 10 PC and
+one real Windows 11 PC.
+
+A crash, lost rediscovery, or recovery substantially slower than eight seconds
+blocks the 1.0 designation and requires an attached redacted diagnostic report.
