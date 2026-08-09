@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.12.1 — network-card alignment and tooltip polish
+
+### Fixed
+
+- The network-card title and detail text are vertically centered with the help
+  control instead of sitting unevenly inside the card.
+- The network help control uses a crisp, centered, DPI-aware question-mark
+  glyph so it remains legible at different Windows display scales.
+- On a Private physical network, the PIN guidance begins on the second tooltip
+  line, keeping the network summary and optional-protection explanation
+  visually separate.
+- The receiver-state explanation is available when the pointer is over either
+  the colored status dot or the adjacent status text.
+
+### Compatibility and verification status
+
+- This is a cosmetic managed-shell review patch. The native UxPlay core,
+  receiver lifecycle, discovery/reconnect behavior, settings format, and
+  network-safety decisions are unchanged.
+- The final managed build and receiver regression suite pass. A focused
+  synthetic render confirms the custom help glyph remains centered, crisp,
+  and unclipped in light and dark palettes at 100%, 150%, and 200% DPI.
+- Physical inspection of the complete settings window on Windows 11 and the
+  Windows 10 compatibility smoke remain pending review checks.
+- No physical AirPlay behavior is claimed by these interface-only changes.
+
 ## 0.12.0 — safer persisted settings and maintainable managed source
 
 ### Fixed

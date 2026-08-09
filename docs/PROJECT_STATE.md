@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
@@ -28,6 +28,41 @@ Exact public evidence is recorded in
 Historical 0.11 tags, assets, test plans, and build reports remain unchanged
 release history. The previous public verification is retained in
 `docs/BUILD_REPORT_0.11.3.md`.
+
+## Local 0.12.1 cosmetic candidate
+
+Status: implementation, version integration, managed build, receiver
+regression checks, focused source checks, and synthetic glyph rendering are
+complete. Commit, tag, publication, and physical full-window visual review are
+pending.
+
+The intended shell-only scope is:
+
+- vertically center the network-card title and detail text with its help
+  control;
+- render a crisp, centered, DPI-aware question-mark glyph in that control;
+- place the Private-network PIN guidance at the beginning of the tooltip's
+  second line;
+- expose the receiver-state tooltip over both the colored status dot and the
+  adjacent status text.
+
+The native UxPlay core, receiver lifecycle, discovery/reconnect supervision,
+network trust decisions, settings format, installer behavior, and persistent
+identity are outside this patch and must remain unchanged.
+
+Candidate automation is **accepted**: the final managed shell builds, the
+receiver regression suite passes, `git diff --check` is clean, and a focused
+render shows the new help glyph centered and unclipped in light and dark
+palettes at 100%, 150%, and 200% DPI. Structural checks cover the shared
+network-card geometry, deliberate tooltip line break, narrow network help hit
+target, and both receiver-status tooltip targets.
+
+The exact installed full-window appearance still needs physical inspection on
+Windows 11 at representative DPI scales, plus the Windows 10 visual smoke in
+`docs/releases/0.12.1/TEST_PLAN.md`. This explicitly labelled review patch may
+be published with those checks pending under the user's standing authorization;
+their status must remain visible in the Release notes. No physical AirPlay
+behavior is claimed for this cosmetic candidate.
 
 ## What 0.12.0 changes
 
@@ -76,7 +111,8 @@ release only; it does not establish physical AirPlay interoperability.
 
 ## Physical verification status
 
-All physical-device and installed-update gates for 0.12.0 remain **pending**.
+All physical-device and installed-update gates for public 0.12.0 remain
+**pending**.
 Use `docs/releases/0.12.0/TEST_PLAN.md` and retain exact timings plus a short
 redacted log for failures.
 
@@ -96,14 +132,17 @@ blocks physical acceptance and must be fixed in a new version.
 
 ## Immediate next steps
 
-1. Use the public updater or Setup to update a real 0.11.3 installation to
-   0.12.0 and confirm settings, trust state, shortcuts, and runtime cache are
-   preserved.
-2. Complete the Windows 11 + iPhone plan, including exact reconnect timings
-   and VPN/network-profile cases, then update this file and the test matrix.
-3. Repeat the physical plan on Windows 10 before describing AeroMirror as 1.0.
-4. If a defect is found, prepare 0.12.1 or later; do not modify the 0.12.0 tag
-   or assets.
+1. Implement only the documented 0.12.1 interface changes without altering
+   receiver or native-core behavior.
+2. Run the managed build and regression checks, then complete the light/dark
+   and multi-DPI visual matrix for both network and receiver-state tooltips.
+3. Build a local 0.12.1 review candidate only after those gates pass; do not
+   tag or publish without explicit authorization.
+4. Separately, complete the public-update and physical Windows 11 + iPhone
+   plan, then the Windows 10 plan required before 1.0. Cosmetic acceptance
+   does not satisfy those AirPlay gates.
+5. Preserve the immutable 0.12.0 tag and assets. Any 0.12.1 defect discovered
+   after future publication must receive another patch version.
 
 ## Where information belongs
 
@@ -114,6 +153,5 @@ blocks physical acceptance and must be fixed in a new version.
 - component boundaries: `docs/ARCHITECTURE.md`;
 - release/update/signing rules: `docs/RELEASE_AND_SIGNING.md`;
 - user-visible release history: `CHANGELOG.md`;
-- 0.12.0 release evidence and remaining acceptance:
-  `docs/releases/0.12.0/`;
+- versioned release evidence and acceptance: `docs/releases/<version>/`;
 - troubleshooting and log collection: `docs/TROUBLESHOOTING.md`.

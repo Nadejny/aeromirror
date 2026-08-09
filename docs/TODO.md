@@ -88,6 +88,19 @@ versions.
 Acceptance target: local and CI checks use the same entry point and cannot
 publish, sign, or mutate a GitHub Release as a side effect.
 
+### UI accessibility and physical DPI acceptance
+
+- [ ] Make compact help controls keyboard-focusable without turning blank card
+  space into a tooltip target.
+- [ ] Draw an explicit focus cue and expose the same help text through keyboard
+  interaction as through pointer hover.
+- [ ] Add physical Windows 10/11 checks for tooltip hit testing, transparent
+  compositing, optical centering, and per-monitor DPI transitions.
+
+Acceptance target: pointer, keyboard, and assistive-technology users reach the
+same help content, with retained screenshots at representative Windows display
+scales.
+
 ### Native core IPC and a real ready state
 
 Version 0.11.1 adds explicit DNS-SD/BLE stdout markers, listening-socket

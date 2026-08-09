@@ -73,6 +73,33 @@ Assert-True ($sharedBudgetCallCount -ge 3) `
 Assert-True (-not $source.Contains(
         'StopCoreInternal("readiness confirmation failed"')) `
     "unconfirmed readiness never synchronously stops a socket-ready core"
+Assert-True ($source.Contains(
+        "networkTitle.TextAlign = ContentAlignment.MiddleLeft")) `
+    "network text is vertically centered beside its help glyph"
+Assert-True ($source.Contains(
+        "toolTips.SetToolTip(statusDot, receiverDetails)") -and
+    $source.Contains("toolTips.SetToolTip(status, receiverDetails)")) `
+    "receiver details are available from both the status dot and status text"
+Assert-True ($source.Contains("status.Size = new Size(1, 24)") -and
+    $source.Contains(
+        "TextRenderer.MeasureText(status.Text, status.Font).Width")) `
+    "receiver status tooltip target follows the rendered text instead of blank space"
+Assert-True (-not $source.Contains("toolTips.SetToolTip(networkCard") -and
+    -not $source.Contains("toolTips.SetToolTip(networkTitle")) `
+    "network details are not attached to the whole network card"
+$networkHelpTooltipCount = [regex]::Matches(
+    $source, 'toolTips\.SetToolTip\(networkHelp, networkDetails\)').Count
+Assert-True ($networkHelpTooltipCount -eq 1) `
+    "network details are attached only to the question-mark control"
+$privatePinGuidanceBreakCount = [regex]::Matches(
+    $source, '\\r\\n" \+\s*"[^"]*PIN [^"]*"').Count
+Assert-True ($privatePinGuidanceBreakCount -ge 2) `
+    "private-network PIN guidance starts on a separate tooltip line"
+Assert-True ($source.Contains("e.Graphics.DpiX / 96F") -and
+    $source.Contains("SmoothingMode.AntiAlias") -and
+    $source.Contains("format.Alignment = StringAlignment.Center") -and
+    $source.Contains("format.LineAlignment = StringAlignment.Center")) `
+    "the help circle and question glyph use DPI-aware anti-aliased centering"
 
 $assembly = [Reflection.Assembly]::LoadFrom(
     [IO.Path]::GetFullPath($AssemblyPath))
@@ -88,6 +115,30 @@ $instanceFlags = [Reflection.BindingFlags]::Instance -bor `
 $staticFlags = [Reflection.BindingFlags]::Static -bor `
     [Reflection.BindingFlags]::NonPublic -bor `
     [Reflection.BindingFlags]::Public
+
+$networkHelpType = $assembly.GetType(
+    "AirPlayReceiverMvp.NetworkHelpGlyph", $true)
+Assert-True ($networkHelpType.BaseType.FullName -eq
+    "System.Windows.Forms.Control") `
+    "the network help glyph is a dedicated custom control"
+$networkHelpPaint = $networkHelpType.GetMethod("OnPaint", $instanceFlags)
+Assert-True ($null -ne $networkHelpPaint -and
+    $networkHelpPaint.DeclaringType -eq $networkHelpType) `
+    "the network help glyph owns its DPI-aware drawing path"
+$networkHelpProbe = [Activator]::CreateInstance($networkHelpType, $true)
+try {
+    Assert-True ($networkHelpProbe.Width -eq 24 -and
+        $networkHelpProbe.Height -eq 24) `
+        "the help glyph has a compact square layout box"
+    Assert-True ($networkHelpProbe.Text -eq "?") `
+        "the help glyph exposes a question-mark text alternative"
+    Assert-True ($networkHelpProbe.AccessibleRole.ToString() -eq
+        "HelpBalloon") `
+        "assistive technology receives an explicit help role"
+}
+finally {
+    $networkHelpProbe.Dispose()
+}
 
 $normalizeSettings = $settingsType.GetMethod(
     "NormalizePersistedValues", $instanceFlags)

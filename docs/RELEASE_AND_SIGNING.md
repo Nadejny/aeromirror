@@ -95,8 +95,8 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. For 0.12.0, use
-[`releases/0.12.0/TEST_PLAN.md`](releases/0.12.0/TEST_PLAN.md). Historical 0.11
+passes. For 0.12.1, use
+[`releases/0.12.1/TEST_PLAN.md`](releases/0.12.1/TEST_PLAN.md). Historical 0.11
 plans remain part of the evidence required before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the

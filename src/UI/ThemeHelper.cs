@@ -96,6 +96,11 @@ namespace AirPlayReceiverMvp
                     button.ForeColor = secondaryColor;
                 }
             }
+            else if (control is NetworkHelpGlyph)
+            {
+                control.BackColor = Color.Transparent;
+                control.ForeColor = textColor;
+            }
             else if (control is Panel)
             {
                 if (IsAccent(currentBack))

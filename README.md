@@ -57,7 +57,7 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   newer request/PIN grace instead of triggering deferred maintenance during
   the reconnect handshake;
 - checks a configured public GitHub Release channel only when requested,
-  accepts only exact three-part release tags such as `v0.12.0`,
+  accepts only exact three-part release tags such as `v0.12.1`,
   requires the exact versioned asset name
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe`, displays curated release notes,
   and verifies the setup SHA-256 before launching an update;
@@ -92,7 +92,7 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.0.exe
+AeroMirror-Setup-0.12.1.exe
 ```
 
 The installer:
@@ -218,31 +218,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.0 `
+  -Version 0.12.1 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.0 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.0.zip
+  -Version 0.12.1 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.1.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.0.exe
+artifacts\installer\AeroMirror-Setup-0.12.1.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.0`.
+Public release names use three-part semantic versions such as `0.12.1`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.0.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.0`.
+show `0.12.1.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.1`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.0 `
+  -Version 0.12.1 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -255,7 +255,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.0.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.1.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -264,7 +264,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.0\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.1\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -350,6 +350,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.1/
+      RELEASE_NOTES.md       curated GitHub Release text
+      TEST_PLAN.md           cosmetic UI acceptance matrix
     0.12.0/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           candidate acceptance and physical test matrix
@@ -467,9 +470,9 @@ The current license inventory is an engineering review, not legal advice.
 For the 0.12 review, share the GitHub Release page or its network Setup—not a
 loose `AeroMirror.exe`. The Release must keep these assets together:
 
-- `AeroMirror-Setup-0.12.0.exe`;
-- `AeroMirror-source-0.12.0.zip`;
-- `AeroMirror-native-source-0.12.0.zip`;
+- `AeroMirror-Setup-0.12.1.exe`;
+- `AeroMirror-source-0.12.1.zip`;
+- `AeroMirror-native-source-0.12.1.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

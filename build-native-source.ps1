@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.0"
+    [string]$Version = "0.12.1"
 )
 
 $ErrorActionPreference = "Stop"

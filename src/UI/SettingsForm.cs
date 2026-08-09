@@ -29,7 +29,7 @@ namespace AirPlayReceiverMvp
         private readonly Label statusDot;
         private readonly Panel networkCard;
         private readonly Label networkTitle;
-        private readonly Label networkHelp;
+        private readonly NetworkHelpGlyph networkHelp;
         private readonly Panel trustCard;
         private readonly Button refreshDiscovery;
         private readonly Button settingsButton;
@@ -135,9 +135,10 @@ namespace AirPlayReceiverMvp
 
             status = MakeLabel("", 112, 53);
             status.AutoSize = false;
-            status.Size = new Size(420, 24);
+            status.Size = new Size(1, 24);
             status.AutoEllipsis = true;
             status.Font = new Font("Segoe UI Semibold", 10.5F);
+            status.Cursor = Cursors.Help;
             homeHeader.Controls.Add(status);
 
             settingsButton = MakeButton(
@@ -157,28 +158,13 @@ namespace AirPlayReceiverMvp
             networkTitle.AutoSize = false;
             networkTitle.Size = new Size(506, 24);
             networkTitle.AutoEllipsis = true;
+            networkTitle.TextAlign = ContentAlignment.MiddleLeft;
             networkTitle.Font = new Font("Segoe UI Semibold", 9.5F);
             networkCard.Controls.Add(networkTitle);
 
-            networkHelp = MakeLabel("?", 537, 12);
-            networkHelp.AutoSize = false;
-            networkHelp.Size = new Size(22, 22);
-            networkHelp.TextAlign = ContentAlignment.MiddleCenter;
-            networkHelp.Font = new Font("Segoe UI Semibold", 9F);
-            networkHelp.Cursor = Cursors.Help;
+            networkHelp = new NetworkHelpGlyph();
+            networkHelp.Location = new Point(536, 11);
             networkHelp.AccessibleName = "Подробнее о проверке сети";
-            networkHelp.Paint += delegate(object sender, PaintEventArgs e)
-            {
-                e.Graphics.SmoothingMode =
-                    System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                using (var pen = new Pen(networkHelp.ForeColor, 1F))
-                {
-                    e.Graphics.DrawEllipse(
-                        pen, 1.5F, 1.5F,
-                        networkHelp.Width - 4F,
-                        networkHelp.Height - 4F);
-                }
-            };
             networkCard.Controls.Add(networkHelp);
 
             trustCard = new Panel();
@@ -708,7 +694,14 @@ namespace AirPlayReceiverMvp
                     : Color.FromArgb(196, 43, 43);
                 startStop.Text = "Включить";
             }
-            toolTips.SetToolTip(statusDot, context.ReceiverStateText);
+            status.Width = Math.Min(
+                420,
+                Math.Max(1, TextRenderer.MeasureText(status.Text, status.Font).Width));
+            string receiverDetails = context.ReceiverStateText;
+            statusDot.AccessibleDescription = receiverDetails;
+            status.AccessibleDescription = receiverDetails;
+            toolTips.SetToolTip(statusDot, receiverDetails);
+            toolTips.SetToolTip(status, receiverDetails);
 
             string networkDetails;
             if (unsafeAccess)
@@ -755,14 +748,17 @@ namespace AirPlayReceiverMvp
                         (context.HasNetworkOverlay
                             ? " · VPN/виртуальная сеть" : "");
                     networkDetails = context.HasNetworkOverlay
-                        ? "Проверен именно физический Wi-Fi или Ethernet. VPN и виртуальный профиль не меняют режим защиты. В частной сети PIN необязателен, но его можно включить."
-                        : "Windows пометила физическое подключение как частную сеть. PIN необязателен, но его можно включить.";
+                        ? "Проверен именно физический Wi-Fi или Ethernet. VPN и виртуальный профиль не меняют режим защиты.\r\n" +
+                          "В частной сети PIN необязателен, но его можно включить."
+                        : "Windows пометила физическое подключение как частную сеть.\r\n" +
+                          "В частной сети PIN необязателен, но его можно включить.";
                 }
                 networkTitle.ForeColor = dark
                     ? Color.FromArgb(111, 190, 255)
                     : Color.FromArgb(0, 80, 145);
             }
             networkHelp.ForeColor = networkTitle.ForeColor;
+            networkHelp.AccessibleDescription = networkDetails;
             networkHelp.Invalidate();
             toolTips.SetToolTip(networkHelp, networkDetails);
 
