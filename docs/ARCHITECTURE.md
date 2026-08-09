@@ -26,11 +26,16 @@ AeroMirror.exe
 The current shell depends on these native integration behaviors:
 
 1. The core executable is located at `core/uxplay-windows.exe`.
-2. The shell starts it with `--headless --uxplay <arguments>`.
+2. The shell waits for a usable physical IPv4 address and starts the core with
+   `--headless --beacon-ipv4 <physical-ipv4> --uxplay <arguments>`.
 3. Renderer windows belong to the core process.
-4. Existing native log lines provide heuristic socket-ready and mirroring
-   start/stop observations.
-5. The reviewed libuxplay patch writes a stable
+4. The reviewed patches write explicit `AEROMIRROR_DNSSD_READY`,
+   `AEROMIRROR_DNSSD_DEGRADED`, and `AEROMIRROR_BLE ...` discovery-health
+   markers. Listening sockets remain the readiness baseline.
+5. Existing native log lines still provide heuristic mirroring start, normal
+   stop, and lost-client observations. A bounded watchdog restarts the native
+   process tree when a fatal loss marker is not followed by normal shutdown.
+6. The reviewed libuxplay patch writes a stable
    `AEROMIRROR_VIDEO_SIZE source=<w>x<h> encoded=<w>x<h>` line when the
    incoming video size changes.
 
@@ -41,6 +46,11 @@ uxplay-windows' legacy `arguments.txt` file.
 This deliberately keeps protocol code out of the shell. A later native build
 can replace the binary boundary with a dedicated `receiver-core.exe` or stable
 local IPC API while preserving the settings UX.
+
+The current markers are a reviewed transitional stdout contract, not a
+versioned bidirectional IPC protocol. Compatibility code still supports a
+legacy core without those markers, but explicit failure of both DNS-SD and BLE
+must never produce a false ready state.
 
 ## Renderer-window fitting
 

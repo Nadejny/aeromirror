@@ -269,8 +269,9 @@ script additionally verifies both pinned commits.
 ## Source layout
 
 ```text
+AGENTS.md                   stable entry point for coding agents
 src/
-  AirPlayReceiverMvp.cs   tray app, settings, process lifecycle, diagnostics
+  AirPlayReceiverMvp.cs     tray app, settings, process lifecycle, diagnostics
 assets/
   logo.png                transparent application logo
   AirPlayReceiver.ico     multi-resolution executable and tray icon
@@ -299,8 +300,10 @@ native-core/
 installer/
   AirPlayReceiverSetup.cs  per-user installer and uninstaller
 docs/
-  ARCHITECTURE.md         integration boundary and next steps
-  BUILD_REPORT.md         historical 0.11.0 build report
+  ARCHITECTURE.md           integration boundary and next steps
+  PROJECT_STATE.md          current release, blockers, and immediate handoff
+  DECISIONS.md              durable product and architecture choices
+  BUILD_REPORT.md           historical 0.11.0 build report
   BUILD_REPORT_0.11.1.md  local stability-candidate verification
   RELEASE_AND_SIGNING.md  GitHub updates, Store, and signing plan
   TROUBLESHOOTING.md      log collection and first-run reproduction
@@ -331,10 +334,10 @@ docs/
   cropping. This MVP preserves the whole image and changes the window shape.
 - "Always on top" or automatic fitting may need to be toggled again with an
   unusual GStreamer sink.
-- The shell combines a UxPlay socket-initialization sentinel with Bonjour
-  service state before reporting readiness, but this is still a heuristic
-  rather than a versioned native status protocol. It does not prove that an
-  iPhone session is active.
+- The shell combines listening sockets with explicit DNS-SD/BLE health
+  markers and a legacy Bonjour fallback before reporting readiness. This is
+  still a transitional stdout contract rather than versioned native IPC, and
+  it does not prove that an iPhone session is active.
 - The executables are not yet code-signed, so Windows SmartScreen may warn
   about an unknown publisher.
 - GitHub update checking is configured for the public

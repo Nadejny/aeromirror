@@ -9,9 +9,10 @@ upstream licenses, and applicable platform rules before implementation.
 
 ### Native core IPC and a real ready state
 
-Today the Windows shell mostly knows that the receiver process exists; that
-does not prove that Bonjour is advertising the service or that the AirPlay
-server is ready to accept a connection.
+Version 0.11.1 adds explicit DNS-SD/BLE stdout markers, listening-socket
+checks, and bounded recovery. This is still a transitional one-way contract:
+it is not versioned IPC and cannot provide commands, acknowledgements, or a
+fully authoritative AirPlay session state.
 
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
