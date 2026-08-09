@@ -1,12 +1,15 @@
 # AeroMirror 0.12.2 — reconnect, orientation, and fitting acceptance
 
-## Candidate status
+## Release status
 
-Version `0.12.2` is currently unpublished. Managed automated gates and the
-pre-tag review-payload, installer, and native corresponding-source gates pass.
-Exact-tag packaging, publication, public re-download, installed-update, and all
-physical Windows/iPhone rows remain pending. Do not treat this plan as a
-physical compatibility claim.
+Version `v0.12.2` was published from commit
+`36de759c5f8a9443a60b46b87392fed445eb76c3` at
+`2026-08-09T22:16:12Z` as the normal latest GitHub Release with `draft=false`
+and `prerelease=false`. Managed, pre-tag, exact-tag, publication, and public
+re-download gates pass. Installed-update and all physical Windows/iPhone rows
+remain pending. Do not treat this plan as a physical compatibility claim.
+
+Exact public evidence is recorded in `BUILD_REPORT.md`.
 
 ## Scope
 
@@ -46,8 +49,8 @@ policy are unchanged.
 | Review payload | Pre-tag final candidate | PASS | `package-review.ps1` built the versioned 0.12.2 payload |
 | Installer build and lifecycle self-check | Pre-tag final candidate | PASS | Versioned Setup built and the lifecycle verifier completed |
 | Native corresponding source | Pre-tag final candidate | PASS | 0.12.2 archive built and pinned provenance validation completed |
-| Exact-tag release package | Clean exact `v0.12.2` tag | PENDING | No commit or tag exists yet |
-| Public asset download/digests | GitHub Release | PENDING | No release exists yet |
+| Exact-tag release package | Clean exact `v0.12.2` tag | PASS | `release.ps1` packaged commit `36de759c5f8a9443a60b46b87392fed445eb76c3` |
+| Public asset download/digests | Normal latest GitHub Release | PASS | Four re-downloads match local bytes/hashes and all API digest fields |
 
 ## Windows 11 + iPhone physical matrix
 
@@ -98,22 +101,20 @@ A normal clean disconnect must not contain step 4. Preserve redacted logs and
 wall-clock times; never attach receiver keys, trusted-client files, PINs, or
 mirrored media.
 
-## Release gates
+## Publication verification
 
-Before publication:
+The following release gates passed:
 
-1. rerun managed build and resilience tests from the final source;
-2. confirm shell and Setup PE version `0.12.2.0` and Setup public version
-   `0.12.2`;
-3. run version/link and `git diff --check` audits;
-4. commit, create an exact immutable `v0.12.2` tag, and package only from that
-   clean tag;
-5. publish only Setup, AeroMirror source, prepared native corresponding source,
-   and `SHA256SUMS.txt` after explicit authorization;
-6. re-download all four public assets and match byte size, local SHA-256,
-   checksum file, and GitHub digest fields;
-7. create `BUILD_REPORT.md` only after publication with exact commit, tag,
-   assets, hashes, and accepted/pending physical rows.
+1. managed build and resilience tests against the final source;
+2. shell and Setup PE version `0.12.2.0` and Setup public version `0.12.2`;
+3. version/link and `git diff --check` audits;
+4. review payload, Setup build/lifecycle, and native corresponding-source
+   provenance validation;
+5. exact-tag `release.ps1` packaging from clean `v0.12.2`;
+6. publication of exactly Setup, AeroMirror source, prepared native
+   corresponding source, and `SHA256SUMS.txt`;
+7. public re-download of all four assets with matching byte size, local
+   SHA-256, checksum file values, and GitHub API digest fields.
 
-Any post-publication correction must use `0.12.3` or later. Never move or
-replace the immutable `v0.12.1` or future `v0.12.2` assets.
+Any correction must use `0.12.3` or later. Never move the immutable `v0.12.2`
+tag or replace any of its assets.

@@ -6,40 +6,26 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current unpublished candidate
-
-- Version: `0.12.2`
-- Status: source, mandatory English release documentation, and pre-tag review
-  artifacts prepared locally; no commit, tag, exact-tag release package, or
-  GitHub Release has been created
-- Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
-- Native core: unchanged from the reviewed build first shipped in 0.11.1
-- Automated status: managed x64 build, receiver resilience suite, version/link
-  audit, and `git diff --check` pass
-- Pre-tag packaging status: review payload, installer build/lifecycle
-  self-check, and native corresponding-source/provenance validation pass
-- Publication status: exact-tag packaging and GitHub publication pending
-
 ## Latest public release
 
-- Version: `v0.12.1`
-- Tag commit: `2f457449653b11bc411982d200241cb82ea90587`
-- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.12.1
-- Published: `2026-08-09T21:19:15Z`
+- Version: `v0.12.2`
+- Tag commit: `36de759c5f8a9443a60b46b87392fed445eb76c3`
+- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.12.2
+- Published: `2026-08-09T22:16:12Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
-- Updater status: current `releases/latest` cosmetic review Release
+- Updater status: current `releases/latest` public review Release
 - Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
 - Public assets: Setup, AeroMirror source, prepared native corresponding
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.12.1` tag and its four assets are immutable. Any correction must use
-`0.12.2` or a later version; never move the tag or replace a published file.
-Exact evidence is recorded in `docs/releases/0.12.1/BUILD_REPORT.md`.
+The `v0.12.2` tag and its four assets are immutable. Any correction must use
+`0.12.3` or a later version; never move the tag or replace a published file.
+Exact evidence is recorded in `docs/releases/0.12.2/BUILD_REPORT.md`.
 
-The immutable public 0.12.0 release and its verification remain at
-`docs/releases/0.12.0/`. Historical 0.11 tags, assets, plans, and build reports
+The immutable public 0.12.1 and 0.12.0 releases and their verification remain
+under `docs/releases/`. Historical 0.11 tags, assets, plans, and build reports
 also remain unchanged release history.
 
 ## What 0.12.2 changes
@@ -61,7 +47,7 @@ policy are unchanged.
 
 ## Automated verification
 
-Passed against the current unpublished 0.12.2 source:
+Passed against the exact source published as `v0.12.2`:
 
 1. managed x64 shell build;
 2. receiver resilience suite, including clean versus abnormal disconnect,
@@ -75,10 +61,11 @@ Passed against the current unpublished 0.12.2 source:
 6. the prepared native corresponding-source archive built and passed pinned
    source-provenance validation.
 
-Shell/Setup source-version consistency, current release-link targets, and
-`git diff --check` pass. Exact-tag `release.ps1` packaging, final checksums,
-GitHub publication, public re-download, installed-update acceptance, and all
-physical Windows/iPhone gates remain pending.
+Shell/Setup source-version consistency, current release-link targets,
+`git diff --check`, exact-tag `release.ps1` packaging, and final checksums pass.
+All four public assets were downloaded again with matching byte sizes and
+SHA-256 values, and all GitHub API digest fields match. Installed-update
+acceptance and all physical Windows/iPhone gates remain pending.
 
 ## Pending physical verification and known limitations
 
@@ -99,13 +86,12 @@ No physical Windows/iPhone result is claimed by the automated gates.
 
 ## Immediate next steps
 
-1. Review the complete 0.12.2 source and documentation diff.
-2. Commit the reviewed candidate, create the exact immutable `v0.12.2` tag,
-   and run `release.ps1` only from that clean tag after publication is approved.
-3. Run and record the physical matrix in
+1. Install or update to public 0.12.2 and verify the complete in-place update
+   path from 0.12.1, including settings, trust state, shortcuts, and autostart.
+2. Run and record the physical matrix in
    `docs/releases/0.12.2/TEST_PLAN.md` on Windows 11 and Windows 10.
-4. If a defect is found after publication, use 0.12.3 or later; never modify
-   the immutable 0.12.1 tag or assets.
+3. If a defect is found, use 0.12.3 or later; never modify the immutable
+   0.12.2 tag or assets.
 
 ## Where information belongs
 

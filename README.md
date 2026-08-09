@@ -355,7 +355,7 @@ docs/
   releases/
     0.12.2/
       RELEASE_NOTES.md       curated GitHub Release text
-      TEST_PLAN.md           cosmetic UI acceptance matrix
+      TEST_PLAN.md           reconnect, orientation, and fitting acceptance matrix
       BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.0/
       RELEASE_NOTES.md       curated GitHub Release text
