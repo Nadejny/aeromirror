@@ -1,11 +1,12 @@
 # AeroMirror 0.12.0 — settings, reconnect, update, and structure acceptance
 
-Status: local pre-tag automated gates pass; exact-tag/public-asset and physical
-results are pending.
+Status: published review release. Pre-tag automation, exact-tag packaging, and
+public-asset verification pass; installed-update and physical results remain
+pending.
 
-With explicit authorization, the candidate may be published as a normal
-GitHub Release clearly labelled as a review candidate after all pre-tag
-automated and provenance gates pass. Publication enables updater testing; it
+`v0.12.0` was published from commit
+`1a22d175810ff618e0f8c16102f1988d82a5fe10` as a normal, non-draft,
+non-prerelease latest review Release. Publication enables updater testing; it
 does not mean the physical acceptance cases below have passed.
 
 This plan accepts the integrated 0.12.0 candidate, not an isolated source
@@ -17,7 +18,9 @@ time, and relevant redacted log for every failure.
 
 | Environment | Required scope | Status |
 |---|---|---|
-| Integrated local 0.12.0 source tree | Pre-tag automated gates below | Passed 2026-08-09 |
+| Tagged 0.12.0 source tree | Pre-tag automated gates below | Passed 2026-08-09 |
+| Exact `v0.12.0` release packaging | Clean tag, four expected assets | Passed 2026-08-09 |
+| Public GitHub Release | Latest-channel state, re-download, sizes, SHA-256, API digests | Passed 2026-08-09 |
 | Physical Windows 11 x64 + iPhone | Full functional plan | Pending |
 | Physical Windows 10 1809+ x64 + iPhone | Full plan before 1.0 | Pending |
 | In-place update from public 0.11.3 | Settings, identity, shortcuts, update lifecycle | Pending |
@@ -29,7 +32,8 @@ The trust category must be the physical Wi-Fi or Ethernet Windows profile.
 
 ## Automated gates
 
-Run from the final clean 0.12.0 candidate:
+The following gates ran against the final clean source that became the
+`v0.12.0` tag:
 
 1. Build the x64 managed shell:
 
@@ -56,8 +60,11 @@ Run from the final clean 0.12.0 candidate:
    git diff --check
    ```
 
-The automated gate fails on any build/test error, version mismatch, unexpected
-native hash, missing mandatory document, or unreviewed release input.
+All listed automated gates passed. The exact tag then passed `release.ps1`, and
+an independent review found no P0/P1 issue. See `BUILD_REPORT.md` for the
+published evidence. Any future rebuild fails acceptance on a build/test error,
+version mismatch, unexpected native hash, missing mandatory document, or
+unreviewed release input.
 
 ## Persisted-settings normalization
 
@@ -167,10 +174,10 @@ The automated parser test must accept `0.12.0` and `v0.12.0`, and reject:
 - `v0.12.0-beta`;
 - whitespace, extra text, or non-numeric components.
 
-For the published-channel smoke test, a valid normal GitHub Release must be
-found only under its exact three-part tag and exact
-`AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` asset name. Do not create malformed
-public Releases merely to exercise rejection.
+The published-channel smoke test passed: GitHub exposes `v0.12.0` as the normal
+latest Release with the exact `AeroMirror-Setup-0.12.0.exe` asset. All four API
+digest fields matched the local and re-downloaded SHA-256 values. Do not create
+malformed public Releases merely to exercise rejection.
 
 ## Managed-source and compatibility regression
 
@@ -190,12 +197,13 @@ UI, runtime identities, process boundary, packaging, or in-place update.
 
 ## Publication and acceptance gates
 
-0.12.0 may be published as an explicitly labelled review candidate when:
+The 0.12.0 review-publication gate is **passed**:
 
-- every pre-tag automated and provenance gate passes on the integrated source;
-- publication has explicit user authorization;
-- release assets are then built from the immutable tag and verified after
-  download;
+- every pre-tag automated and provenance gate passed on the integrated source;
+- publication had explicit user authorization;
+- exactly four release assets were built from the immutable tag and verified
+  after download;
+- local files, public downloads, and GitHub API digests matched exactly;
 - pending physical Windows/iPhone work is stated prominently.
 
 0.12.0 becomes physically accepted only when:
@@ -207,5 +215,6 @@ UI, runtime identities, process boundary, packaging, or in-place update.
 
 Windows 10 physical acceptance remains mandatory before calling the project
 1.0. After publication, record the tag, commit, commands, assets, hashes, and
-remaining physical status in `BUILD_REPORT.md` without replacing any published
-asset under the same version.
+remaining physical status in `BUILD_REPORT.md`. The `v0.12.0` tag and its four
+assets are immutable; a failed physical scenario requires a later patch rather
+than replacement under the same version.

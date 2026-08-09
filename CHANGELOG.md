@@ -35,9 +35,10 @@
 ### Verification status
 
 - The integrated shell build, resilience suite, review packaging, Setup
-  build and lifecycle verifiers, native corresponding-source validation, and
-  whitespace checks pass locally. Exact-tag release packaging and public
-  asset verification run during publication.
+  build and lifecycle verifiers, native corresponding-source validation,
+  exact-tag release packaging, and whitespace checks pass. All four public
+  assets were re-downloaded with matching sizes, SHA-256 values, and GitHub
+  API digest fields.
 - Physical Windows/iPhone acceptance remains pending for the review candidate.
 - The pinned native UxPlay core and third-party runtime are unchanged.
 

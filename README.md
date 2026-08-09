@@ -353,6 +353,7 @@ docs/
     0.12.0/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           candidate acceptance and physical test matrix
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
   BUILD_REPORT*.md           immutable 0.11 release verification history
   TEST_PLAN_0.11.*.md        immutable 0.11 acceptance history
 ```

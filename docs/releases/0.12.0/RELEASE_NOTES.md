@@ -2,19 +2,20 @@
 
 ## Summary
 
-This review candidate makes persisted settings safer, protects immediate
+This published review release makes persisted settings safer, protects immediate
 reconnects from stale session cleanup, tightens update-version handling, and
 reorganizes the Windows shell without changing its native AirPlay core.
 
 ## Should I update?
 
-- Update when 0.12.0 is published if AeroMirror has ever failed to reconnect
+- Update to 0.12.0 if AeroMirror has ever failed to reconnect
   immediately, if a settings file may have been left by an older or interrupted
   build, or if you are helping test Windows 10/11 compatibility.
 - The update is optional until physical-device acceptance is complete if
   0.11.3 works reliably for you and none of those cases applies.
-- The in-app updater offers 0.12.0 only after it is published as the normal
-  latest GitHub Release with the exact versioned Setup asset.
+- The in-app updater now sees 0.12.0 as the normal latest GitHub Release. The
+  public review release is available at
+  https://github.com/Nadejny/aeromirror/releases/tag/v0.12.0.
 
 ## What changed
 
@@ -64,11 +65,19 @@ reorganizes the Windows shell without changing its native AirPlay core.
 
 ## Verification status
 
-The integrated shell build, resilience checks, review package, Setup build and
-lifecycle verifiers, native corresponding-source validation, and whitespace
-checks pass locally. Exact-tag packaging and public-download verification run
-during publication. All physical Windows/iPhone scenarios remain pending; see
-`TEST_PLAN.md`. This candidate must not be described as physically accepted or
+The integrated shell build, resilience checks, recursive layout/version checks,
+review package, Setup build and lifecycle verifiers, native
+corresponding-source validation, exact-tag `release.ps1` packaging, whitespace
+checks, and independent review with no P0/P1 findings passed.
+
+The normal non-draft, non-prerelease `v0.12.0` Release is updater-visible.
+Exactly four public assets were re-downloaded; their byte sizes and SHA-256
+values matched the local release files, and all four GitHub API digest fields
+matched those hashes exactly. See `BUILD_REPORT.md` for the immutable tag,
+asset, and checksum record.
+
+All installed-update and physical Windows/iPhone scenarios remain pending; see
+`TEST_PLAN.md`. This release must not be described as physically accepted or
 production-ready until those results are recorded.
 
 ## Known limitations
@@ -80,6 +89,9 @@ production-ready until those results are recorded.
 - The installer is unsigned and Windows SmartScreen may warn.
 - Windows 10 and Windows 11 interoperability require physical testing; source
   organization and automated checks cannot prove it.
+
+The `v0.12.0` tag and published assets are immutable. Any correction will use
+`0.12.1` or a later version rather than replacing this release's files.
 
 ## Reporting a problem
 
