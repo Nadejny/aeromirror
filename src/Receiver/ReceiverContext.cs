@@ -95,11 +95,21 @@ namespace AirPlayReceiverMvp
         private int pendingVideoSizeGeneration;
         private Size currentVideoSize = Size.Empty;
         private int currentVideoSizeGeneration;
+        private Size deviceFrameVideoSize = Size.Empty;
+        private Size lastSuppressedVideoSize = Size.Empty;
         private int mirrorSessionGeneration;
         private IntPtr videoSizeWindow = IntPtr.Zero;
         private IntPtr initialFitPendingWindow = IntPtr.Zero;
         private int exactVideoSizeFitGeneration = -1;
         private int appliedVideoOrientation;
+        private readonly NativeMethods.WinEventProc rendererMoveSizeEventProc;
+        private IntPtr rendererMoveSizeHook = IntPtr.Zero;
+        private int rendererMoveSizeHookPid;
+        private IntPtr rendererMoveSizeWindow = IntPtr.Zero;
+        private Size rendererMoveSizeStartClientSize = Size.Empty;
+        private IntPtr pendingManualFitWindow = IntPtr.Zero;
+        private long pendingManualFitDueTicks;
+        private int pendingManualFit;
         private int lostConnectionRecoveryPending;
         private int lostConnectionRecoveryPid;
         private long lostConnectionRecoveryDueTicks;
@@ -111,6 +121,7 @@ namespace AirPlayReceiverMvp
         public ReceiverContext(string[] args, EventWaitHandle showEvent)
         {
             this.showEvent = showEvent;
+            rendererMoveSizeEventProc = OnRendererMoveSizeEvent;
             bool show = false;
             bool startup = false;
             foreach (string arg in args)
@@ -149,7 +160,7 @@ namespace AirPlayReceiverMvp
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(autoStartItem);
             menu.Items.Add(topMostItem);
-            menu.Items.Add("Подогнать окно под экран iPhone", null, delegate { FitStreamWindow(true); });
+            menu.Items.Add("Подогнать окно сейчас", null, delegate { FitStreamWindow(true); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Диагностика", null, delegate { ShowDiagnostics(); });
             menu.Items.Add("Открыть журнал", null, delegate { OpenLog(); });

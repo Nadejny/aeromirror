@@ -6,6 +6,20 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
+## Current unpublished candidate
+
+- Version: `0.12.2`
+- Status: source, mandatory English release documentation, and pre-tag review
+  artifacts prepared locally; no commit, tag, exact-tag release package, or
+  GitHub Release has been created
+- Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
+- Native core: unchanged from the reviewed build first shipped in 0.11.1
+- Automated status: managed x64 build, receiver resilience suite, version/link
+  audit, and `git diff --check` pass
+- Pre-tag packaging status: review payload, installer build/lifecycle
+  self-check, and native corresponding-source/provenance validation pass
+- Publication status: exact-tag packaging and GitHub publication pending
+
 ## Latest public release
 
 - Version: `v0.12.1`
@@ -28,73 +42,70 @@ The immutable public 0.12.0 release and its verification remain at
 `docs/releases/0.12.0/`. Historical 0.11 tags, assets, plans, and build reports
 also remain unchanged release history.
 
-## What 0.12.1 changes
+## What 0.12.2 changes
 
-- The network-card text and help control share the same vertical center.
-- A custom question-mark glyph uses DPI-aware measurements and remains
-  centered and unclipped in focused synthetic rendering.
-- On a Private physical network, optional-PIN guidance begins on the tooltip's
-  second line below the network summary.
-- The receiver-state tooltip is reachable over both the colored status dot and
-  adjacent status text.
+- A fatal lost-client marker survives quick native mirror cleanup and selects
+  exactly one bounded discovery renewal. A clean disconnect still leaves the
+  healthy receiver running without a restart.
+- The first exact video size seeds a per-session device-frame aspect. Later
+  matching ratios drive physical rotation; a non-matching Photos
+  `3840x2160` canvas retains a learned `998x2160` device orientation.
+- Interactive renderer resize completion queues a short aspect-preserving fit
+  on the supervision thread. Move-only/minimized/maximized states and an
+  explicit automatic-fit opt-out are respected.
+- The fitting setting and tray fallback have clearer Russian labels.
 
-This is a managed-shell cosmetic patch. The native UxPlay core, receiver
-lifecycle, discovery/reconnect supervision, network trust decisions, settings
-format, installer behavior, and persistent identity are unchanged.
+The pinned native UxPlay core, third-party runtime, receiver identity and trust
+state, settings format, update path, and Public/Unknown network fail-closed
+policy are unchanged.
 
-## Automated and public verification
+## Automated verification
 
-Accepted for review distribution:
+Passed against the current unpublished 0.12.2 source:
 
-1. managed x64 shell build and receiver regression suite;
-2. focused source assertions for card geometry, tooltip line placement and hit
-   targets;
-3. synthetic custom-glyph rendering in light and dark at 100%, 150%, and 200%
-   DPI;
-4. unchanged native inputs and source provenance;
-5. shell/Setup version, review payload, installer lifecycle, native-source,
-   exact-tag packaging, and `git diff --check` gates;
-6. public re-download of exactly four assets with matching byte sizes and
-   SHA-256 values;
-7. all four GitHub API digest fields matching the local and re-downloaded
-   SHA-256 values exactly.
+1. managed x64 shell build;
+2. receiver resilience suite, including clean versus abnormal disconnect,
+   one-shot recovery consumption, reconnect cancellation, Photos-canvas
+   suppression, physical 16:9 rotation, resize-end classification, and
+   explicit automatic-fit opt-out;
+3. existing settings, update-parser, network-policy, diagnostics-redaction,
+   lifecycle, and source assertions within the same resilience suite.
+4. the versioned review payload built successfully with `package-review.ps1`;
+5. Setup built successfully and its installer lifecycle self-check passed;
+6. the prepared native corresponding-source archive built and passed pinned
+   source-provenance validation.
 
-GitHub reports `v0.12.1` as the normal latest Release with `draft=false` and
-`prerelease=false`. This accepts the tag and public artifacts as a cosmetic
-review release only.
+Shell/Setup source-version consistency, current release-link targets, and
+`git diff --check` pass. Exact-tag `release.ps1` packaging, final checksums,
+GitHub publication, public re-download, installed-update acceptance, and all
+physical Windows/iPhone gates remain pending.
 
-## Pending visual verification
+## Pending physical verification and known limitations
 
-The focused synthetic glyph check passed, but the following full-window visual
-rows remain **pending** in `docs/releases/0.12.1/TEST_PLAN.md`:
+- Windows 11 x64 + iPhone: abnormal Wi-Fi loss, disappearance/reappearance,
+  first reconnect attempt, clean disconnect, and repeated reconnect timing;
+- Windows 10 1809+ x64 + iPhone: the same reconnect matrix plus renderer resize
+  and Photos/fullscreen-video orientation behavior;
+- Windows 10/11: default automatic fit, explicit off, move-only, minimize,
+  maximize, taskbar, and mixed-DPI behavior;
+- a session that starts directly inside a media canvas may seed the wrong
+  device aspect until a new mirroring session;
+- an iOS stale-row tap may fail before any request reaches Windows, and iOS may
+  delay browse-cache refresh even after the receiver is ready;
+- native same-port DNS-SD/BLE re-publication after internal reset remains a
+  TODO; 0.12.2 uses one bounded managed process renewal instead.
 
-- Windows 11 light and dark themes at 100%;
-- Windows 11 light and dark at 125% or 150%;
-- Windows 11 glyph clipping/alignment at 200%;
-- Windows 10 1809+ compatibility visual smoke;
-- mixed-DPI monitor movement when suitable hardware is available.
-
-Retain uncropped screenshots with Windows version, theme, and scale. A visual
-failure must be fixed in a later patch; it does not permit replacing 0.12.1
-assets.
-
-## Physical AirPlay verification
-
-No physical AirPlay behavior is claimed by 0.12.1. Existing installed-update,
-Windows/iPhone, network-profile, reconnect, and Windows 10-before-1.0 gates
-remain pending under the current public plans. Cosmetic UI checks do not
-satisfy them.
+No physical Windows/iPhone result is claimed by the automated gates.
 
 ## Immediate next steps
 
-1. Install or update to public 0.12.1 and complete the full-window Windows 11
-   theme/DPI matrix with retained screenshots.
-2. Run the Windows 10 visual smoke and record the result in the 0.12.1 test
-   matrix.
-3. Separately complete the physical Windows 11 + iPhone and installed-update
-   acceptance, then the Windows 10 AirPlay plan required before 1.0.
-4. If any defect is found, prepare 0.12.2 or later; do not modify the 0.12.1
-   tag or assets.
+1. Review the complete 0.12.2 source and documentation diff.
+2. Commit the reviewed candidate, create the exact immutable `v0.12.2` tag,
+   and run `release.ps1` only from that clean tag after publication is approved.
+3. Run and record the physical matrix in
+   `docs/releases/0.12.2/TEST_PLAN.md` on Windows 11 and Windows 10.
+4. If a defect is found after publication, use 0.12.3 or later; never modify
+   the immutable 0.12.1 tag or assets.
 
 ## Where information belongs
 

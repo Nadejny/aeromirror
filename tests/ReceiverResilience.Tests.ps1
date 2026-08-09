@@ -100,6 +100,38 @@ Assert-True ($source.Contains("e.Graphics.DpiX / 96F") -and
     $source.Contains("format.Alignment = StringAlignment.Center") -and
     $source.Contains("format.LineAlignment = StringAlignment.Center")) `
     "the help circle and question glyph use DPI-aware anti-aliased centering"
+Assert-True ($source.Contains("EVENT_SYSTEM_MOVESIZESTART") -and
+    $source.Contains("EVENT_SYSTEM_MOVESIZEEND") -and
+    $source.Contains("SetWinEventHook") -and
+    $source.Contains("UnhookWinEvent")) `
+    "manual renderer resize completion uses a bounded WinEvent hook lifecycle"
+Assert-True ($source.Contains("processId != rendererMoveSizeHookPid") -and
+    $source.Contains("windowProcessId != (uint)processId")) `
+    "renderer move/size events are restricted to the active native core"
+Assert-True ($source.Contains("NativeMethods.IsIconic(window)") -and
+    $source.Contains("NativeMethods.IsZoomed(window)")) `
+    "automatic aspect fitting does not fight minimized or maximized state"
+Assert-True ($source.Contains("DateTime.UtcNow.AddMilliseconds(150)") -and
+    [regex]::Matches(
+        $source, 'ApplyPendingManualRendererFit\s*\(').Count -eq 2) `
+    "manual renderer fitting is queued briefly and consumed by supervision"
+Assert-True ($source.Contains("autoFit = MakeCheckBox(") -and
+    $source.Contains("FitStreamWindow(true)")) `
+    "automatic aspect fitting retains a settings control and manual tray fallback"
+$moveSizeCallbackStart = $source.IndexOf(
+    "private void OnRendererMoveSizeEvent")
+$moveSizeCallbackEnd = $source.IndexOf(
+    "private static bool ShouldQueueManualRendererFit",
+    $moveSizeCallbackStart)
+Assert-True ($moveSizeCallbackStart -ge 0 -and
+    $moveSizeCallbackEnd -gt $moveSizeCallbackStart) `
+    "renderer move/size callback has a focused implementation boundary"
+$moveSizeCallbackSource = $source.Substring(
+    $moveSizeCallbackStart,
+    $moveSizeCallbackEnd - $moveSizeCallbackStart)
+Assert-True (-not $moveSizeCallbackSource.Contains("FitRendererWindow") -and
+    -not $moveSizeCallbackSource.Contains("SetWindowPos")) `
+    "the WinEvent callback only records and queues instead of resizing directly"
 
 $assembly = [Reflection.Assembly]::LoadFrom(
     [IO.Path]::GetFullPath($AssemblyPath))
@@ -115,6 +147,28 @@ $instanceFlags = [Reflection.BindingFlags]::Instance -bor `
 $staticFlags = [Reflection.BindingFlags]::Static -bor `
     [Reflection.BindingFlags]::NonPublic -bor `
     [Reflection.BindingFlags]::Public
+
+$shouldQueueManualFit = $contextType.GetMethod(
+    "ShouldQueueManualRendererFit", $staticFlags)
+Assert-True ($null -ne $shouldQueueManualFit) `
+    "manual renderer resize classification is independently testable"
+$startClientSize = [Drawing.Size]::new(460, 1000)
+Assert-True (-not [bool]$shouldQueueManualFit.Invoke(
+        $null, [object[]]@($true, $startClientSize,
+            [Drawing.Size]::new(460, 1000)))) `
+    "moving a renderer without changing its client size does not queue a fit"
+Assert-True (-not [bool]$shouldQueueManualFit.Invoke(
+        $null, [object[]]@($true, $startClientSize,
+            [Drawing.Size]::new(464, 996)))) `
+    "four-pixel window metric noise does not queue a fit"
+Assert-True ([bool]$shouldQueueManualFit.Invoke(
+        $null, [object[]]@($true, $startClientSize,
+            [Drawing.Size]::new(465, 1000)))) `
+    "a manual client resize larger than the tolerance queues a fit"
+Assert-True (-not [bool]$shouldQueueManualFit.Invoke(
+        $null, [object[]]@($false, $startClientSize,
+            [Drawing.Size]::new(700, 1000)))) `
+    "an explicit disabled automatic-fit setting remains authoritative"
 
 $networkHelpType = $assembly.GetType(
     "AirPlayReceiverMvp.NetworkHelpGlyph", $true)
@@ -145,6 +199,12 @@ $normalizeSettings = $settingsType.GetMethod(
 Assert-True ($null -ne $normalizeSettings) `
     "persisted settings normalization exists"
 $settingsProbe = [Activator]::CreateInstance($settingsType, $true)
+Assert-True ([bool]$settingsProbe.AutoFitWindow) `
+    "automatic renderer aspect fitting is enabled for a new settings profile"
+$settingsProbe.AutoFitWindow = $false
+$normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
+Assert-True (-not [bool]$settingsProbe.AutoFitWindow) `
+    "settings normalization preserves an explicit automatic-fit opt-out"
 $settingsProbe.PairingMode = "garbage"
 $settingsProbe.FixedPin = "1234"
 $settingsProbe.QualityPreset = "unknown-quality"
@@ -268,6 +328,9 @@ $clientGraceDue = Field "clientActivityGraceDueTicks"
 $physicalNetworkRestartDeferred = Field "physicalNetworkRestartDeferred"
 $maintenanceSync = Field "postSessionMaintenanceSync"
 $videoSizeSync = Field "videoSizeSync"
+$currentVideoSize = Field "currentVideoSize"
+$deviceFrameVideoSize = Field "deviceFrameVideoSize"
+$lastSuppressedVideoSize = Field "lastSuppressedVideoSize"
 $startAfterNetwork = Field "startAfterNetworkCheck"
 $refreshAfterNetwork = Field "discoveryRefreshAfterNetworkCheck"
 $networkRefreshPending = Field "networkRefreshPending"
@@ -284,6 +347,115 @@ $maintenanceSync.SetValue($context, (New-Object object))
 $videoSizeSync.SetValue($context, (New-Object object))
 $activePid.SetValue($context, 42)
 $mirrorActive.SetValue($context, 1)
+$sameDeviceAspect = $contextType.GetMethod(
+    "HaveEquivalentDeviceFrameAspect", $staticFlags)
+$resolveAutomaticVideo = $contextType.GetMethod(
+    "ResolveAutomaticVideoSize", $instanceFlags)
+$resolveManualFitVideo = $contextType.GetMethod(
+    "ResolveManualFitVideoSize", $instanceFlags)
+Assert-True ($null -ne $sameDeviceAspect -and
+    $null -ne $resolveAutomaticVideo -and
+    $null -ne $resolveManualFitVideo) `
+    "renderer orientation uses a session device-frame baseline"
+
+$portraitFrame = [Drawing.Size]::new(998, 2160)
+$landscapeFrame = [Drawing.Size]::new(3840, 1776)
+$presentationCanvas = [Drawing.Size]::new(3840, 2160)
+$unknownCanvas = [Drawing.Size]::new(1200, 1000)
+$sixteenByNinePortrait = [Drawing.Size]::new(1080, 1920)
+$sixteenByNineLandscape = [Drawing.Size]::new(1920, 1080)
+Assert-True ([bool]$sameDeviceAspect.Invoke(
+        $null, [object[]]@($portraitFrame, $landscapeFrame))) `
+    "portrait and physical landscape frames share the device aspect"
+Assert-True (-not [bool]$sameDeviceAspect.Invoke(
+        $null, [object[]]@($portraitFrame, $presentationCanvas))) `
+    "the Photos presentation canvas does not impersonate device rotation"
+
+function Resolve-AutomaticVideoSize([Drawing.Size]$VideoSize) {
+    $arguments = [object[]]@($VideoSize, $false, $false)
+    $resolved = [Drawing.Size]$resolveAutomaticVideo.Invoke(
+        $context, $arguments)
+    return [pscustomobject]@{
+        Size = $resolved
+        OrientationAuthoritative = [bool]$arguments[1]
+        SuppressionChanged = [bool]$arguments[2]
+    }
+}
+
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$unlearnedCanvasResult = Resolve-AutomaticVideoSize $presentationCanvas
+Assert-True ($unlearnedCanvasResult.OrientationAuthoritative -and
+    $unlearnedCanvasResult.Size -eq $presentationCanvas -and
+    -not $unlearnedCanvasResult.SuppressionChanged) `
+    "the first exact frame seeds the session even when media already uses a 16:9 canvas"
+$directMediaPortrait = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True (-not $directMediaPortrait.OrientationAuthoritative -and
+    $directMediaPortrait.Size -eq $presentationCanvas) `
+    "a direct-media-first session documents the conservative wrong-baseline limitation"
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$portraitResult = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True ($portraitResult.OrientationAuthoritative -and
+    $portraitResult.Size -eq $portraitFrame -and
+    -not $portraitResult.SuppressionChanged) `
+    "the first exact frame establishes session orientation"
+$photoResult = Resolve-AutomaticVideoSize $presentationCanvas
+Assert-True (-not $photoResult.OrientationAuthoritative -and
+    $photoResult.Size -eq $portraitFrame -and
+    $photoResult.SuppressionChanged) `
+    "998x2160 to 3840x2160 retains portrait device orientation"
+$repeatedPhotoResult = Resolve-AutomaticVideoSize $presentationCanvas
+Assert-True (-not $repeatedPhotoResult.OrientationAuthoritative -and
+    $repeatedPhotoResult.Size -eq $portraitFrame -and
+    -not $repeatedPhotoResult.SuppressionChanged) `
+    "a stable presentation canvas does not repeat its suppression notice"
+$manualPhotoFit = [Drawing.Size]$resolveManualFitVideo.Invoke(
+    $context, [object[]]@($presentationCanvas))
+Assert-True ($manualPhotoFit -eq $portraitFrame) `
+    "manual tray fitting uses the learned portrait frame instead of the raw Photos canvas"
+$portraitReturnResult = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True ($portraitReturnResult.OrientationAuthoritative -and
+    $portraitReturnResult.Size -eq $portraitFrame) `
+    "returning from Photos restores authoritative portrait input"
+
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+Resolve-AutomaticVideoSize $portraitFrame | Out-Null
+$landscapeResult = Resolve-AutomaticVideoSize $landscapeFrame
+Assert-True ($landscapeResult.OrientationAuthoritative -and
+    $landscapeResult.Size -eq $landscapeFrame) `
+    "998x2160 to 3840x1776 accepts a real landscape rotation"
+$physicalPortraitResult = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True ($physicalPortraitResult.OrientationAuthoritative -and
+    $physicalPortraitResult.Size -eq $portraitFrame) `
+    "the physical rotation sequence can return to portrait"
+$unknownResult = Resolve-AutomaticVideoSize $unknownCanvas
+Assert-True (-not $unknownResult.OrientationAuthoritative -and
+    $unknownResult.Size -eq $portraitFrame) `
+    "an unknown non-device ratio conservatively retains current orientation"
+
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$sixteenByNinePortraitResult =
+    Resolve-AutomaticVideoSize $sixteenByNinePortrait
+$sixteenByNineLandscapeResult =
+    Resolve-AutomaticVideoSize $sixteenByNineLandscape
+Assert-True ($sixteenByNinePortraitResult.OrientationAuthoritative -and
+    $sixteenByNinePortraitResult.Size -eq $sixteenByNinePortrait -and
+    $sixteenByNineLandscapeResult.OrientationAuthoritative -and
+    $sixteenByNineLandscapeResult.Size -eq $sixteenByNineLandscape) `
+    "a physical 16:9 iPhone can rotate after its first exact frame seeds the baseline"
+
+$currentVideoSize.SetValue($context, $presentationCanvas)
+Resolve-AutomaticVideoSize $presentationCanvas | Out-Null
+Assert-True ([Drawing.Size]$currentVideoSize.GetValue($context) -eq
+    $presentationCanvas) `
+    "orientation classification preserves the raw stream size for diagnostics and manual fitting"
+$currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+
 $observe = $contextType.GetMethod("ObserveCoreOutput", $instanceFlags)
 Assert-True ($null -ne $observe) "core-output observer exists"
 $readiness = $contextType.GetMethod(
@@ -314,6 +486,10 @@ $pinMarker = $contextType.GetMethod(
     "IsAirPlayPinEntryMarker", $staticFlags)
 $deferDisruptive = $contextType.GetMethod(
     "ShouldDeferDisruptiveMaintenance", $staticFlags)
+$consumeLostRecovery = $contextType.GetMethod(
+    "ConsumeDueLostConnectionRecoveryLocked", $instanceFlags)
+Assert-True ($null -ne $consumeLostRecovery) `
+    "lost-client recovery exposes a focused one-shot state transition"
 Assert-True ([bool]$connectionMarker.Invoke(
         $null, [object[]]@("connection request from iPhone (iPhone14,8)"))) `
     "the anchored post-auth AirPlay request marker is recognized"
@@ -489,6 +665,16 @@ Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
 Assert-True (-not [bool]$restartPending.GetValue($context)) `
     "a client-feedback delay warning does not schedule a core restart"
 
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "raop_rtp_mirror->running is no longer true")) | Out-Null
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "a clean mirror shutdown does not arm abnormal-loss recovery"
+Assert-True (-not [bool]$restartPending.GetValue($context)) `
+    "a clean mirror shutdown does not schedule a receiver restart"
+
+$mirrorActive.SetValue($context, 1)
+
 $before = [DateTime]::UtcNow.Ticks
 $observe.Invoke(
     $context,
@@ -510,19 +696,62 @@ Assert-True ([long]$recoveryDue.GetValue($context) -eq $armedDue) `
 $observe.Invoke(
     $context,
     [object[]]@(42, "raop_rtp_mirror->running is no longer true")) | Out-Null
-Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
-    "normal mirror shutdown cancels recovery"
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 1) `
+    "quick native cleanup preserves abnormal-loss recovery"
+Assert-True ([int]$recoveryPid.GetValue($context) -eq 42) `
+    "quick native cleanup preserves the abnormal-loss owner"
+Assert-True ([long]$recoveryDue.GetValue($context) -eq $armedDue) `
+    "quick native cleanup preserves the bounded recovery deadline"
 Assert-True ([int]$mirrorActive.GetValue($context) -eq 0) `
-    "normal mirror shutdown clears the active-session flag"
+    "abnormal mirror cleanup clears the active-session flag"
 Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
-    "normal mirror shutdown does not schedule post-session maintenance"
+    "abnormal mirror cleanup does not use normal post-session maintenance"
 Assert-True (-not [bool]$restartPending.GetValue($context)) `
-    "normal mirror shutdown does not schedule a core restart"
+    "abnormal mirror cleanup waits for its bounded recovery deadline"
 $idleDue = [long]$idleRenewalDue.GetValue($context)
 Assert-True ($idleDue -ge [DateTime]::UtcNow.AddMinutes(9).Ticks) `
-    "normal mirror shutdown preserves the bounded idle-discovery fallback"
+    "abnormal mirror cleanup preserves the idle-discovery fallback"
 Assert-True ($idleDue -le [DateTime]::UtcNow.AddMinutes(11).Ticks) `
     "idle-discovery fallback remains bounded near ten minutes"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "connection request from reconnecting iPhone")) | Out-Null
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "a reconnect request cancels abnormal-loss discovery renewal"
+Assert-True ([int]$recoveryPid.GetValue($context) -eq 0) `
+    "a reconnect request clears the abnormal-loss owner"
+Assert-True ([long]$recoveryDue.GetValue($context) -eq 0) `
+    "a reconnect request clears the abnormal-loss deadline"
+
+$clientGraceDue.SetValue($context, [long]0)
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$renewAction = $consumeLostRecovery.Invoke(
+    $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
+Assert-True ($renewAction -eq "RenewDiscovery") `
+    "an ended abnormal session selects one discovery renewal"
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0 -and
+    [int]$recoveryPid.GetValue($context) -eq 0 -and
+    [long]$recoveryDue.GetValue($context) -eq 0) `
+    "consuming discovery renewal clears all one-shot recovery state"
+$secondRenewAction = $consumeLostRecovery.Invoke(
+    $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
+Assert-True ($secondRenewAction -eq "None") `
+    "the same abnormal loss cannot renew discovery twice"
+
+$mirrorActive.SetValue($context, 1)
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$stalledAction = $consumeLostRecovery.Invoke(
+    $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
+Assert-True ($stalledAction -eq "RestartStalledSession") `
+    "an active session at the deadline keeps stalled-session recovery"
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
+    "stalled-session recovery is also consumed exactly once"
+$mirrorActive.SetValue($context, 0)
 
 $settingsRestartDeferred.SetValue($context, 1)
 $sessionEndedPending.SetValue($context, 1)
@@ -695,9 +924,16 @@ $coreReadinessAttempts.SetValue($context, 1)
 $coreReadinessPid.SetValue($context, 42)
 $clientReadyPending.SetValue($context, 0)
 $physicalNetworkRestartDeferred.SetValue($context, 1)
+$deviceFrameVideoSize.SetValue($context, $landscapeFrame)
+$lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
 $observe.Invoke(
     $context,
     [object[]]@(42, "raop_rtp_mirror starting mirroring")) | Out-Null
+Assert-True ([Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty -and
+    [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty) `
+    "a new mirroring session forgets the previous device aspect and presentation canvas"
 Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
     "actual mirroring start clears pending post-session maintenance"
 Assert-True ([long]$sessionEndedDue.GetValue($context) -eq 0) `
@@ -833,5 +1069,18 @@ $refreshAfterNetwork.SetValue($context, 0)
 $startAfterNetwork.SetValue($context, $true)
 Assert-True ([bool]$waitingProperty.GetValue($context, $null)) `
     "startup exposes the waiting-for-network state even when PIN is enabled"
+
+$resetCoreSession = $contextType.GetMethod(
+    "ResetCoreSessionTracking", $instanceFlags)
+Assert-True ($null -ne $resetCoreSession) `
+    "core shutdown exposes a complete session-state reset"
+$deviceFrameVideoSize.SetValue($context, $landscapeFrame)
+$lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
+$resetCoreSession.Invoke($context, [object[]]@($false)) | Out-Null
+Assert-True ([Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty -and
+    [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
+    [Drawing.Size]::Empty) `
+    "core reset clears learned device orientation and suppression state"
 
 Write-Host "Receiver resilience checks passed."

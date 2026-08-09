@@ -20,6 +20,13 @@ namespace AirPlayReceiverMvp
 {
     internal sealed partial class ReceiverContext
     {
+        private enum LostConnectionRecoveryAction
+        {
+            None,
+            RestartStalledSession,
+            RenewDiscovery
+        }
+
         public void StartCore()
         {
             ResetRapidExitWindow();
@@ -181,6 +188,7 @@ namespace AirPlayReceiverMvp
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
+                InstallRendererMoveSizeHook(processId);
                 startAfterNetworkCheck = false;
                 resumeAfterSafeNetwork = false;
                 Log("Core started, PID " + coreProcess.Id +
@@ -208,6 +216,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref coreSocketsReady, 0);
                 Interlocked.Exchange(ref coreSocketsReadyDueTicks, 0);
                 Interlocked.Exchange(ref activeCorePid, 0);
+                ResetRendererMoveSizeTracking();
                 SetState(false, "Ошибка запуска");
                 if (settings.Notify)
                     tray.ShowBalloonTip(
@@ -425,6 +434,8 @@ namespace AirPlayReceiverMvp
                         pendingVideoSizeGeneration = 0;
                         currentVideoSize = Size.Empty;
                         currentVideoSizeGeneration = 0;
+                        deviceFrameVideoSize = Size.Empty;
+                        lastSuppressedVideoSize = Size.Empty;
                     }
                 }
             }
@@ -604,9 +615,18 @@ namespace AirPlayReceiverMvp
                 if (Interlocked.CompareExchange(
                         ref activeCorePid, 0, 0) != processId)
                     return;
-                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
-                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
-                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                bool abnormalLossRecoveryPending =
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 0, 0) == 1 &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPid, 0, 0) == processId;
+                if (!abnormalLossRecoveryPending)
+                {
+                    Interlocked.Exchange(
+                        ref lostConnectionRecoveryPending, 0);
+                    Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+                    Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                }
                 if (Interlocked.Exchange(ref mirrorSessionActive, 0) != 1)
                     return;
 
@@ -641,10 +661,14 @@ namespace AirPlayReceiverMvp
                 {
                     Interlocked.Exchange(ref mirrorSessionEndedPending, 0);
                     Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
-                    message = "Mirroring session cleanup completed; the receiver " +
-                        "stays running and no post-session restart was " +
-                        "scheduled. The bounded ten-minute idle discovery " +
-                        "fallback remains armed.";
+                    message = abnormalLossRecoveryPending
+                        ? "Mirroring session cleanup completed after an abnormal " +
+                            "client loss; one bounded discovery renewal remains " +
+                            "armed."
+                        : "Mirroring session cleanup completed; the receiver " +
+                            "stays running and no post-session restart was " +
+                            "scheduled. The bounded ten-minute idle discovery " +
+                            "fallback remains armed.";
                 }
             }
             Log(message);
@@ -804,6 +828,7 @@ namespace AirPlayReceiverMvp
 
         private void ResetCoreSessionTracking(bool clearDeferredRestart)
         {
+            ResetRendererMoveSizeTracking();
             lock (postSessionMaintenanceSync)
             {
                 Interlocked.Exchange(ref mirrorSessionActive, 0);
@@ -830,6 +855,8 @@ namespace AirPlayReceiverMvp
                 pendingVideoSizeGeneration = 0;
                 currentVideoSize = Size.Empty;
                 currentVideoSizeGeneration = 0;
+                deviceFrameVideoSize = Size.Empty;
+                lastSuppressedVideoSize = Size.Empty;
             }
             Interlocked.Exchange(ref mirrorSessionGeneration, 0);
             videoSizeWindow = IntPtr.Zero;
@@ -991,39 +1018,59 @@ namespace AirPlayReceiverMvp
                 return;
             lock (postSessionMaintenanceSync)
             {
-                if (Interlocked.CompareExchange(
-                        ref lostConnectionRecoveryPending, 0, 0) != 1)
-                    return;
-                long dueTicks = Interlocked.Read(
-                    ref lostConnectionRecoveryDueTicks);
-                if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
-                    return;
-
-                int recoveryPid = Interlocked.CompareExchange(
-                    ref lostConnectionRecoveryPid, 0, 0);
-                if (!IsCoreRunning || !IsMirrorSessionActive ||
-                    recoveryPid <= 0 ||
-                    Interlocked.CompareExchange(ref activeCorePid, 0, 0) !=
-                        recoveryPid)
+                bool restartBusy = restartPending ||
+                    Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1;
+                LostConnectionRecoveryAction action =
+                    ConsumeDueLostConnectionRecoveryLocked(
+                        DateTime.UtcNow, IsCoreRunning, restartBusy);
+                if (action == LostConnectionRecoveryAction.RestartStalledSession)
                 {
-                    Interlocked.Exchange(
-                        ref lostConnectionRecoveryPending, 0);
-                    Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
-                    Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
-                    return;
+                    Log("UxPlay did not finish its internal lost-client reset " +
+                        "within three seconds; restarting the receiver process.");
+                    ScheduleRestart(
+                        "stalled mirror after lost client", false, 500);
                 }
-                if (restartPending || Interlocked.CompareExchange(
-                        ref restartStopInProgress, 0, 0) == 1)
-                    return;
-
-                Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
-                Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
-                Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
-                Log("UxPlay did not finish its internal lost-client reset within " +
-                    "three seconds; restarting the receiver process.");
-                ScheduleRestart(
-                    "stalled mirror after lost client", false, 500);
+                else if (action == LostConnectionRecoveryAction.RenewDiscovery)
+                {
+                    Log("UxPlay completed its lost-client cleanup; performing " +
+                        "one bounded AirPlay discovery renewal.");
+                    lastAutomaticDiscoveryRefreshUtc = DateTime.UtcNow;
+                    ScheduleRestart(
+                        "lost-client discovery renewal", false, 500);
+                }
             }
+        }
+
+        private LostConnectionRecoveryAction
+            ConsumeDueLostConnectionRecoveryLocked(
+                DateTime now, bool coreRunning, bool restartBusy)
+        {
+            if (Interlocked.CompareExchange(
+                    ref lostConnectionRecoveryPending, 0, 0) != 1)
+                return LostConnectionRecoveryAction.None;
+
+            long dueTicks = Interlocked.Read(
+                ref lostConnectionRecoveryDueTicks);
+            if (dueTicks <= 0 || now.Ticks < dueTicks)
+                return LostConnectionRecoveryAction.None;
+
+            int recoveryPid = Interlocked.CompareExchange(
+                ref lostConnectionRecoveryPid, 0, 0);
+            bool sameRunningCore = coreRunning && recoveryPid > 0 &&
+                Interlocked.CompareExchange(ref activeCorePid, 0, 0) ==
+                    recoveryPid;
+            bool mirrorActive = IsMirrorSessionActive;
+
+            Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+
+            if (!sameRunningCore || restartBusy)
+                return LostConnectionRecoveryAction.None;
+            return mirrorActive
+                ? LostConnectionRecoveryAction.RestartStalledSession
+                : LostConnectionRecoveryAction.RenewDiscovery;
         }
 
         private void HandleCoreDiscoveryRecovery()

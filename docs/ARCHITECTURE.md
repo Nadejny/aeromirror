@@ -66,8 +66,10 @@ The current shell depends on these native integration behaviors:
    `AEROMIRROR_DNSSD_DEGRADED`, and `AEROMIRROR_BLE ...` discovery-health
    markers. Listening sockets remain the readiness baseline.
 5. Existing native log lines still provide heuristic mirroring start, normal
-   stop, and lost-client observations. A bounded watchdog restarts the native
-   process tree when a fatal loss marker is not followed by normal shutdown.
+   stop, and lost-client observations. A fatal loss marker arms one bounded
+   recovery decision: an active stalled session restarts, while completed
+   native cleanup triggers exactly one discovery renewal. A normal clean
+   disconnect does not restart the receiver.
 6. The reviewed libuxplay patch writes a stable
    `AEROMIRROR_VIDEO_SIZE source=<w>x<h> encoded=<w>x<h>` line when the
    incoming video size changes.
@@ -93,11 +95,26 @@ must never produce a false ready state.
 
 Renderer-window discovery is still a heuristic Win32 boundary. When a new
 renderer is found, the shell applies a provisional iPhone-aspect fit if the
-native size marker has not arrived yet. The first stable exact encoded size
-then replaces that provisional fit. Later changes between portrait and
-landscape reshape the client area while preserving the user's manually chosen
-scale between rotations. Holding the left mouse button postpones an automatic
-fit instead of discarding it.
+native size marker has not arrived yet. The first stable exact encoded size in
+each session becomes that session's device-frame baseline. Later sizes whose
+normalized aspect matches within `0.03` are authoritative rotation events;
+other ratios retain the learned device orientation. This prevents a Photos
+`3840x2160` presentation canvas from reshaping a window after a `998x2160`
+device frame, while still allowing physical `1080x1920`/`1920x1080` devices.
+If mirroring begins directly in a media canvas, that first frame may seed the
+wrong baseline until the next session because stdout exposes no independent
+device-orientation metadata.
+
+The shell installs an out-of-context WinEvent hook scoped to the active native
+core process and watches interactive move/size completion. A real resize queues
+a short delayed fit on the normal supervision thread; move-only activity,
+minimized/maximized windows, core replacement, and an explicit automatic-fit
+opt-out do not queue or apply it. The callback itself never resizes the foreign
+window. The resulting fit preserves the user's chosen client area while
+restoring the learned stream proportions. The tray action remains a manual
+one-shot fallback and resolves through the same learned device-frame baseline,
+so invoking it during a later Photos canvas does not recreate a false
+landscape fit.
 
 The marker reports the encoded stream dimensions; it is not remote-control
 input, pixel-aspect metadata, or a guarantee that an iPhone application itself
@@ -149,7 +166,10 @@ renegotiation path plus an IPC command from the Windows shell.
 5. Produce a signed WiX/MSIX installer with explicit firewall rules.
 6. Add automated smoke tests for start/stop, crash recovery, settings
    migration, and missing Bonjour.
-7. Test with current iOS releases on Intel, AMD, and ARM64 Windows devices.
+7. Re-publish DNS-SD and BLE on the same native listening port after internal
+   lost-client reset, with an explicit ready marker, so iOS does not need to
+   discover a new process/port after abnormal Wi-Fi loss.
+8. Test with current iOS releases on Intel, AMD, and ARM64 Windows devices.
 
 ## Security notes
 

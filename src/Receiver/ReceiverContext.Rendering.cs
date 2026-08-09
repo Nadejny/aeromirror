@@ -20,6 +20,183 @@ namespace AirPlayReceiverMvp
 {
     internal sealed partial class ReceiverContext
     {
+        private const double ProvisionalIPhoneAspect = 9.0 / 19.5;
+        private const double DeviceFrameAspectTolerance = 0.03;
+
+        private void InstallRendererMoveSizeHook(int processId)
+        {
+            ResetRendererMoveSizeTracking();
+            if (processId <= 0 || rendererMoveSizeEventProc == null)
+                return;
+
+            IntPtr hook = NativeMethods.SetWinEventHook(
+                NativeMethods.EVENT_SYSTEM_MOVESIZESTART,
+                NativeMethods.EVENT_SYSTEM_MOVESIZEEND,
+                IntPtr.Zero,
+                rendererMoveSizeEventProc,
+                (uint)processId,
+                0,
+                NativeMethods.WINEVENT_OUTOFCONTEXT);
+            if (hook == IntPtr.Zero)
+            {
+                Log("Renderer move/size event hook was not available; " +
+                    "manual window fitting remains available from the tray.");
+                return;
+            }
+
+            rendererMoveSizeHook = hook;
+            rendererMoveSizeHookPid = processId;
+            Log("Watching renderer move/size completion for core PID " +
+                processId + ".");
+        }
+
+        private void ResetRendererMoveSizeTracking()
+        {
+            IntPtr hook = rendererMoveSizeHook;
+            rendererMoveSizeHook = IntPtr.Zero;
+            rendererMoveSizeHookPid = 0;
+            rendererMoveSizeWindow = IntPtr.Zero;
+            rendererMoveSizeStartClientSize = Size.Empty;
+            ClearPendingManualRendererFit();
+            if (hook != IntPtr.Zero)
+            {
+                try { NativeMethods.UnhookWinEvent(hook); }
+                catch { }
+            }
+        }
+
+        private void OnRendererMoveSizeEvent(
+            IntPtr hook, uint eventType, IntPtr window,
+            int objectId, int childId, uint eventThread, uint eventTime)
+        {
+            if (hook == IntPtr.Zero || hook != rendererMoveSizeHook ||
+                window == IntPtr.Zero ||
+                objectId != NativeMethods.OBJID_WINDOW || childId != 0)
+                return;
+
+            int processId = Interlocked.CompareExchange(
+                ref activeCorePid, 0, 0);
+            if (processId <= 0 || processId != rendererMoveSizeHookPid)
+                return;
+
+            uint windowProcessId;
+            NativeMethods.GetWindowThreadProcessId(
+                window, out windowProcessId);
+            if (windowProcessId != (uint)processId)
+                return;
+
+            if (eventType == NativeMethods.EVENT_SYSTEM_MOVESIZESTART)
+            {
+                if (window != fittedStreamWindow &&
+                    window != videoSizeWindow)
+                    return;
+
+                Size clientSize;
+                if (!TryGetRendererClientSize(window, out clientSize))
+                    return;
+
+                rendererMoveSizeWindow = window;
+                rendererMoveSizeStartClientSize = clientSize;
+                ClearPendingManualRendererFit();
+                return;
+            }
+
+            if (eventType != NativeMethods.EVENT_SYSTEM_MOVESIZEEND ||
+                rendererMoveSizeWindow != window)
+                return;
+
+            Size startSize = rendererMoveSizeStartClientSize;
+            rendererMoveSizeWindow = IntPtr.Zero;
+            rendererMoveSizeStartClientSize = Size.Empty;
+
+            Size endSize;
+            if (NativeMethods.IsIconic(window) ||
+                NativeMethods.IsZoomed(window) ||
+                !TryGetRendererClientSize(window, out endSize) ||
+                !ShouldQueueManualRendererFit(
+                    settings.AutoFitWindow, startSize, endSize))
+            {
+                ClearPendingManualRendererFit();
+                return;
+            }
+
+            pendingManualFitWindow = window;
+            Interlocked.Exchange(
+                ref pendingManualFitDueTicks,
+                DateTime.UtcNow.AddMilliseconds(150).Ticks);
+            Interlocked.Exchange(ref pendingManualFit, 1);
+        }
+
+        private static bool ShouldQueueManualRendererFit(
+            bool autoFitEnabled, Size startSize, Size endSize)
+        {
+            return autoFitEnabled && !startSize.IsEmpty && !endSize.IsEmpty &&
+                (Math.Abs(endSize.Width - startSize.Width) > 4 ||
+                 Math.Abs(endSize.Height - startSize.Height) > 4);
+        }
+
+        private static bool TryGetRendererClientSize(
+            IntPtr window, out Size clientSize)
+        {
+            clientSize = Size.Empty;
+            NativeMethods.RECT client;
+            if (!NativeMethods.GetClientRect(window, out client))
+                return false;
+            int width = client.Right - client.Left;
+            int height = client.Bottom - client.Top;
+            if (width <= 0 || height <= 0)
+                return false;
+            clientSize = new Size(width, height);
+            return true;
+        }
+
+        private void ClearPendingManualRendererFit()
+        {
+            Interlocked.Exchange(ref pendingManualFit, 0);
+            Interlocked.Exchange(ref pendingManualFitDueTicks, 0);
+            pendingManualFitWindow = IntPtr.Zero;
+        }
+
+        private bool ApplyPendingManualRendererFit(
+            IntPtr window, Size videoSize, int videoSizeGeneration)
+        {
+            if (Interlocked.CompareExchange(
+                    ref pendingManualFit, 0, 0) != 1)
+                return false;
+            long dueTicks = Interlocked.Read(ref pendingManualFitDueTicks);
+            if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
+                return false;
+
+            IntPtr targetWindow = pendingManualFitWindow;
+            ClearPendingManualRendererFit();
+            if (!settings.AutoFitWindow || targetWindow != window ||
+                rendererMoveSizeWindow == window ||
+                !NativeMethods.IsWindow(window) ||
+                !NativeMethods.IsWindowVisible(window) ||
+                NativeMethods.IsIconic(window) ||
+                NativeMethods.IsZoomed(window) ||
+                NativeMethods.IsLeftMouseButtonDown())
+                return false;
+
+            if (!FitRendererWindow(window, videoSize, true))
+            {
+                Log("Automatic renderer fit after manual resize failed.");
+                return false;
+            }
+
+            fittedStreamWindow = window;
+            videoSizeWindow = window;
+            initialFitPendingWindow = IntPtr.Zero;
+            exactVideoSizeFitGeneration = videoSize.IsEmpty
+                ? -1 : videoSizeGeneration;
+            int orientation = VideoOrientation(videoSize);
+            appliedVideoOrientation = orientation != 0
+                ? orientation : GetWindowOrientation(window);
+            Log("Automatically fitted renderer window after manual resize" +
+                VideoSizeLogSuffix(videoSize) + ".");
+            return true;
+        }
+
         private bool TryGetRendererWindow(out IntPtr rendererWindow)
         {
             rendererWindow = IntPtr.Zero;
@@ -83,6 +260,9 @@ namespace AirPlayReceiverMvp
             bool newWindow = previousWindow != window;
             if (newWindow)
             {
+                ClearPendingManualRendererFit();
+                rendererMoveSizeWindow = IntPtr.Zero;
+                rendererMoveSizeStartClientSize = Size.Empty;
                 NativeMethods.SetImmersiveDarkMode(window, true);
                 videoSizeWindow = window;
                 initialFitPendingWindow = window;
@@ -92,54 +272,85 @@ namespace AirPlayReceiverMvp
 
             int videoSizeGeneration;
             Size videoSize = GetStableVideoSize(out videoSizeGeneration);
-            int orientation = VideoOrientation(videoSize);
+            bool orientationAuthoritative;
+            bool suppressionChanged;
+            Size automaticVideoSize = ResolveAutomaticVideoSize(
+                videoSize, out orientationAuthoritative,
+                out suppressionChanged);
+            int automaticOrientation = VideoOrientation(automaticVideoSize);
+            int orientation = orientationAuthoritative
+                ? automaticOrientation : 0;
+            if (suppressionChanged)
+            {
+                Log("Retained the current renderer orientation for non-device " +
+                    "video canvas " + videoSize.Width + "x" +
+                    videoSize.Height + "; last device frame " +
+                    (automaticVideoSize.IsEmpty
+                        ? "is not known"
+                        : automaticVideoSize.Width + "x" +
+                            automaticVideoSize.Height) + ".");
+            }
+            if (!settings.AutoFitWindow)
+                ClearPendingManualRendererFit();
             if (settings.AutoFitWindow &&
+                rendererMoveSizeWindow != window &&
                 !NativeMethods.IsLeftMouseButtonDown())
             {
                 if (initialFitPendingWindow == window)
                 {
-                    if (FitRendererWindow(window, videoSize, false))
+                    if (FitRendererWindow(
+                            window, automaticVideoSize, false))
                     {
+                        ClearPendingManualRendererFit();
                         initialFitPendingWindow = IntPtr.Zero;
-                        exactVideoSizeFitGeneration = videoSize.IsEmpty
+                        exactVideoSizeFitGeneration = automaticVideoSize.IsEmpty
                             ? -1 : videoSizeGeneration;
-                        appliedVideoOrientation = orientation != 0
-                            ? orientation : GetWindowOrientation(window);
+                        appliedVideoOrientation = automaticOrientation != 0
+                            ? automaticOrientation : GetWindowOrientation(window);
                         Log("Applied initial renderer window fit" +
-                            VideoSizeLogSuffix(videoSize) + ".");
+                            VideoSizeLogSuffix(automaticVideoSize) + ".");
                     }
                 }
                 else if (videoSizeWindow == window &&
-                    !videoSize.IsEmpty &&
+                    !automaticVideoSize.IsEmpty &&
                     exactVideoSizeFitGeneration != videoSizeGeneration)
                 {
-                    if (FitRendererWindow(window, videoSize, false))
+                    if (FitRendererWindow(
+                            window, automaticVideoSize, false))
                     {
+                        ClearPendingManualRendererFit();
                         exactVideoSizeFitGeneration = videoSizeGeneration;
-                        appliedVideoOrientation = orientation;
+                        appliedVideoOrientation = automaticOrientation;
                         Log("Refined renderer window fit for the first exact " +
-                            "video size " + videoSize.Width + "x" +
-                            videoSize.Height + ".");
+                            "device-frame size " +
+                            automaticVideoSize.Width + "x" +
+                            automaticVideoSize.Height + ".");
                     }
                 }
                 else if (videoSizeWindow == window &&
+                    orientationAuthoritative &&
                     orientation != 0 &&
                     appliedVideoOrientation != 0 &&
                     orientation != appliedVideoOrientation)
                 {
-                    if (FitRendererWindow(window, videoSize, true))
+                    if (FitRendererWindow(
+                            window, automaticVideoSize, true))
                     {
+                        ClearPendingManualRendererFit();
                         appliedVideoOrientation = orientation;
                         Log("Adapted renderer window to " +
                             (orientation == 1 ? "portrait" : "landscape") +
-                            " video " + videoSize.Width + "x" +
-                            videoSize.Height + ".");
+                            " device frame " +
+                            automaticVideoSize.Width + "x" +
+                            automaticVideoSize.Height + ".");
                     }
                 }
                 else if (appliedVideoOrientation == 0 && orientation != 0)
                 {
                     appliedVideoOrientation = orientation;
                 }
+                ApplyPendingManualRendererFit(
+                    window, automaticVideoSize, videoSizeGeneration);
             }
             NativeMethods.SetWindowPos(window,
                 settings.AlwaysOnTop
@@ -173,10 +384,12 @@ namespace AirPlayReceiverMvp
             if (window != IntPtr.Zero)
             {
                 int videoSizeGeneration;
-                Size videoSize = GetStableVideoSize(
+                Size rawVideoSize = GetStableVideoSize(
                     out videoSizeGeneration);
+                Size videoSize = ResolveManualFitVideoSize(rawVideoSize);
                 if (FitRendererWindow(window, videoSize, false))
                 {
+                    ClearPendingManualRendererFit();
                     fittedStreamWindow = window;
                     videoSizeWindow = window;
                     initialFitPendingWindow = IntPtr.Zero;
@@ -200,6 +413,15 @@ namespace AirPlayReceiverMvp
                 tray.ShowBalloonTip(3000, AppTitle,
                     "Окно трансляции пока не найдено. Подключите iPhone и повторите.",
                     ToolTipIcon.Info);
+        }
+
+        private Size ResolveManualFitVideoSize(Size rawVideoSize)
+        {
+            bool orientationAuthoritative;
+            bool suppressionChanged;
+            return ResolveAutomaticVideoSize(
+                rawVideoSize, out orientationAuthoritative,
+                out suppressionChanged);
         }
 
         private static bool IsRendererWindowTitle(string value)
@@ -227,6 +449,58 @@ namespace AirPlayReceiverMvp
                 generation = currentVideoSizeGeneration;
                 return currentVideoSize;
             }
+        }
+
+        private Size ResolveAutomaticVideoSize(
+            Size videoSize, out bool orientationAuthoritative,
+            out bool suppressionChanged)
+        {
+            orientationAuthoritative = false;
+            suppressionChanged = false;
+            if (videoSize.IsEmpty)
+                return Size.Empty;
+
+            lock (videoSizeSync)
+            {
+                if (deviceFrameVideoSize.IsEmpty)
+                {
+                    deviceFrameVideoSize = videoSize;
+                    lastSuppressedVideoSize = Size.Empty;
+                    orientationAuthoritative = true;
+                    return videoSize;
+                }
+
+                if (HaveEquivalentDeviceFrameAspect(
+                        deviceFrameVideoSize, videoSize))
+                {
+                    deviceFrameVideoSize = videoSize;
+                    lastSuppressedVideoSize = Size.Empty;
+                    orientationAuthoritative = true;
+                    return videoSize;
+                }
+
+                suppressionChanged = lastSuppressedVideoSize != videoSize;
+                lastSuppressedVideoSize = videoSize;
+                return deviceFrameVideoSize;
+            }
+        }
+
+        private static bool HaveEquivalentDeviceFrameAspect(
+            Size first, Size second)
+        {
+            double firstAspect = NormalizedVideoAspect(first);
+            double secondAspect = NormalizedVideoAspect(second);
+            return firstAspect > 0.0 && secondAspect > 0.0 &&
+                Math.Abs(firstAspect - secondAspect) <=
+                    DeviceFrameAspectTolerance;
+        }
+
+        private static double NormalizedVideoAspect(Size videoSize)
+        {
+            if (videoSize.Width <= 0 || videoSize.Height <= 0)
+                return 0.0;
+            return (double)Math.Min(videoSize.Width, videoSize.Height) /
+                Math.Max(videoSize.Width, videoSize.Height);
         }
 
         private static int VideoOrientation(Size videoSize)
@@ -273,11 +547,11 @@ namespace AirPlayReceiverMvp
                 clientWidth <= 0 || clientHeight <= 0)
                 return false;
 
-            const double phoneAspect = 9.0 / 19.5;
             double aspect = videoSize.Width > 0 && videoSize.Height > 0
                 ? (double)videoSize.Width / videoSize.Height
                 : (clientHeight >= clientWidth
-                    ? phoneAspect : 1.0 / phoneAspect);
+                    ? ProvisionalIPhoneAspect :
+                        1.0 / ProvisionalIPhoneAspect);
             int targetClientWidth;
             int targetClientHeight;
             if (preserveClientArea)

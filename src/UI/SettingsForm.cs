@@ -343,7 +343,7 @@ namespace AirPlayReceiverMvp
             settingsContent.Controls.Add(topMost);
 
             autoFit = MakeCheckBox(
-                "Автоматически подгонять окно при открытии и повороте iPhone", 24, 438);
+                "Автоматически сохранять пропорции окна трансляции", 24, 438);
             settingsContent.Controls.Add(autoFit);
 
             showStreamInTaskbar = MakeCheckBox(

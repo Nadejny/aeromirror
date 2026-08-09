@@ -108,6 +108,11 @@ checks, and bounded recovery. This is still a transitional one-way contract:
 it is not versioned IPC and cannot provide commands, acknowledgements, or a
 fully authoritative AirPlay session state.
 
+Version 0.12.2 adds a managed one-shot discovery renewal after an explicit
+lost-client marker and completed native cleanup. It does not replace the
+native service registration in place, and it cannot force an iPhone to discard
+a stale browse result that never reaches Windows.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -118,6 +123,10 @@ fully authoritative AirPlay session state.
 - [ ] Add graceful commands such as `shutdown`, `refreshDiscovery`, and
   `getStatus`; do not use process presence or renderer-window discovery as a
   substitute for readiness.
+- [ ] Re-publish DNS-SD and BLE on the same listening port after the native
+  HTTP reset, then emit an acknowledged ready marker. Refactor the current
+  registration ownership first so unregister/register cannot reuse freed
+  service-name or hardware-address storage.
 - [ ] Give every core launch and AirPlay session a correlation ID so shell and
   native logs can be matched.
 - [ ] Define protocol version negotiation so an older shell can fail safely
@@ -171,23 +180,28 @@ sender, not merely the requested preset.
 
 ### Orientation and photo/video sizing
 
-Version 0.11 provides an interim path: a newly discovered renderer receives a
-provisional fit, then the first stable exact encoded size reported through the
-reviewed native log marker refines it. Later portrait/landscape changes preserve
-the user's manually chosen scale. The unchecked work below covers the richer
-metadata, versioned IPC, device matrix, and edge cases still required before
-this behavior is considered complete.
+Version 0.12.2 extends the interim path: a newly discovered renderer receives a
+provisional fit, then the first stable exact encoded size in the session seeds
+a device-frame baseline. Later normalized ratios within `0.03` follow physical
+rotation, while a different media-canvas ratio retains the learned orientation.
+Interactive resize completion also restores the learned proportions by default
+without overriding an explicit opt-out. The unchecked work below covers richer
+metadata, versioned IPC, a direct-media-first ambiguity, device validation, and
+edge cases still required before this behavior is considered complete.
 
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
-- [ ] Distinguish an iPhone orientation change from an app displaying
-  portrait media inside a landscape stream.
+- [x] Suppress a different Photos/media canvas ratio after a device-frame
+  baseline has been learned for the current session.
+- [ ] Resolve sessions that start directly inside a media canvas without
+  guessing that the first exact frame is the physical device ratio.
 - [ ] Pass source-size/orientation events through native IPC.
 - [ ] Resize or letterbox the viewer without cropping content, repeatedly
   shrinking the window, or creating a resize feedback loop.
 - [ ] Respect iPhone orientation lock: AeroMirror should follow the stream
   metadata it receives rather than guessing from the displayed image.
-- [ ] Keep a user option for fixed window size versus automatic fitting.
+- [x] Keep a user option for automatic fitting and preserve an explicit opt-out
+  while snapping proportions only after an interactive resize completes.
 - [ ] Test Photos, fullscreen video, Camera, home-screen rotation, and rapid
   portrait/landscape transitions on displays with different DPI scaling.
 

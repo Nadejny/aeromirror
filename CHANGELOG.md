@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.12.2 — reconnect recovery, media orientation, and automatic fitting
+
+### Fixed
+
+- An abnormal Wi-Fi/client loss no longer loses its recovery decision when the
+  native core completes mirror cleanup quickly. AeroMirror now performs one
+  bounded discovery renewal after that cleanup; an ordinary clean disconnect
+  still keeps the healthy receiver running without a restart.
+- A Photos `3840x2160` presentation canvas no longer forces the renderer into
+  landscape after AeroMirror has learned a `998x2160` iPhone device frame for
+  the session, including when the manual tray fit is used. Physical rotation
+  remains accepted when the normalized device aspect matches, including
+  `1080x1920` and `1920x1080` devices.
+- With automatic fitting enabled, completing a manual renderer resize now
+  restores the learned stream proportions after a short delay. Moving,
+  minimizing, or maximizing the window does not trigger the fit, and an
+  explicit disabled setting remains authoritative.
+
+### Changed
+
+- The first exact video frame in each mirroring session now seeds the device
+  aspect instead of requiring a modern tall-iPhone ratio. This fixes physical
+  16:9 compatibility while retaining conservative suppression for later
+  non-matching media canvases.
+- The normal setting is now labelled **Automatically preserve stream-window
+  proportions**, and the tray fallback is **Fit window now**.
+
+### Compatibility and verification status
+
+- The managed x64 shell build and receiver resilience suite pass, including
+  one-shot abnormal-loss recovery, clean-disconnect, Photos-canvas,
+  16:9-rotation, resize-end, and explicit-opt-out coverage.
+- The pinned UxPlay core, third-party runtime, persisted settings format,
+  receiver identity, and network-safety policy are unchanged.
+- Physical Windows 10/11 and iPhone validation is pending. An iPhone may still
+  expose a stale discovery row whose first tap never reaches Windows, and a
+  session that starts directly in a media canvas can seed the wrong aspect
+  until the next session. Same-port native DNS-SD/BLE re-publication remains
+  future work.
+
 ## 0.12.1 — network-card alignment and tooltip polish
 
 ### Fixed

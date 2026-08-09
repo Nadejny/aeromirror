@@ -44,10 +44,11 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   latency selected by default; renderer selection and raw UxPlay arguments
   remain under Advanced settings;
 - renames the stream window, gives a newly found renderer a provisional fit,
-  refines it when the native core reports the first exact video size, and
-  adapts it on later portrait/landscape changes while preserving manual
-  resizing between rotations; it can stay on top and remains on the taskbar
-  by default;
+  refines it when the native core reports the first exact video size, ignores
+  later media-canvas ratios that do not match the learned device frame, and
+  adapts it on real portrait/landscape changes; automatic fitting also restores
+  the learned proportions after a manual resize unless the user turns it off;
+  the window can stay on top and remains on the taskbar by default;
 - debounces Windows network events, refreshes discovery only after an actual
   physical network change, keeps a healthy receiver running after a normal
   disconnect, and retains one bounded ten-minute idle-discovery fallback;
@@ -55,9 +56,11 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   interrupt the next handshake, while a full manual receiver restart remains
   available; a stale end marker from the previous session also preserves the
   newer request/PIN grace instead of triggering deferred maintenance during
-  the reconnect handshake;
+  the reconnect handshake; after an explicit lost-client marker and native
+  cleanup, one bounded discovery renewal replaces the stale advertisement,
+  while an ordinary clean disconnect still leaves the receiver running;
 - checks a configured public GitHub Release channel only when requested,
-  accepts only exact three-part release tags such as `v0.12.1`,
+  accepts only exact three-part release tags such as `v0.12.2`,
   requires the exact versioned asset name
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe`, displays curated release notes,
   and verifies the setup SHA-256 before launching an update;
@@ -92,7 +95,7 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.1.exe
+AeroMirror-Setup-0.12.2.exe
 ```
 
 The installer:
@@ -218,31 +221,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.1 `
+  -Version 0.12.2 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.1 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.1.zip
+  -Version 0.12.2 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.2.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.1.exe
+artifacts\installer\AeroMirror-Setup-0.12.2.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.1`.
+Public release names use three-part semantic versions such as `0.12.2`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.1.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.1`.
+show `0.12.2.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.2`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.1 `
+  -Version 0.12.2 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -255,7 +258,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.1.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.2.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -264,7 +267,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.1\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.2\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -350,7 +353,7 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
-    0.12.1/
+    0.12.2/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           cosmetic UI acceptance matrix
       BUILD_REPORT.md        published tag, assets, hashes, and test status
@@ -382,11 +385,21 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   Rotation Lock naturally prevents source rotation. This still requires
   device-by-device testing.
 - Renderer-window detection is heuristic. AeroMirror gives a newly opened
-  renderer a provisional fit, then applies the first exact video size reported
-  by the reviewed native core. Later real portrait/landscape changes reshape
-  the client area while manual resizing is preserved between rotations. The
-  **Fit window to iPhone screen** tray command remains a deliberate manual
-  one-shot action.
+  renderer a provisional fit, then treats the first exact video size in that
+  session as the device-frame baseline. Later ratios within a small tolerance
+  can reshape the client area for real portrait/landscape rotation; a Photos
+  `3840x2160` presentation canvas is suppressed after a learned `998x2160`
+  device frame. If a session starts directly in a media canvas, however, that
+  canvas can become the wrong baseline until the next mirroring session.
+  Automatic fitting restores the learned aspect after a completed manual
+  resize by default, respects an explicit opt-out, and keeps **Fit window now**
+  as a manual fallback that also uses the learned device frame rather than a
+  later non-matching media canvas.
+- After an abnormal Wi-Fi/client loss, AeroMirror performs one bounded receiver
+  discovery renewal after native cleanup. The first stale row tapped on iOS
+  may still fail before any request reaches Windows, and iOS may take time to
+  refresh its browse cache. A native same-port DNS-SD/BLE re-publication path
+  remains future work.
 - Arbitrary window proportions cannot both fill the window and preserve the
   whole phone image: the alternatives would be black bars, stretching, or
   cropping. This MVP preserves the whole image and changes the window shape.
@@ -471,9 +484,9 @@ The current license inventory is an engineering review, not legal advice.
 For the 0.12 review, share the GitHub Release page or its network Setup—not a
 loose `AeroMirror.exe`. The Release must keep these assets together:
 
-- `AeroMirror-Setup-0.12.1.exe`;
-- `AeroMirror-source-0.12.1.zip`;
-- `AeroMirror-native-source-0.12.1.zip`;
+- `AeroMirror-Setup-0.12.2.exe`;
+- `AeroMirror-source-0.12.2.zip`;
+- `AeroMirror-native-source-0.12.2.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

@@ -21,8 +21,15 @@ namespace AirPlayReceiverMvp
     internal static class NativeMethods
     {
         internal delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+        internal delegate void WinEventProc(
+            IntPtr hook, uint eventType, IntPtr window,
+            int objectId, int childId, uint eventThread, uint eventTime);
         internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         internal static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        internal const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;
+        internal const uint EVENT_SYSTEM_MOVESIZEEND = 0x000B;
+        internal const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        internal const int OBJID_WINDOW = 0;
         internal const uint SWP_NOSIZE = 0x0001;
         internal const uint SWP_NOMOVE = 0x0002;
         internal const uint SWP_NOZORDER = 0x0004;
@@ -91,6 +98,20 @@ namespace AirPlayReceiverMvp
 
         [DllImport("user32.dll")]
         internal static extern bool IsWindow(IntPtr window);
+
+        [DllImport("user32.dll")]
+        internal static extern bool IsIconic(IntPtr window);
+
+        [DllImport("user32.dll")]
+        internal static extern bool IsZoomed(IntPtr window);
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr SetWinEventHook(
+            uint eventMinimum, uint eventMaximum, IntPtr eventHookModule,
+            WinEventProc eventProc, uint processId, uint threadId, uint flags);
+
+        [DllImport("user32.dll")]
+        internal static extern bool UnhookWinEvent(IntPtr eventHook);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr CreateJobObject(
