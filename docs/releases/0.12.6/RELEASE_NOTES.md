@@ -12,8 +12,8 @@ manual reconnect guidance without stealing focus.
   photo, or reconnecting to a stream whose encoded resolution changed.
 - **Yes, for testing**, if the connection-loss view appeared behind the video
   window or continued to imply that a fatal session would recover by itself.
-- **Optional**, if 0.12.5 works reliably for you. This remains a review
-  candidate: physical Windows 10/11 and iPhone acceptance is pending.
+- **Optional**, if 0.12.5 works reliably for you. This remains a public review
+  Release: physical Windows 10/11 and iPhone acceptance is pending.
 
 ## What changed
 
@@ -91,14 +91,28 @@ The managed build, settings migration and renderer argument coverage,
 combined resilience suite, shell and Setup `0.12.6.0` x64 PE checks, exact
 13-entry review payload, Setup embedded-payload SHA-256 comparison,
 shortcut/update lifecycle self-checks, version/link audits, and
-`git diff --check` pass for the current working-tree candidate. The native
+`git diff --check` pass for the exact tagged source. The native
 core rebuild is reproducible at SHA-256
 `9f1fb168c882b1531400d2edbb4abd1277803c1971a20e9d5c4d7eff3e8498fc`;
 patch/provenance, dependency, loader, reverse-apply, archive-content, and
-prepared native-source checks pass.
+prepared native-source checks pass. Clean exact-tag packaging also passes.
 
-Exact-tag, public-asset, installed-update, and physical Windows/iPhone gates
-remain pending.
+`v0.12.6` is published from commit
+`c860909ad9b6a1098d524142b111857e522a7104` as the normal latest,
+non-draft, non-prerelease public review Release:
 
-Version 0.12.6 is not committed, tagged, or published yet. The published
-`v0.12.5` tag and assets remain immutable.
+https://github.com/pyram1da/aeromirror/releases/tag/v0.12.6
+
+All four public assets were downloaded again with matching byte sizes and
+SHA-256 values, and every GitHub API digest matched. Canonical and configured
+legacy `releases/latest` API routes returned the same Release ID `367881011`.
+Exact evidence is in `BUILD_REPORT.md`.
+
+The installed 0.12.5-to-0.12.6 update and every physical Windows/iPhone row in
+`TEST_PLAN.md` remain pending. Passing release gates does not prove the inner
+Photos canvas, discovery, or automatic reconnect is fixed and does not make
+this a physically accepted or 1.0 release.
+
+AeroMirror project policy treats the published `v0.12.6` tag and four assets
+as immutable. Any correction uses 0.12.7 or later and must not replace a
+0.12.6 file.

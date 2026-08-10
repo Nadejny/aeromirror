@@ -6,10 +6,15 @@ This plan verifies the 0.12.6 Direct3D 11 default and migration, connection-
 loss z-order and reconnect guidance, Photos behavior, and affected update and
 security regressions.
 
-Version 0.12.6 is a working-tree review candidate. It is not committed,
-tagged, published, or physically accepted. Automated checks and physical-
-device checks are separate: a passing build, replay, package, or source audit
-does not prove Windows/iPhone interoperability.
+Version `v0.12.6` was published from commit
+`c860909ad9b6a1098d524142b111857e522a7104` at
+`2026-08-10T12:06:22Z` as the normal latest public review Release:
+
+https://github.com/pyram1da/aeromirror/releases/tag/v0.12.6
+
+It is not physically accepted. Automated checks and physical-device checks
+are separate: a passing build, replay, package, exact-tag, or public-asset
+audit does not prove Windows/iPhone interoperability.
 
 For every physical row, retain the date, AeroMirror version and redacted log
 interval, Windows build, GPU and driver, display/DPI, iPhone model and iOS
@@ -65,7 +70,7 @@ Expected results:
 Any failed build, migration, payload, provenance, version, link, Setup,
 lifecycle, or diff check blocks tagging and publication.
 
-Current candidate evidence:
+Current release evidence:
 
 | Gate | Status |
 |---|---|
@@ -74,12 +79,17 @@ Current candidate evidence:
 | Native reproducible rebuild and corresponding-source/provenance audit | PASS |
 | Version, local-link, and `git diff --check` audits | PASS |
 | Exact review payload and Setup/lifecycle | PASS |
-| Clean exact tag and public assets | PENDING |
+| Clean exact `v0.12.6` tag | PASS |
+| Normal latest channel and exact four public assets | PASS |
+| API digests and public re-download byte sizes/SHA-256 | PASS |
 | Installed update and Windows/iPhone matrix | PENDING |
 
-The current native core SHA-256 is
+The released native core SHA-256 is
 `9f1fb168c882b1531400d2edbb4abd1277803c1971a20e9d5c4d7eff3e8498fc`;
 the prepared native-source archive-content and provenance validation pass.
+Canonical and configured legacy `releases/latest` API routes return the same
+Release ID `367881011`. Exact public sizes and hashes are recorded in
+`BUILD_REPORT.md`.
 
 ## Direct3D resolution-change A/B
 
@@ -110,7 +120,7 @@ inner-Photos limitation, not as a renderer freeze or a fixed crop/zoom result.
 
 ## Settings migration and override preservation
 
-1. Install public 0.12.5 with `Renderer=auto`; update to the candidate and
+1. Install public 0.12.5 with `Renderer=auto`; update to public 0.12.6 and
    open Advanced settings.
 2. Confirm Direct3D 11 is selected, save an unrelated setting, restart, and
    confirm it remains selected.
@@ -209,7 +219,7 @@ A short gap may recover in place; a fatal gap may require explicit manual
 reconnect. No server-side result is inferred when no request reaches Windows.
 Fail and retain as open if continuity sticks, the receiver is absent for
 30–60 seconds, repeated refresh is required, or three reconnects fail. This
-candidate does not claim automatic reconnect or discovery is fixed.
+release does not claim automatic reconnect or discovery is fixed.
 
 ## Photos geometry and saved-placement regression
 
@@ -225,8 +235,8 @@ a content rectangle from the auxiliary pair.
 
 ## Installed update, privacy, and security
 
-1. From public 0.12.5, use **Check for updates** to discover the eventual
-   normal `v0.12.6` Release only after publication is authorized.
+1. From public 0.12.5, use **Check for updates** to discover the normal public
+   `v0.12.6` Release.
 2. Verify exact Setup naming and GitHub SHA-256, complete the in-place update,
    and retain shortcuts, autostart, settings/migration, receiver key, trusted
    clients, logs, uninstall identity, runtime cache, and saved placement.
@@ -241,11 +251,13 @@ regression blocks publication.
 
 ## Acceptance gate
 
-Tagging and publication remain pending until final managed/native source,
-corresponding source, Setup, exact payload, version/link, and diff gates pass.
-Publication requires explicit authorization and a clean exact tag.
+The managed/native source, corresponding source, Setup, exact payload,
+version/link/diff, clean exact-tag, latest-channel, API-digest, and public
+re-download gates pass. The installed update and all physical Windows/iPhone
+rows remain pending.
 
 Version 0.12.6 remains a **review** release until the full Windows 10 and
 Windows 11 plus iPhone matrix passes. It must not be described as stable,
-physically accepted, a complete Photos fix, or 1.0. Any later correction uses
-a new patch version; never move a tag or replace a published asset.
+physically accepted, a complete Photos fix, or 1.0. AeroMirror project policy
+treats the published tag and assets as immutable; any correction uses 0.12.7
+or later rather than moving the tag or replacing an asset.

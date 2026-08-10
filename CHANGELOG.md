@@ -39,17 +39,19 @@
   resolution, including the observed Photos transition. Physical iPhone A/B
   evidence is still pending; this patch does not claim to crop or zoom the
   small photo and black bars already encoded inside the Photos canvas.
-- The managed build and resilience checks pass for the current working-tree
-  candidate. The native core rebuild is reproducible, its patch/provenance and
-  staged-dependency audits pass, and the prepared native-source archive
-  validates. Installer, package, exact-tag, public-release, and physical
-  Windows 10/11 plus iPhone gates remain pending.
+- Managed build, resilience, reproducible native-core/source, Setup/lifecycle,
+  exact-payload, version/link, and exact-tag gates pass. The normal public
+  review Release contains exactly four assets; their GitHub API digests and
+  re-downloaded byte sizes/SHA-256 values match the final local files.
+- Canonical and configured legacy `releases/latest` API routes return the same
+  public `v0.12.6` Release ID. The installed 0.12.5-to-0.12.6 update and all
+  physical Windows 10/11 plus iPhone gates remain pending.
 - Receiver discovery and automatic reconnect are not claimed as fixed. A
   stale iOS browse result or a connection attempt that never reaches Windows
   remains an explicit physical test failure.
-- `v0.12.5` and its assets remain immutable. Version 0.12.6 is not tagged or
-  published until all release gates pass and publication is explicitly
-  authorized.
+- AeroMirror project policy treats the published `v0.12.6` tag and four assets
+  as immutable. Any correction uses 0.12.7 or later rather than replacing an
+  existing public file.
 
 ## 0.12.5 — safer Photos startup and recovery feedback
 

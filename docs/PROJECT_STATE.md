@@ -8,10 +8,11 @@ next step changes.
 
 ## Latest public release
 
-- Version: `v0.12.5`
-- Tag commit: `22ec7536062679b2e90f47d5174c970f3f6b587f`
-- Release URL: https://github.com/pyram1da/aeromirror/releases/tag/v0.12.5
-- Published: `2026-08-10T10:32:59Z`
+- Version: `v0.12.6`
+- Tag commit: `c860909ad9b6a1098d524142b111857e522a7104`
+- Release URL: https://github.com/pyram1da/aeromirror/releases/tag/v0.12.6
+- GitHub Release ID: `367881011`
+- Published: `2026-08-10T12:06:22Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
 - Updater status: current `releases/latest` public review Release
 - Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
@@ -20,18 +21,20 @@ next step changes.
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.12.5` tag and its four assets are immutable. Any correction must use
-0.12.6 or later; never move the tag or replace a published file. Exact evidence
-is recorded in `docs/releases/0.12.5/BUILD_REPORT.md`.
+AeroMirror project policy treats the published `v0.12.6` tag and its four
+assets as immutable, although GitHub does not enforce that state for this
+Release. Any correction must use 0.12.7 or later; never move the tag or replace
+a published file. Exact evidence is recorded in
+`docs/releases/0.12.6/BUILD_REPORT.md`.
 
-The immutable 0.12.4, 0.12.3, 0.12.2, 0.12.1, 0.12.0, and 0.11 releases and
-their verification remain under `docs/releases/` or the historical 0.11
-report paths.
+Project policy also treats the published 0.12.5, 0.12.4, 0.12.3, 0.12.2,
+0.12.1, 0.12.0, and 0.11 releases as immutable history. Their verification
+remains under `docs/releases/` or the historical 0.11 report paths.
 
-## Current 0.12.6 candidate
+## What 0.12.6 changes
 
-- Status: working-tree review candidate; not committed, tagged, or published.
-- Candidate app/Setup version: `0.12.6`; Windows PE/file version:
+- Status: published normal updater-visible public review Release.
+- Public app/Setup version: `0.12.6`; Windows PE/file version:
   `0.12.6.0`. The five release-script defaults and Setup's internal comparison
   version target 0.12.6.
 - New profiles default to an explicitly pinned Direct3D 11 decoder and sink.
@@ -43,7 +46,7 @@ report paths.
   without activation. Fatal native cleanup changes its guidance to a manual
   Screen Mirroring reconnect instruction; it does not claim that discovery or
   reconnect completed automatically.
-- The native candidate emits explicit HTTP ready/failed markers for initial
+- The released native core emits explicit HTTP ready/failed markers for initial
   bind and fatal reset. The shell accepts them only from the current PID and
   preserves same-process recovery only after a matching reset on the original
   AirPlay port; failure or mismatch exits into full-process recovery. AirPlay
@@ -60,12 +63,14 @@ report paths.
   SHA-256 `9f1fb168c882b1531400d2edbb4abd1277803c1971a20e9d5c4d7eff3e8498fc`;
   patch/provenance, dependency, loader, reverse-apply, archive-content, and
   prepared native-source checks pass.
-  Exact-tag, public-asset, installed-update, and physical Windows/iPhone gates
-  remain pending.
+  Exact-tag packaging, the normal latest channel, all four GitHub API digests,
+  and public re-download byte-size/SHA-256 verification also pass. Canonical
+  and legacy `releases/latest` API routes return the same `v0.12.6` Release ID.
+  Installed-update and physical Windows/iPhone gates remain pending.
 
-Direct3D 11 is a review candidate for the observed resolution-change freeze,
-not a physically accepted Photos fix. The small photo and black bars may still
-be encoded inside iOS's `3840x2160` presentation canvas; this candidate does
+Direct3D 11 is the default in this public review Release, not a physically
+accepted Photos fix. The small photo and black bars may still
+be encoded inside iOS's `3840x2160` presentation canvas; this release does
 not crop, zoom, or reconstruct those pixels. It also does not claim to make a
 stale iOS browse result, receiver discovery, or automatic reconnect reliable.
 
@@ -144,40 +149,43 @@ together.
 
 ## Release verification
 
-Passed against the exact source published as `v0.12.5`:
+Passed against the exact source published as `v0.12.6`:
 
-1. managed x64 shell build and receiver resilience suite;
-2. prepared native source with 139 files and all 12 provenance hashes, with
-   the released native core byte-identical to 0.12.4;
+1. managed x64 shell build and combined receiver resilience suite;
+2. reproducible native core, 139-file prepared corresponding source,
+   provenance/reverse-apply/dependency/loader checks, and reviewed patch/source
+   hashes;
 3. exact 13-entry thin review payload, Setup build, embedded-payload SHA-256,
    and shortcut/update lifecycle verification;
-4. shell, Setup PE, internal Setup version, script-default, asset-name,
-   documentation-version, local-link, changed-file, and `git diff --check`
-   audits;
-5. clean exact-tag release packaging;
-6. normal latest GitHub channel with `draft=false`, `prerelease=false`, and
-   exactly four expected assets;
-7. public re-download byte sizes and SHA-256 values match local release files,
-   and all four GitHub API digest fields match;
-8. the configured old updater API and Setup download URLs redirect to the
-   canonical repository and expose/download 0.12.5 successfully.
+4. shell/Setup `0.12.6.0` PE, internal Setup version, five script defaults,
+   asset-name, documentation-version, local-link, changed-file, and
+   `git diff --check` audits;
+5. clean exact-tag release packaging from commit
+   `c860909ad9b6a1098d524142b111857e522a7104`;
+6. normal latest GitHub channel with Release ID `367881011`, `draft=false`,
+   `prerelease=false`, and exactly four expected assets;
+7. all public re-download byte sizes and SHA-256 values match final local
+   release files, and all four GitHub API digest fields match;
+8. canonical and configured legacy `releases/latest` API routes return the
+   same `v0.12.6` Release ID.
 
 No physical Windows/iPhone result is claimed by these gates. Exact asset
-evidence is in `docs/releases/0.12.5/BUILD_REPORT.md`.
+evidence is in `docs/releases/0.12.6/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
-- the installed updater path from public 0.12.4 to public 0.12.5, including
-  settings, trust state, shortcuts, autostart, runtime-cache reuse, digest
-  verification, Setup launch, and rollback;
+- the installed updater path from public 0.12.5 to public 0.12.6, including
+  legacy automatic-to-D3D11 migration, explicit D3D12 preservation, settings,
+  trust state, shortcuts, autostart, runtime-cache reuse, digest verification,
+  Setup launch, and rollback;
 - Windows 11 x64 and Windows 10 1809+ x64 with an iPhone: 3–4 second,
   5–8 second, and longer-than-15-second Wi-Fi interruptions; native in-place
   recovery; fatal recovery; normal disconnect; immediate and repeated
   reconnect; delayed Wi-Fi join; idle discovery; and VPN-over-Private-LAN;
-- saved placement at first show, handoff fade, mixed-DPI/multi-monitor restore,
-  taskbar/topmost settings, manual resize, safe snapshot, privacy fallback,
-  and no focus theft or Z-order flicker;
-- Balanced versus Interactive plus Automatic, Direct3D 11, and Direct3D 12
+- saved placement at first show, handoff fade and renewed-loss cancellation,
+  mixed-DPI/multi-monitor restore, taskbar/topmost settings, manual resize,
+  safe snapshot, privacy fallback, and no focus theft or Z-order flicker;
+- Balanced versus Interactive plus Direct3D 11 and Direct3D 12
   frame-pacing, audio drift, CPU/GPU, feedback-gap, and decoder/sink evidence;
 - direct-in-Photos startup where the ambiguous 4K canvas arrives before a
   phone-shaped frame; portrait/landscape rotation; unresolved placement
@@ -190,24 +198,25 @@ evidence is in `docs/releases/0.12.5/BUILD_REPORT.md`.
   native embedded renderer plus versioned IPC;
 - continuity does not make iOS browse-cache refresh instantaneous, and a dark
   fallback remains necessary when safe renderer capture is unavailable;
+- the mirror-focused feature advertisement remains a physical experiment; its
+  effect on direct-in-Photos startup has not been accepted;
 - genuine AirDrop interoperability remains separate Bluetooth/AWDL, identity,
   and encrypted-transfer research. A staged AeroDrop companion/share-extension
-  path is a separate future product decision, not part of 0.12.5;
+  path is a separate future product decision, not part of 0.12.6;
 - localization is not included. D-006 remains the planned resource-based
   system-language and manual override design.
 
 ## Immediate next steps
 
-1. Stabilize and review the complete 0.12.6 managed/native working tree, then
-   run its build, resilience, native-source, Setup/lifecycle, payload, version,
-   link, and diff gates.
+1. Install public 0.12.5 and use its in-app updater to discover, download, and
+   install public 0.12.6; retain migration, persistence, Setup, runtime-cache,
+   and rollback evidence.
 2. Run the physical Direct3D 11 versus Direct3D 12, Photos, interruption,
    reconnect, delayed-discovery, and Windows 10/11 matrix in
    `docs/releases/0.12.6/TEST_PLAN.md`, preserving redacted log intervals,
    screenshots, and recordings.
-3. Only after those gates pass, request explicit authorization for a clean
-   `v0.12.6` tag and normal review Release. Never modify the immutable 0.12.5
-   tag or assets, and do not use a 1.0 designation until D-008 physical
+3. Correct any failed scenario in 0.12.7 or later. Never modify the immutable
+   0.12.6 tag or assets, and do not use a 1.0 designation until D-008 physical
    acceptance is complete.
 
 ## Where information belongs

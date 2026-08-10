@@ -89,7 +89,7 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   material; the current review line records feedback-gap totals, the full raw AirPlay
   geometry header, and the selected GStreamer decoder/sink without treating
   the raw auxiliary geometry pair as crop, PAR, or rotation metadata; the
-  0.12.6 candidate also logs explicit native HTTP reset readiness/failure and
+  0.12.6 release also logs explicit native HTTP reset readiness/failure and
   a mirror-only capability marker;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
@@ -116,23 +116,21 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.5.exe
+AeroMirror-Setup-0.12.6.exe
 ```
 
-`v0.12.5` is the normal latest updater-visible public review Release. Its
-managed build, resilience, Setup/lifecycle, provenance-reuse, exact-tag,
-checksum, API-digest, and public re-download gates pass. The installed
-0.12.4-to-0.12.5 update and physical Windows 10/11 plus iPhone matrix remain
-pending and are not implied by those automated results.
+`v0.12.6` is the normal latest updater-visible public review Release. Its
+managed build, resilience, native-source/provenance, Setup/lifecycle,
+exact-tag, checksum, API-digest, and public re-download gates pass. The
+installed 0.12.5-to-0.12.6 update and physical Windows 10/11 plus iPhone
+matrix remain pending and are not implied by those automated results.
+Exact tag, asset-size, and SHA-256 evidence is in the
+[0.12.6 build report](docs/releases/0.12.6/BUILD_REPORT.md).
 
-The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.5 still
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.6 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
-`releases/latest` API and Setup download to the canonical repository, and both
-redirect paths were verified after publication.
-
-Version 0.12.6 is currently a source-tree review candidate, not a public
-download. Its Direct3D 11 and reconnect changes remain subject to the
-versioned automated and physical test plan before any tag or Release.
+`releases/latest` API to the canonical repository. Canonical and legacy API
+routes returned the same public `v0.12.6` Release ID after publication.
 
 The installer:
 
@@ -393,8 +391,9 @@ docs/
   TODO.md                    product and protocol roadmap
   releases/
     0.12.6/
-      RELEASE_NOTES.md       candidate GitHub Release text
+      RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           renderer, Photos, and reconnect acceptance
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.5/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           Photos-first and recovery acceptance matrix
@@ -462,11 +461,11 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   stale row tapped on iOS may still fail before any request reaches Windows,
   and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
   re-publication with an acknowledged ready state remains future work.
-- The 0.12.6 candidate accepts same-process HTTP recovery only after an
+- The 0.12.6 release accepts same-process HTTP recovery only after an
   explicit current-PID marker confirms the original AirPlay port; bind failure
   or mismatch exits for full-process recovery. This still does not prove
   DNS-SD/BLE re-publication or force iOS browse-cache refresh.
-- The same candidate clears unimplemented AirPlay photo, slideshow, and
+- The same release clears unimplemented AirPlay photo, slideshow, and
   photo-preload advertisement bits as a mirror-only experiment. Physical
   direct-in-Photos behavior remains pending, and this is not a crop/zoom fix.
 - The continuity placeholder keeps only a softened renderer-client screenshot
@@ -491,9 +490,9 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   it does not prove that an iPhone session is active.
 - The executables are not yet code-signed, so Windows SmartScreen may warn
   about an unknown publisher.
-- GitHub update checking in 0.12.5 uses the former `Nadejny/aeromirror` slug;
-  GitHub redirects it to canonical `pyram1da/aeromirror`, and the public latest
-  API plus Setup download redirect were verified for this release.
+- GitHub update checking in 0.12.6 uses the former `Nadejny/aeromirror` slug;
+  GitHub redirects it to canonical `pyram1da/aeromirror`, and both latest API
+  routes returned the same public `v0.12.6` Release ID.
 - Bonjour/mDNS and Windows Firewall configuration remain external system
   dependencies. Allow the receiver only on the network categories you intend
   to use. Some managed or guest Wi-Fi networks block device discovery.
