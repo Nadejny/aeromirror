@@ -94,9 +94,14 @@ visible jumping.
 The managed build and resilience suite, rebuilt native-core provenance,
 `UPSTREAM.lock` commit/patch/core-hash consistency, prepared corresponding
 source, review payload, network Setup and lifecycle verification, version/link
-audit, and `git diff --check` pass for the current candidate. Clean exact-tag
-packaging is still pending; checksums and public re-download/API digest checks
-can run only after publication.
+audit, `git diff --check`, clean exact-tag packaging, and public re-download/API
+digest checks pass for the published review Release. `v0.12.4` is the normal
+latest updater-visible Release:
+
+https://github.com/Nadejny/aeromirror/releases/tag/v0.12.4
 
 Passing these automated gates does not substitute for the installed-update and
 physical matrix in `TEST_PLAN.md` and does not make this a 1.0 release.
+
+The tag and four public assets are immutable. Any correction will use 0.12.5
+or later rather than replacing this release's files.

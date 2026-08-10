@@ -52,11 +52,14 @@
   corresponding source match the locked native provenance.
 - The managed build, resilience suite, review payload, Setup build and
   lifecycle verifier, native-source/provenance validation, version/link audit,
-  and `git diff --check` pass for the candidate. Clean exact-tag packaging and
-  public-asset verification remain pending.
+  `git diff --check`, clean exact-tag packaging, normal latest-channel, and
+  public re-download/API digest verification pass for the published review
+  release.
 - Physical Windows 10/11 plus iPhone recovery, smoothness, Photos, placement,
   and installed-update tests remain pending and must not be inferred from the
   automated checks.
+- The published `v0.12.4` tag and its four assets are immutable. Any correction
+  must use 0.12.5 or later.
 - Photos can still place a small image and black bars inside a
   `3840x2160` encoded canvas. This patch adds geometry evidence but does not
   guess a crop or fix that inner layout.

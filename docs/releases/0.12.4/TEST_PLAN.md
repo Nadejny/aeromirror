@@ -12,10 +12,16 @@ every completed row with its date, exact Windows build, iPhone/iOS version,
 network topology, AeroMirror log interval, and screenshot or screen recording
 when relevant.
 
-Status after candidate automation: managed/native builds, resilience,
-provenance, review payload, Setup/lifecycle, version/link, and diff gates pass.
-Clean exact-tag/public verification, installed update, and physical-device
-execution remain pending.
+Version `v0.12.4` was published from commit
+`31042ffa50773eb053239ab5ed687f44b4f35d94` as the normal latest review
+Release:
+
+https://github.com/Nadejny/aeromirror/releases/tag/v0.12.4
+
+Managed/native builds, resilience, provenance, review payload, Setup/lifecycle,
+version/link, diff, clean exact-tag, channel, checksum, API digest, and public
+re-download gates pass. Installed update and physical-device execution remain
+pending.
 
 ## Test environments
 
@@ -83,8 +89,8 @@ Any failure blocks publication.
 | Native rebuild, `UPSTREAM.lock`, and source-provenance validation | PASS |
 | Shell/Setup PE, internal Setup, script, asset, documentation, and link version audit | PASS |
 | `git diff --check` | PASS |
-| Clean exact `v0.12.4` tag and release packaging | PENDING |
-| GitHub channel, public re-download, SHA-256, and API digests | PENDING |
+| Clean exact `v0.12.4` tag and release packaging | PASS |
+| GitHub channel, public re-download, SHA-256, and API digests | PASS |
 | Installed 0.12.3-to-0.12.4 update | PENDING |
 | Physical Windows 10/11 plus iPhone matrix | PENDING |
 
@@ -239,9 +245,10 @@ Any privacy or fail-closed regression blocks publication.
 
 ## Acceptance gate
 
-0.12.4 may be published as a normal updater-visible **review** Release after
-all automated/package/provenance gates pass. It may not be described as
-physically accepted, stable, or 1.0 until the complete Windows 10 and Windows
-11 plus iPhone matrix above passes with retained evidence. A defect found after
+0.12.4 is published as a normal updater-visible **review** Release after all
+automated/package/provenance and public-verification gates passed. Exact asset
+evidence is in `BUILD_REPORT.md`. It may not be described as physically
+accepted, stable, or 1.0 until the complete Windows 10 and Windows 11 plus
+iPhone matrix above passes with retained evidence. A defect found after
 publication must be fixed in 0.12.5 or later; never move the tag or replace a
 published 0.12.4 asset.

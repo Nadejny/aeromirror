@@ -108,10 +108,10 @@ and download:
 AeroMirror-Setup-0.12.4.exe
 ```
 
-`v0.12.4` is prepared as a normal updater-visible review Release. It may be
-published only after its final managed/native, provenance, Setup, package, and
-exact-tag gates pass. The installed update path and physical Windows 10/11 plus
-iPhone matrix remain separate pending review evidence.
+`v0.12.4` is the normal latest updater-visible review Release. Its
+managed/native, provenance, Setup, clean exact-tag, checksum, and public
+re-download/API digest gates pass. The installed update path and physical
+Windows 10/11 plus iPhone matrix remain separate pending review evidence.
 
 The installer:
 
@@ -373,6 +373,7 @@ docs/
     0.12.4/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           recovery, frame-pacing, and renderer acceptance
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.3/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           loss, placement, and Photos acceptance matrix

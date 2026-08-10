@@ -8,31 +8,24 @@ next step changes.
 
 ## Latest public release
 
-- Version: `v0.12.3`
-- Tag commit: `334001a8fa896c8e072465e624fda4f150ffa666`
-- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.12.3
-- Published: `2026-08-09T23:10:49Z`
+- Version: `v0.12.4`
+- Tag commit: `31042ffa50773eb053239ab5ed687f44b4f35d94`
+- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.12.4
+- Published: `2026-08-10T00:17:54Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
 - Updater status: current `releases/latest` public review Release
 - Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
+- Public assets: Setup, AeroMirror source, prepared native corresponding
+  source, and `SHA256SUMS.txt`
+- Offline portable package: engineering-only and not published
 
-The `v0.12.3` tag and its four public assets are immutable. Exact evidence is
-in `docs/releases/0.12.3/BUILD_REPORT.md`. Historical 0.12.2, 0.12.1, 0.12.0,
-and 0.11 release documents remain unchanged evidence.
+The `v0.12.4` tag and its four assets are immutable. Any correction must use
+0.12.5 or later; never move the tag or replace a published file. Exact evidence
+is recorded in `docs/releases/0.12.4/BUILD_REPORT.md`.
 
-## Current candidate
-
-- Version: `0.12.4`
-- Status: candidate implementation, mandatory documentation, managed/native
-  builds, provenance, review payload, and Setup verification pass; not tagged
-  or published yet
-- Publication authorization: a normal updater-visible review Release is
-  authorized after the remaining clean exact-tag packaging gate passes
-- Physical acceptance: pending on Windows 10/11 plus iPhone; this candidate is
-  not accepted, stable, or 1.0 based on automated checks alone
-- Release notes: `docs/releases/0.12.4/RELEASE_NOTES.md`
-- Test plan: `docs/releases/0.12.4/TEST_PLAN.md`
+The immutable 0.12.3, 0.12.2, 0.12.1, 0.12.0, and 0.11 releases and their
+verification remain under `docs/releases/` or the historical 0.11 report paths.
 
 ## What 0.12.4 changes
 
@@ -60,34 +53,36 @@ and 0.11 release documents remain unchanged evidence.
   interpreted as crop, PAR, or rotation metadata.
 - The settings Back control is larger.
 
-The upstream revision and third-party runtime remain pinned. The candidate's
-reviewed native patch, rebuilt core, modified-source hashes, build inputs,
-updated provenance, and prepared corresponding source validate together.
+The upstream revisions and third-party runtime remain pinned. The reviewed
+native patch, rebuilt core, modified-source hashes, build inputs,
+`UPSTREAM.lock`, source provenance, and prepared corresponding source validate
+together.
 
-## Verification status
+## Release verification
 
-Passed against the current 0.12.4 candidate source:
+Passed against the exact source published as `v0.12.4`:
 
-1. managed x64 build and receiver resilience suite;
-2. native rebuild plus `UPSTREAM.lock` commit/patch/core-hash consistency and
-   patch/source/input/core-hash provenance validation;
+1. managed x64 shell build and receiver resilience suite;
+2. native rebuild, `UPSTREAM.lock` consistency, prepared corresponding-source
+   packaging, and patch/source/input/core-hash provenance validation;
 3. thin review payload, Setup build, and installer lifecycle verification;
 4. shell, Setup PE, internal Setup version, script-default, asset-name,
-   documentation-version, local-link, and changed-file audits;
-5. `git diff --check`.
+   documentation-version, local-link, changed-file, and `git diff --check`
+   audits;
+5. clean exact-tag release packaging;
+6. normal latest GitHub channel with `draft=false`, `prerelease=false`, and
+   exactly four expected assets;
+7. public re-download byte sizes and SHA-256 values match local release files,
+   and all four GitHub API digest fields match.
 
-Still pending:
-
-1. a clean exact `v0.12.4` tag and release package with exactly four permitted
-   assets;
-2. GitHub channel, public re-download, byte-size, SHA-256, and API digest
-   verification after publication;
-3. installed update and all physical Windows/iPhone tests.
-
-No physical Windows/iPhone result is claimed by the current automated work.
+No physical Windows/iPhone result is claimed by these gates. Exact asset
+evidence is in `docs/releases/0.12.4/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
+- the installed updater path from public 0.12.3 to 0.12.4, including settings,
+  trust state, shortcuts, autostart, runtime-cache reuse, digest verification,
+  Setup launch, and rollback;
 - Windows 11 x64 and Windows 10 1809+ x64 with an iPhone: 3–4 second,
   5–8 second, and longer-than-15-second Wi-Fi interruptions; native in-place
   recovery; fatal recovery; normal disconnect; immediate and repeated
@@ -101,7 +96,7 @@ No physical Windows/iPhone result is claimed by the current automated work.
   actual inner photo size;
 - Photos may still place a small image and black bars inside a `3840x2160`
   encoded canvas. Raw geometry diagnostics do not provide a validated content
-  rectangle, so this candidate does not crop or zoom those pixels;
+  rectangle, so this release does not crop or zoom those pixels;
 - an external GStreamer window cannot yet provide a Mac-style hover-only frame,
   true borderless surface, or live aspect lock while dragging. Those require a
   native embedded renderer plus versioned IPC;
@@ -115,14 +110,14 @@ No physical Windows/iPhone result is claimed by the current automated work.
 
 ## Immediate next steps
 
-1. Commit the reviewed candidate, create an exact `v0.12.4` tag, and run the
-   clean exact-tag packaging gate in `docs/releases/0.12.4/TEST_PLAN.md`.
-2. Publish `v0.12.4` only if that remaining gate passes, verify every public
-   asset, then
-   add `docs/releases/0.12.4/BUILD_REPORT.md` and update this file.
-3. Run the installed 0.12.3-to-0.12.4 update and complete the physical Windows
-   10/11 plus iPhone matrix. Correct any defect in 0.12.5 or later; never move
-   a published tag or replace an existing release asset.
+1. Install public 0.12.3, use its in-app updater to find and install 0.12.4,
+   and record the complete upgrade result.
+2. Run the physical Windows 11 and Windows 10/iPhone matrix in
+   `docs/releases/0.12.4/TEST_PLAN.md`, preserving redacted log intervals,
+   screenshots, and recordings as manual evidence.
+3. Correct any defect in 0.12.5 or later; never modify the immutable 0.12.4 tag
+   or public assets. Do not use a 1.0 designation until D-008 physical
+   acceptance is complete.
 
 ## Where information belongs
 
