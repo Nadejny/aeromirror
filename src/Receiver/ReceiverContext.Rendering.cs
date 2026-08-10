@@ -26,6 +26,7 @@ namespace AirPlayReceiverMvp
         private void InstallRendererMoveSizeHook(int processId)
         {
             ResetRendererMoveSizeTracking();
+            ClearStreamWindowPlacementPersistence(IntPtr.Zero);
             if (processId <= 0 || rendererMoveSizeEventProc == null ||
                 rendererWindowShowEventProc == null)
                 return;
@@ -185,6 +186,7 @@ namespace AirPlayReceiverMvp
             // The out-of-context callback only queues persistence work.
             // Outer-bounds capture, normalization and the atomic settings
             // write run later on the WinForms supervision timer.
+            MarkStreamWindowPlacementPersistable(window);
             QueueStreamWindowPlacementSave(window, 200);
             if (!ShouldQueueManualRendererFit(
                     settings.AutoFitWindow, startSize, endSize))
@@ -267,8 +269,38 @@ namespace AirPlayReceiverMvp
                 ? orientation : GetWindowOrientation(window);
             Log("Automatically fitted renderer window after manual resize" +
                 VideoSizeLogSuffix(videoSize) + ".");
+            MarkStreamWindowPlacementPersistable(window);
             QueueStreamWindowPlacementSave(window, 250);
             return true;
+        }
+
+        private void MarkStreamWindowPlacementPersistable(IntPtr window)
+        {
+            if (window == IntPtr.Zero)
+                return;
+            lock (streamWindowPlacementSync)
+                persistableStreamWindowPlacementWindow = window;
+        }
+
+        private void ClearStreamWindowPlacementPersistence(IntPtr window)
+        {
+            lock (streamWindowPlacementSync)
+            {
+                if (window == IntPtr.Zero ||
+                    persistableStreamWindowPlacementWindow == window)
+                {
+                    persistableStreamWindowPlacementWindow = IntPtr.Zero;
+                }
+            }
+        }
+
+        private bool CanPersistStreamWindowPlacement(IntPtr window)
+        {
+            lock (streamWindowPlacementSync)
+            {
+                return window != IntPtr.Zero &&
+                    persistableStreamWindowPlacementWindow == window;
+            }
         }
 
         private void QueueStreamWindowPlacementSave(
@@ -308,7 +340,8 @@ namespace AirPlayReceiverMvp
                 pendingStreamWindowPlacementDueUtc = DateTime.MinValue;
             }
 
-            if (targetWindow != currentWindow)
+            if (targetWindow != currentWindow ||
+                !CanPersistStreamWindowPlacement(targetWindow))
                 return;
             SaveStreamWindowPlacement(targetWindow, true);
         }
@@ -396,9 +429,22 @@ namespace AirPlayReceiverMvp
         {
             IntPtr window;
             if (!TryGetRendererWindow(out window))
+            {
+                ClearStreamWindowPlacementPersistence(IntPtr.Zero);
                 return;
-            SaveStreamWindowPlacement(window, false);
+            }
+            if (CanPersistStreamWindowPlacement(window))
+            {
+                SaveStreamWindowPlacement(window, false);
+            }
+            else
+            {
+                Log("Skipped renderer placement persistence because the " +
+                    "session never established a device-frame orientation " +
+                    "and the user did not move or resize the window.");
+            }
             RememberRendererBounds(window);
+            ClearStreamWindowPlacementPersistence(window);
         }
 
         private bool TryRestoreStreamWindowPlacement(IntPtr window)
@@ -413,7 +459,6 @@ namespace AirPlayReceiverMvp
                 restored.Left + "," + restored.Top + " " +
                 restored.Width + "x" + restored.Height +
                 " at " + targetDpi + " DPI.");
-            QueueStreamWindowPlacementSave(window, 250);
             return true;
         }
 
@@ -657,6 +702,8 @@ namespace AirPlayReceiverMvp
             if (newWindow)
             {
                 ClearPendingManualRendererFit();
+                ClearPendingStreamWindowPlacementSave();
+                ClearStreamWindowPlacementPersistence(IntPtr.Zero);
                 rendererMoveSizeWindow = IntPtr.Zero;
                 rendererMoveSizeStartClientSize = Size.Empty;
                 NativeMethods.SetImmersiveDarkMode(window, true);
@@ -670,11 +717,14 @@ namespace AirPlayReceiverMvp
             }
 
             int videoSizeGeneration;
-            Size videoSize = GetStableVideoSize(out videoSizeGeneration);
+            bool ambiguousMediaCanvas;
+            Size videoSize = GetStableVideoSize(
+                out videoSizeGeneration, out ambiguousMediaCanvas);
             bool orientationAuthoritative;
             bool suppressionChanged;
             Size automaticVideoSize = ResolveAutomaticVideoSize(
-                videoSize, out orientationAuthoritative,
+                videoSize, ambiguousMediaCanvas,
+                out orientationAuthoritative,
                 out suppressionChanged);
             int automaticOrientation = VideoOrientation(automaticVideoSize);
             int orientation = orientationAuthoritative
@@ -709,7 +759,18 @@ namespace AirPlayReceiverMvp
                             ? automaticOrientation : GetWindowOrientation(window);
                         Log("Applied initial renderer window fit" +
                             VideoSizeLogSuffix(automaticVideoSize) + ".");
-                        QueueStreamWindowPlacementSave(window, 250);
+                        if (!automaticVideoSize.IsEmpty)
+                        {
+                            MarkStreamWindowPlacementPersistable(window);
+                            QueueStreamWindowPlacementSave(window, 250);
+                        }
+                        else
+                        {
+                            // A provisional fit must not replace a previously
+                            // valid placement before the stream exposes a
+                            // trustworthy device-frame orientation.
+                            ClearPendingStreamWindowPlacementSave();
+                        }
                     }
                 }
                 else if (videoSizeWindow == window &&
@@ -727,6 +788,7 @@ namespace AirPlayReceiverMvp
                             "device-frame size " +
                             automaticVideoSize.Width + "x" +
                             automaticVideoSize.Height + ".");
+                        MarkStreamWindowPlacementPersistable(window);
                         QueueStreamWindowPlacementSave(window, 250);
                     }
                 }
@@ -746,6 +808,7 @@ namespace AirPlayReceiverMvp
                             " device frame " +
                             automaticVideoSize.Width + "x" +
                             automaticVideoSize.Height + ".");
+                        MarkStreamWindowPlacementPersistable(window);
                         QueueStreamWindowPlacementSave(window, 250);
                     }
                 }
@@ -795,9 +858,11 @@ namespace AirPlayReceiverMvp
             if (window != IntPtr.Zero)
             {
                 int videoSizeGeneration;
+                bool ambiguousMediaCanvas;
                 Size rawVideoSize = GetStableVideoSize(
-                    out videoSizeGeneration);
-                Size videoSize = ResolveManualFitVideoSize(rawVideoSize);
+                    out videoSizeGeneration, out ambiguousMediaCanvas);
+                Size videoSize = ResolveManualFitVideoSize(
+                    rawVideoSize, ambiguousMediaCanvas);
                 if (FitRendererWindow(window, videoSize, false))
                 {
                     ClearPendingManualRendererFit();
@@ -811,6 +876,7 @@ namespace AirPlayReceiverMvp
                         ? orientation : GetWindowOrientation(window);
                     Log("Renderer window fitted manually" +
                         VideoSizeLogSuffix(videoSize) + ".");
+                    MarkStreamWindowPlacementPersistable(window);
                     QueueStreamWindowPlacementSave(window, 250);
                     RememberRendererBounds(window);
                     return;
@@ -828,12 +894,14 @@ namespace AirPlayReceiverMvp
                     ToolTipIcon.Info);
         }
 
-        private Size ResolveManualFitVideoSize(Size rawVideoSize)
+        private Size ResolveManualFitVideoSize(
+            Size rawVideoSize, bool ambiguousMediaCanvas)
         {
             bool orientationAuthoritative;
             bool suppressionChanged;
             return ResolveAutomaticVideoSize(
-                rawVideoSize, out orientationAuthoritative,
+                rawVideoSize, ambiguousMediaCanvas,
+                out orientationAuthoritative,
                 out suppressionChanged);
         }
 
@@ -845,7 +913,8 @@ namespace AirPlayReceiverMvp
                 value.IndexOf("AeroMirror", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private Size GetStableVideoSize(out int generation)
+        private Size GetStableVideoSize(
+            out int generation, out bool ambiguousMediaCanvas)
         {
             lock (videoSizeSync)
             {
@@ -855,17 +924,23 @@ namespace AirPlayReceiverMvp
                     currentVideoSize = pendingVideoSize;
                     currentVideoSizeGeneration =
                         pendingVideoSizeGeneration;
+                    currentVideoSizeIsAmbiguousMediaCanvas =
+                        pendingVideoSizeIsAmbiguousMediaCanvas;
                     pendingVideoSize = Size.Empty;
                     pendingVideoSizeDueUtc = DateTime.MinValue;
                     pendingVideoSizeGeneration = 0;
+                    pendingVideoSizeIsAmbiguousMediaCanvas = false;
                 }
                 generation = currentVideoSizeGeneration;
+                ambiguousMediaCanvas =
+                    currentVideoSizeIsAmbiguousMediaCanvas;
                 return currentVideoSize;
             }
         }
 
         private Size ResolveAutomaticVideoSize(
-            Size videoSize, out bool orientationAuthoritative,
+            Size videoSize, bool ambiguousMediaCanvas,
+            out bool orientationAuthoritative,
             out bool suppressionChanged)
         {
             orientationAuthoritative = false;
@@ -879,6 +954,14 @@ namespace AirPlayReceiverMvp
                     !earlyDeviceFrameVideoSize.IsEmpty)
                 {
                     deviceFrameVideoSize = earlyDeviceFrameVideoSize;
+                }
+
+                if (ambiguousMediaCanvas)
+                {
+                    suppressionChanged =
+                        lastSuppressedVideoSize != videoSize;
+                    lastSuppressedVideoSize = videoSize;
+                    return deviceFrameVideoSize;
                 }
 
                 if (deviceFrameVideoSize.IsEmpty)
@@ -902,6 +985,23 @@ namespace AirPlayReceiverMvp
                 lastSuppressedVideoSize = videoSize;
                 return deviceFrameVideoSize;
             }
+        }
+
+        private static bool IsKnownAmbiguousMediaCanvasGeometry(
+            int width0, int height0,
+            int sourceWidth, int sourceHeight,
+            int auxiliaryWidth, int auxiliaryHeight,
+            int encodedWidth, int encodedHeight)
+        {
+            // This exact signature is replayed from the observed Photos
+            // presentation canvas. The auxiliary pair is deliberately not
+            // interpreted as crop, PAR, or rotation metadata; it is only
+            // part of a complete, conservative signature that keeps a
+            // generic 4K 16:9 canvas from becoming the device baseline.
+            return width0 == 3840 && height0 == 2160 &&
+                sourceWidth == 3840 && sourceHeight == 2160 &&
+                auxiliaryWidth == 0 && auxiliaryHeight == 0 &&
+                encodedWidth == 3840 && encodedHeight == 2160;
         }
 
         private static bool HaveEquivalentDeviceFrameAspect(

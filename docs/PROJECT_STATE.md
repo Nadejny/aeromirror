@@ -27,6 +27,47 @@ is recorded in `docs/releases/0.12.4/BUILD_REPORT.md`.
 The immutable 0.12.3, 0.12.2, 0.12.1, 0.12.0, and 0.11 releases and their
 verification remain under `docs/releases/` or the historical 0.11 report paths.
 
+## Current 0.12.5 review candidate
+
+- Status: unpublished managed-shell correction based on public 0.12.4.
+- Public/app/Setup version: `0.12.5`; Windows PE/file version: `0.12.5.0`.
+- The exact recorded Photos geometry
+  `3840x2160 aux=0x0 encoded=3840x2160` is now classified as an ambiguous
+  presentation canvas instead of becoming the device-orientation baseline.
+  A later `998x2160 aux=1421x0` phone frame can establish portrait in the same
+  session, while the observed real-landscape signature and unrelated 16:9
+  streams remain eligible.
+- An unresolved automatic/provisional fit cannot replace a valid saved
+  placement. A trustworthy device frame or explicit user move, resize, or
+  manual fit makes the current placement persistable.
+- The native three-second feedback warning schedules a four-second local
+  continuity deadline for a capable active session. Early recovery cancels it;
+  acknowledged recovery changes the view to connection-restored/waiting-for-
+  image and queues handoff. Fatal reconnect handoff still waits for a real
+  positioned renderer.
+- The pinned UxPlay core, native patches, source provenance, and third-party
+  runtime are unchanged from 0.12.4. The pre-tag gates confirm that the staged
+  native core is byte-identical to 0.12.4 and that the prepared native-source
+  package contains 139 files with all 12 provenance hashes validated.
+- The managed x64 build, receiver resilience suite, 13-entry thin review
+  payload, network Setup build and shortcut/update lifecycle self-checks,
+  prepared native-source build, shell/Setup `0.12.5.0` PE audit, Setup embedded-
+  payload SHA-256 comparison, source/default/document/link checks, and
+  `git diff --check` pass in the current pre-tag gate run.
+- The final payload and Setup were regenerated after the evidence update; the
+  embedded payload hash, lifecycle checks, and version audits passed again.
+  Exact-tag packaging, public-asset verification,
+  installed update, and physical Windows/iPhone evidence remain pending until
+  recorded in `docs/releases/0.12.5/TEST_PLAN.md` and, after publication,
+  `BUILD_REPORT.md`.
+
+This candidate does not crop or zoom the small photo and black bars that Photos
+may already encode inside its `3840x2160` canvas. It also does not claim to fix
+delayed iOS browse-cache visibility when no request reaches Windows. With
+explicit authorization, it may be published as a normal updater-visible review
+Release after automated release gates pass while those physical tests remain
+clearly pending; it must not be called physically accepted or 1.0.
+
 ## What 0.12.4 changes
 
 - UxPlay's feedback-loss bound returns from six seconds to the upstream
@@ -80,7 +121,7 @@ evidence is in `docs/releases/0.12.4/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
-- the installed updater path from public 0.12.3 to 0.12.4, including settings,
+- the installed updater path from public 0.12.4 to candidate 0.12.5, including settings,
   trust state, shortcuts, autostart, runtime-cache reuse, digest verification,
   Setup launch, and rollback;
 - Windows 11 x64 and Windows 10 1809+ x64 with an iPhone: 3–4 second,
@@ -92,8 +133,9 @@ evidence is in `docs/releases/0.12.4/BUILD_REPORT.md`.
   and no focus theft or Z-order flicker;
 - Balanced versus Interactive plus Automatic, Direct3D 11, and Direct3D 12
   frame-pacing, audio drift, CPU/GPU, feedback-gap, and decoder/sink evidence;
-- direct-in-Photos startup, portrait/landscape rotation, fullscreen media, and
-  actual inner photo size;
+- direct-in-Photos startup where the ambiguous 4K canvas arrives before a
+  phone-shaped frame; portrait/landscape rotation; unresolved placement
+  persistence; fullscreen media; and actual inner photo size;
 - Photos may still place a small image and black bars inside a `3840x2160`
   encoded canvas. Raw geometry diagnostics do not provide a validated content
   rectangle, so this release does not crop or zoom those pixels;
@@ -110,14 +152,17 @@ evidence is in `docs/releases/0.12.4/BUILD_REPORT.md`.
 
 ## Immediate next steps
 
-1. Install public 0.12.3, use its in-app updater to find and install 0.12.4,
-   and record the complete upgrade result.
-2. Run the physical Windows 11 and Windows 10/iPhone matrix in
-   `docs/releases/0.12.4/TEST_PLAN.md`, preserving redacted log intervals,
-   screenshots, and recordings as manual evidence.
-3. Correct any defect in 0.12.5 or later; never modify the immutable 0.12.4 tag
-   or public assets. Do not use a 1.0 designation until D-008 physical
-   acceptance is complete.
+1. Regenerate the final 0.12.5 review payload and Setup after this evidence
+   update, repeat their content/version/SHA checks, then create one reviewed
+   exact `v0.12.5` tag and run exact-tag release packaging.
+2. If publication remains authorized, publish 0.12.5 as a normal review
+   Release, re-download and verify every public asset, then add
+   `docs/releases/0.12.5/BUILD_REPORT.md` without changing the release tag.
+3. Run the physical Windows 11 and Windows 10/iPhone matrix in
+   `docs/releases/0.12.5/TEST_PLAN.md`, preserving redacted log intervals,
+   screenshots, and recordings. Any later correction uses 0.12.6 or later;
+   never modify the immutable 0.12.4 tag or assets, and do not use a 1.0
+   designation until D-008 physical acceptance is complete.
 
 ## Where information belongs
 

@@ -200,6 +200,13 @@ Assert-True ($source.Contains(
         "Mirroring renderer is visible and positioned; beginning") -and
     $source.Contains("Renderer handoff fade completed; closing")) `
     "continuity is dismissed only after supervision has positioned a visible renderer"
+Assert-True ($source.Contains("ShowConnectionRecovered()") -and
+    $source.Contains("ShowConnectionLost()") -and
+    [regex]::Matches(
+        $lostConnectionUiSource, 'titleLabel\.Text\s*=').Count -ge 2 -and
+    [regex]::Matches(
+        $lostConnectionUiSource, 'detailLabel\.Text\s*=').Count -ge 2) `
+    "a recovered connection is distinguished from a renderer that has not produced an image yet"
 Assert-True ($lostConnectionUiSource.Contains(
         "Action completed, Func<bool> cancellationRequested") -and
     $lostConnectionUiSource.Contains("rendererHandoffTimer.Interval = 20") -and
@@ -255,6 +262,27 @@ $placementQueueCallCount = [regex]::Matches(
 Assert-True ($placementQueueCallCount -ge 7 -and
     $source.Contains("SavePendingStreamWindowPlacement(window)")) `
     "interactive and programmatic fits persist through the supervision timer"
+Assert-True ($source.Contains(
+        "MarkStreamWindowPlacementPersistable(window)") -and
+    $source.Contains(
+        "CanPersistStreamWindowPlacement(window)") -and
+    $source.Contains(
+        "if (!automaticVideoSize.IsEmpty)")) `
+    "only a device-oriented automatic fit or explicit user move can replace saved renderer placement"
+$restorePlacementStart = $source.IndexOf(
+    "private bool TryRestoreStreamWindowPlacement")
+$restorePlacementEnd = $source.IndexOf(
+    "private bool TryApplySavedStreamWindowPlacement",
+    $restorePlacementStart)
+Assert-True ($restorePlacementStart -ge 0 -and
+    $restorePlacementEnd -gt $restorePlacementStart) `
+    "saved renderer restoration has a focused implementation boundary"
+$restorePlacementSource = $source.Substring(
+    $restorePlacementStart,
+    $restorePlacementEnd - $restorePlacementStart)
+Assert-True (-not $restorePlacementSource.Contains(
+        "QueueStreamWindowPlacementSave")) `
+    "a provisional restored window is not persisted before device orientation is known"
 $placementFlushCount = [regex]::Matches(
     $source, 'FlushStreamWindowPlacementBeforeCoreStop\s*\(\s*\)').Count
 Assert-True ($placementFlushCount -ge 3) `
@@ -616,10 +644,19 @@ $videoSizeSync = Field "videoSizeSync"
 $streamWindowPlacementSync = Field "streamWindowPlacementSync"
 $pendingVideoSize = Field "pendingVideoSize"
 $pendingVideoSizeDueUtc = Field "pendingVideoSizeDueUtc"
+$pendingVideoSizeIsAmbiguous =
+    Field "pendingVideoSizeIsAmbiguousMediaCanvas"
 $currentVideoSize = Field "currentVideoSize"
+$currentVideoSizeIsAmbiguous =
+    Field "currentVideoSizeIsAmbiguousMediaCanvas"
+$rawGeometryVideoSize = Field "rawGeometryVideoSize"
+$rawGeometryVideoSizeGeneration = Field "rawGeometryVideoSizeGeneration"
+$rawGeometryIsAmbiguous = Field "rawGeometryIsAmbiguousMediaCanvas"
 $earlyDeviceFrameVideoSize = Field "earlyDeviceFrameVideoSize"
 $deviceFrameVideoSize = Field "deviceFrameVideoSize"
 $lastSuppressedVideoSize = Field "lastSuppressedVideoSize"
+$persistablePlacementWindow =
+    Field "persistableStreamWindowPlacementWindow"
 $startAfterNetwork = Field "startAfterNetworkCheck"
 $refreshAfterNetwork = Field "discoveryRefreshAfterNetworkCheck"
 $networkRefreshPending = Field "networkRefreshPending"
@@ -634,10 +671,13 @@ $discoveryRecoveryDue = Field "coreDiscoveryRecoveryDueTicks"
 $placeholderShowPending = Field "lostConnectionPlaceholderShowPending"
 $placeholderClosePending = Field "lostConnectionPlaceholderClosePending"
 $rendererHandoffPending = Field "lostConnectionRendererHandoffPending"
+$lostStatePending = Field "lostConnectionLostStatePending"
+$recoveredStatePending = Field "lostConnectionRecoveredStatePending"
 $feedbackEpisodeActive = Field "feedbackGapEpisodeActive"
 $feedbackEpisodeCount = Field "feedbackGapEpisodeCount"
 $feedbackLongest = Field "feedbackGapLongestSeconds"
 $feedbackPlaceholderActive = Field "feedbackGapPlaceholderActive"
+$feedbackPlaceholderDue = Field "feedbackGapPlaceholderDueTicks"
 $feedbackMarkersReady = Field "feedbackHealthMarkersReady"
 
 $maintenanceSync.SetValue($context, (New-Object object))
@@ -645,16 +685,48 @@ $videoSizeSync.SetValue($context, (New-Object object))
 $streamWindowPlacementSync.SetValue($context, (New-Object object))
 $activePid.SetValue($context, 42)
 $mirrorActive.SetValue($context, 1)
+$markPlacementPersistable = $contextType.GetMethod(
+    "MarkStreamWindowPlacementPersistable", $instanceFlags)
+$canPersistPlacement = $contextType.GetMethod(
+    "CanPersistStreamWindowPlacement", $instanceFlags)
+$clearPlacementPersistence = $contextType.GetMethod(
+    "ClearStreamWindowPlacementPersistence", $instanceFlags)
+Assert-True ($null -ne $markPlacementPersistable -and
+    $null -ne $canPersistPlacement -and
+    $null -ne $clearPlacementPersistence) `
+    "renderer placement persistence exposes a deterministic trust gate"
+$placementWindow = [IntPtr]::new(501)
+$otherPlacementWindow = [IntPtr]::new(502)
+Assert-True (-not [bool]$canPersistPlacement.Invoke(
+        $context, [object[]]@($placementWindow))) `
+    "an unresolved provisional renderer cannot overwrite saved placement"
+$markPlacementPersistable.Invoke(
+    $context, [object[]]@($placementWindow)) | Out-Null
+Assert-True ([bool]$canPersistPlacement.Invoke(
+        $context, [object[]]@($placementWindow)) -and
+    -not [bool]$canPersistPlacement.Invoke(
+        $context, [object[]]@($otherPlacementWindow))) `
+    "placement persistence is scoped to the explicitly trusted renderer"
+$clearPlacementPersistence.Invoke(
+    $context, [object[]]@($placementWindow)) | Out-Null
+Assert-True (-not [bool]$canPersistPlacement.Invoke(
+        $context, [object[]]@($placementWindow)) -and
+    [IntPtr]$persistablePlacementWindow.GetValue($context) -eq
+        [IntPtr]::Zero) `
+    "renderer placement persistence is cleared after the session"
 $sameDeviceAspect = $contextType.GetMethod(
     "HaveEquivalentDeviceFrameAspect", $staticFlags)
 $likelyModernIPhoneFrame = $contextType.GetMethod(
     "IsLikelyModernIPhoneDeviceFrame", $staticFlags)
+$knownAmbiguousMediaCanvas = $contextType.GetMethod(
+    "IsKnownAmbiguousMediaCanvasGeometry", $staticFlags)
 $resolveAutomaticVideo = $contextType.GetMethod(
     "ResolveAutomaticVideoSize", $instanceFlags)
 $resolveManualFitVideo = $contextType.GetMethod(
     "ResolveManualFitVideoSize", $instanceFlags)
 Assert-True ($null -ne $sameDeviceAspect -and
     $null -ne $likelyModernIPhoneFrame -and
+    $null -ne $knownAmbiguousMediaCanvas -and
     $null -ne $resolveAutomaticVideo -and
     $null -ne $resolveManualFitVideo) `
     "renderer orientation uses a session device-frame baseline"
@@ -681,29 +753,53 @@ Assert-True (-not [bool]$likelyModernIPhoneFrame.Invoke(
     -not [bool]$likelyModernIPhoneFrame.Invoke(
         $null, [object[]]@($sixteenByNinePortrait))) `
     "a generic 16:9 canvas is never guessed to be the early iPhone baseline"
+Assert-True ([bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            3840, 2160, 3840, 2160, 0, 0, 3840, 2160))) `
+    "the recorded direct-in-Photos 4K canvas signature is treated as ambiguous"
+Assert-True (-not [bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            3840, 1776, 3840, 1776, 0, 192, 3840, 1776)) -and
+    -not [bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            1920, 1080, 1920, 1080, 0, 0, 1920, 1080))) `
+    "real landscape and non-matching 16:9 streams are not rejected by the Photos signature"
 
-function Resolve-AutomaticVideoSize([Drawing.Size]$VideoSize) {
-    $arguments = [object[]]@($VideoSize, $false, $false)
+function Resolve-AutomaticVideoSize(
+    [Drawing.Size]$VideoSize,
+    [bool]$AmbiguousMediaCanvas = $false
+) {
+    $arguments = [object[]]@(
+        $VideoSize, $AmbiguousMediaCanvas, $false, $false)
     $resolved = [Drawing.Size]$resolveAutomaticVideo.Invoke(
         $context, $arguments)
     return [pscustomobject]@{
         Size = $resolved
-        OrientationAuthoritative = [bool]$arguments[1]
-        SuppressionChanged = [bool]$arguments[2]
+        OrientationAuthoritative = [bool]$arguments[2]
+        SuppressionChanged = [bool]$arguments[3]
     }
 }
 
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
-$unlearnedCanvasResult = Resolve-AutomaticVideoSize $presentationCanvas
+$unlearnedCanvasResult = Resolve-AutomaticVideoSize `
+    $presentationCanvas $true
+Assert-True (-not $unlearnedCanvasResult.OrientationAuthoritative -and
+    $unlearnedCanvasResult.Size.IsEmpty -and
+    $unlearnedCanvasResult.SuppressionChanged) `
+    "a first recorded Photos canvas cannot seed the device-frame baseline"
+$directMediaPortrait = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True ($directMediaPortrait.OrientationAuthoritative -and
+    $directMediaPortrait.Size -eq $portraitFrame) `
+    "a later phone-shaped frame recovers a direct-in-Photos session to portrait"
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$unlearnedCanvasResult = Resolve-AutomaticVideoSize `
+    $presentationCanvas $false
 Assert-True ($unlearnedCanvasResult.OrientationAuthoritative -and
     $unlearnedCanvasResult.Size -eq $presentationCanvas -and
     -not $unlearnedCanvasResult.SuppressionChanged) `
-    "the first exact frame seeds the session even when media already uses a 16:9 canvas"
-$directMediaPortrait = Resolve-AutomaticVideoSize $portraitFrame
-Assert-True (-not $directMediaPortrait.OrientationAuthoritative -and
-    $directMediaPortrait.Size -eq $presentationCanvas) `
-    "a direct-media-first session documents the conservative wrong-baseline limitation"
+    "a 4K landscape frame without the complete Photos signature remains valid"
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $portraitResult = Resolve-AutomaticVideoSize $portraitFrame
@@ -711,18 +807,18 @@ Assert-True ($portraitResult.OrientationAuthoritative -and
     $portraitResult.Size -eq $portraitFrame -and
     -not $portraitResult.SuppressionChanged) `
     "the first exact frame establishes session orientation"
-$photoResult = Resolve-AutomaticVideoSize $presentationCanvas
+$photoResult = Resolve-AutomaticVideoSize $presentationCanvas $true
 Assert-True (-not $photoResult.OrientationAuthoritative -and
     $photoResult.Size -eq $portraitFrame -and
     $photoResult.SuppressionChanged) `
     "998x2160 to 3840x2160 retains portrait device orientation"
-$repeatedPhotoResult = Resolve-AutomaticVideoSize $presentationCanvas
+$repeatedPhotoResult = Resolve-AutomaticVideoSize $presentationCanvas $true
 Assert-True (-not $repeatedPhotoResult.OrientationAuthoritative -and
     $repeatedPhotoResult.Size -eq $portraitFrame -and
     -not $repeatedPhotoResult.SuppressionChanged) `
     "a stable presentation canvas does not repeat its suppression notice"
 $manualPhotoFit = [Drawing.Size]$resolveManualFitVideo.Invoke(
-    $context, [object[]]@($presentationCanvas))
+    $context, [object[]]@($presentationCanvas, $true))
 Assert-True ($manualPhotoFit -eq $portraitFrame) `
     "manual tray fitting uses the learned portrait frame instead of the raw Photos canvas"
 $portraitReturnResult = Resolve-AutomaticVideoSize $portraitFrame
@@ -759,7 +855,7 @@ Assert-True ($sixteenByNinePortraitResult.OrientationAuthoritative -and
     "a physical 16:9 iPhone can rotate after its first exact frame seeds the baseline"
 
 $currentVideoSize.SetValue($context, $presentationCanvas)
-Resolve-AutomaticVideoSize $presentationCanvas | Out-Null
+Resolve-AutomaticVideoSize $presentationCanvas $true | Out-Null
 Assert-True ([Drawing.Size]$currentVideoSize.GetValue($context) -eq
     $presentationCanvas) `
     "orientation classification preserves the raw stream size for diagnostics and manual fitting"
@@ -778,10 +874,20 @@ Assert-True ($null -ne $getStableVideoSize) `
 # presentation canvas about 130 ms later, before the 350 ms debounce elapsed.
 $pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$pendingVideoSizeIsAmbiguous.SetValue($context, $false)
 $currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$currentVideoSizeIsAmbiguous.SetValue($context, $false)
+$rawGeometryVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$rawGeometryVideoSizeGeneration.SetValue($context, 0)
+$rawGeometryIsAmbiguous.SetValue($context, $false)
 $earlyDeviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_GEOMETRY width0=998 height0=2160 source=998x2160 aux=1421x0 encoded=998x2160")) |
+    Out-Null
 $observe.Invoke(
     $context,
     [object[]]@(42,
@@ -793,20 +899,28 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
 $observe.Invoke(
     $context,
     [object[]]@(42,
+        "AEROMIRROR_VIDEO_GEOMETRY width0=3840 height0=2160 source=3840x2160 aux=0x0 encoded=3840x2160")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
         "AEROMIRROR_VIDEO_SIZE source=3840x2160 encoded=3840x2160")) |
     Out-Null
 Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     $portraitFrame -and
     [Drawing.Size]$pendingVideoSize.GetValue($context) -eq
-        $presentationCanvas) `
-    "the later Photos canvas cannot overwrite the early device-frame candidate"
+        $presentationCanvas -and
+    [bool]$pendingVideoSizeIsAmbiguous.GetValue($context)) `
+    "the later Photos canvas keeps both the early device frame and its ambiguous classification"
 $pendingVideoSizeDueUtc.SetValue(
     $context, [DateTime]::UtcNow.AddMilliseconds(-1))
-$stableArguments = [object[]]@(0)
+$stableArguments = [object[]]@(0, $false)
 $recordedStableCanvas = [Drawing.Size]$getStableVideoSize.Invoke(
     $context, $stableArguments)
-$recordedPhotosResult = Resolve-AutomaticVideoSize $recordedStableCanvas
+$recordedPhotosResult = Resolve-AutomaticVideoSize `
+    $recordedStableCanvas ([bool]$stableArguments[1])
 Assert-True ($recordedStableCanvas -eq $presentationCanvas -and
+    [bool]$stableArguments[1] -and
     -not $recordedPhotosResult.OrientationAuthoritative -and
     $recordedPhotosResult.Size -eq $portraitFrame -and
     $recordedPhotosResult.SuppressionChanged) `
@@ -814,20 +928,71 @@ Assert-True ($recordedStableCanvas -eq $presentationCanvas -and
 
 $pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$pendingVideoSizeIsAmbiguous.SetValue($context, $false)
 $currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$currentVideoSizeIsAmbiguous.SetValue($context, $false)
+$rawGeometryVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$rawGeometryVideoSizeGeneration.SetValue($context, 0)
+$rawGeometryIsAmbiguous.SetValue($context, $false)
 $earlyDeviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $observe.Invoke(
     $context,
     [object[]]@(42,
+        "AEROMIRROR_VIDEO_GEOMETRY width0=3840 height0=2160 source=3840x2160 aux=0x0 encoded=3840x2160")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
         "AEROMIRROR_VIDEO_SIZE source=3840x2160 encoded=3840x2160")) |
     Out-Null
 Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
-    [Drawing.Size]::Empty) `
-    "a first raw 16:9 canvas is not blindly promoted to an iPhone candidate"
+    [Drawing.Size]::Empty -and
+    [bool]$pendingVideoSizeIsAmbiguous.GetValue($context)) `
+    "a first raw Photos canvas is classified without becoming an iPhone candidate"
+$pendingVideoSizeDueUtc.SetValue(
+    $context, [DateTime]::UtcNow.AddMilliseconds(-1))
+$directCanvasArguments = [object[]]@(0, $false)
+$directCanvas = [Drawing.Size]$getStableVideoSize.Invoke(
+    $context, $directCanvasArguments)
+$directCanvasResult = Resolve-AutomaticVideoSize `
+    $directCanvas ([bool]$directCanvasArguments[1])
+Assert-True ($directCanvas -eq $presentationCanvas -and
+    [bool]$directCanvasArguments[1] -and
+    $directCanvasResult.Size.IsEmpty -and
+    -not $directCanvasResult.OrientationAuthoritative) `
+    "the observed Photos-first canvas remains unresolved instead of forcing landscape"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_GEOMETRY width0=998 height0=2160 source=998x2160 aux=1421x0 encoded=998x2160")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_SIZE source=998x2160 encoded=998x2160")) |
+    Out-Null
+$latePortraitResult = Resolve-AutomaticVideoSize `
+    $directCanvas ([bool]$directCanvasArguments[1])
+Assert-True (-not $latePortraitResult.OrientationAuthoritative -and
+    $latePortraitResult.Size -eq $portraitFrame) `
+    "the later early phone marker repairs orientation before its debounce completes"
+$pendingVideoSizeDueUtc.SetValue(
+    $context, [DateTime]::UtcNow.AddMilliseconds(-1))
+$latePortraitArguments = [object[]]@(0, $false)
+$latePortraitStable = [Drawing.Size]$getStableVideoSize.Invoke(
+    $context, $latePortraitArguments)
+$latePortraitStableResult = Resolve-AutomaticVideoSize `
+    $latePortraitStable ([bool]$latePortraitArguments[1])
+Assert-True ($latePortraitStable -eq $portraitFrame -and
+    -not [bool]$latePortraitArguments[1] -and
+    $latePortraitStableResult.OrientationAuthoritative -and
+    $latePortraitStableResult.Size -eq $portraitFrame) `
+    "the completed Photos-first replay establishes portrait as the saved device baseline"
 $pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$pendingVideoSizeIsAmbiguous.SetValue($context, $false)
 
 $readiness = $contextType.GetMethod(
     "IsCoreReadinessConfirmed", $staticFlags)
@@ -857,8 +1022,18 @@ $pinMarker = $contextType.GetMethod(
     "IsAirPlayPinEntryMarker", $staticFlags)
 $deferDisruptive = $contextType.GetMethod(
     "ShouldDeferDisruptiveMaintenance", $staticFlags)
+$calculateFeedbackPlaceholderDue = $contextType.GetMethod(
+    "CalculateFeedbackGapPlaceholderDueTicks", $staticFlags)
+$shouldShowFeedbackPlaceholder = $contextType.GetMethod(
+    "ShouldShowFeedbackGapPlaceholder", $staticFlags)
+$handleFeedbackPlaceholderTimer = $contextType.GetMethod(
+    "HandleFeedbackGapPlaceholderTimer", $instanceFlags)
 $consumeLostRecovery = $contextType.GetMethod(
     "ConsumeDueLostConnectionRecoveryLocked", $instanceFlags)
+Assert-True ($null -ne $calculateFeedbackPlaceholderDue -and
+    $null -ne $shouldShowFeedbackPlaceholder -and
+    $null -ne $handleFeedbackPlaceholderTimer) `
+    "feedback-gap continuity exposes deterministic deadline transitions"
 Assert-True ($null -ne $consumeLostRecovery) `
     "lost-client recovery exposes a focused one-shot state transition"
 Assert-True ([bool]$connectionMarker.Invoke(
@@ -884,6 +1059,33 @@ Assert-True ([bool]$deferDisruptive.Invoke(
 Assert-True (-not [bool]$deferDisruptive.Invoke(
         $null, [object[]]@($false, [long]0, $graceProbeNow))) `
     "idle maintenance is allowed when no session or client grace exists"
+$feedbackDeadlineBase = [DateTime]::UtcNow.Ticks
+$feedbackDeadline = [long]$calculateFeedbackPlaceholderDue.Invoke(
+    $null, [object[]]@(3, [long]$feedbackDeadlineBase))
+Assert-True ($feedbackDeadline -eq
+        $feedbackDeadlineBase + [TimeSpan]::FromSeconds(1).Ticks) `
+    "the first three-second warning deterministically schedules continuity at four seconds"
+Assert-True (-not [bool]$shouldShowFeedbackPlaceholder.Invoke(
+        $null,
+        [object[]]@(
+            [long]$feedbackDeadline,
+            [long]($feedbackDeadline - 1),
+            $true, $true, $true, $false))) `
+    "continuity remains hidden before the local four-second deadline"
+Assert-True ([bool]$shouldShowFeedbackPlaceholder.Invoke(
+        $null,
+        [object[]]@(
+            [long]$feedbackDeadline,
+            [long]$feedbackDeadline,
+            $true, $true, $true, $false))) `
+    "continuity becomes eligible exactly at the local deadline"
+Assert-True (-not [bool]$shouldShowFeedbackPlaceholder.Invoke(
+        $null,
+        [object[]]@(
+            [long]$feedbackDeadline,
+            [long]$feedbackDeadline,
+            $true, $true, $true, $true))) `
+    "a fatal recovery episode owns continuity instead of the feedback timer"
 
 $consumeSharedBudget = $contextType.GetMethod(
     "ConsumeSharedAutomaticRecoveryBudget", $instanceFlags)
@@ -1027,6 +1229,9 @@ $recoveryPending.SetValue($context, 0)
 $placeholderShowPending.SetValue($context, 0)
 $placeholderClosePending.SetValue($context, 0)
 $rendererHandoffPending.SetValue($context, 0)
+$lostStatePending.SetValue($context, 0)
+$recoveredStatePending.SetValue($context, 0)
+$feedbackPlaceholderDue.SetValue($context, [long]0)
 $restartPending.SetValue($context, $false)
 $mirrorActive.SetValue($context, 1)
 $observe.Invoke(
@@ -1036,6 +1241,8 @@ $observe.Invoke(
     Out-Null
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0) `
     "a legacy core without recovered markers cannot open a pre-fatal placeholder that it cannot dismiss"
+Assert-True ([long]$feedbackPlaceholderDue.GetValue($context) -eq 0) `
+    "a legacy core without recovered markers does not arm the local continuity timer"
 $feedbackEpisodeActive.SetValue($context, 0)
 $feedbackEpisodeCount.SetValue($context, 0)
 $feedbackLongest.SetValue($context, 0)
@@ -1059,31 +1266,52 @@ Assert-True ([int]$feedbackEpisodeActive.GetValue($context) -eq 1 -and
     [int]$feedbackEpisodeCount.GetValue($context) -eq 1 -and
     [int]$feedbackLongest.GetValue($context) -eq 3) `
     "a short feedback gap is counted without disrupting the active stream"
+$scheduledFeedbackDue = [long]$feedbackPlaceholderDue.GetValue($context)
+Assert-True ($scheduledFeedbackDue -gt [DateTime]::UtcNow.Ticks -and
+    $scheduledFeedbackDue -le [DateTime]::UtcNow.AddSeconds(2).Ticks) `
+    "the first warning arms a bounded local deadline instead of waiting for another native warning"
 
 $observe.Invoke(
     $context,
     [object[]]@(42,
-        "*** ERROR:   5 seconds since last client feedback request (expected every two seconds); client may be offline")) |
+        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=3")) |
     Out-Null
+Assert-True ([long]$feedbackPlaceholderDue.GetValue($context) -eq 0 -and
+    [int]$placeholderShowPending.GetValue($context) -eq 0 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    "feedback recovery before four seconds cancels the queued placeholder"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "*** ERROR:   3 seconds since last client feedback request (expected every two seconds); client may be offline")) |
+    Out-Null
+$feedbackPlaceholderDue.SetValue(
+    $context, [DateTime]::UtcNow.AddMilliseconds(-1).Ticks)
+$handleFeedbackPlaceholderTimer.Invoke($context, @()) | Out-Null
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 0 -and
     -not [bool]$restartPending.GetValue($context)) `
-    "a five-second feedback gap still does not arm destructive recovery"
+    "the local four-second deadline still does not arm destructive recovery"
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
     [int]$feedbackPlaceholderActive.GetValue($context) -eq 1 -and
-    [int]$feedbackLongest.GetValue($context) -eq 5) `
-    "a five-second feedback gap queues visual continuity while preserving the session"
+    [int]$feedbackEpisodeCount.GetValue($context) -eq 2 -and
+    [int]$feedbackLongest.GetValue($context) -eq 3 -and
+    [long]$feedbackPlaceholderDue.GetValue($context) -eq 0) `
+    "the local deadline queues continuity without requiring another native warning"
 
 $observe.Invoke(
     $context,
     [object[]]@(42,
-        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=5")) |
+        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=4")) |
     Out-Null
 Assert-True ([int]$feedbackEpisodeActive.GetValue($context) -eq 0 -and
     [int]$feedbackPlaceholderActive.GetValue($context) -eq 0 -and
     [int]$placeholderShowPending.GetValue($context) -eq 1 -and
     [int]$placeholderClosePending.GetValue($context) -eq 0 -and
-    [int]$rendererHandoffPending.GetValue($context) -eq 1) `
-    "a native feedback-recovered marker queues a smooth renderer handoff"
+    [int]$rendererHandoffPending.GetValue($context) -eq 1 -and
+    [int]$recoveredStatePending.GetValue($context) -eq 1 -and
+    [long]$feedbackPlaceholderDue.GetValue($context) -eq 0) `
+    "a native feedback-recovered marker shows recovery state and queues a smooth renderer handoff"
 
 $observe.Invoke(
     $context,
@@ -1105,7 +1333,10 @@ $armedDue = [long]$recoveryDue.GetValue($context)
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 1) `
     "fatal mirror recv error arms recovery"
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
-    [int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    [int]$rendererHandoffPending.GetValue($context) -eq 0 -and
+    [int]$lostStatePending.GetValue($context) -eq 1 -and
+    [int]$recoveredStatePending.GetValue($context) -eq 0 -and
+    [long]$feedbackPlaceholderDue.GetValue($context) -eq 0) `
     "fatal mirror recv error queues continuity and cancels any smooth handoff"
 Assert-True ($armedDue -ge $before + [TimeSpan]::FromSeconds(2).Ticks) `
     "recovery grace is not shorter than two seconds"
@@ -1362,6 +1593,11 @@ $coreReadinessAttempts.SetValue($context, 1)
 $coreReadinessPid.SetValue($context, 42)
 $clientReadyPending.SetValue($context, 0)
 $physicalNetworkRestartDeferred.SetValue($context, 1)
+$pendingVideoSizeIsAmbiguous.SetValue($context, $true)
+$currentVideoSizeIsAmbiguous.SetValue($context, $true)
+$rawGeometryVideoSize.SetValue($context, $presentationCanvas)
+$rawGeometryVideoSizeGeneration.SetValue($context, 7)
+$rawGeometryIsAmbiguous.SetValue($context, $true)
 $earlyDeviceFrameVideoSize.SetValue($context, $portraitFrame)
 $deviceFrameVideoSize.SetValue($context, $landscapeFrame)
 $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
@@ -1377,8 +1613,13 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
-    [Drawing.Size]::Empty) `
-    "a new mirroring session forgets the previous device aspect and presentation canvas"
+    [Drawing.Size]::Empty -and
+    -not [bool]$pendingVideoSizeIsAmbiguous.GetValue($context) -and
+    -not [bool]$currentVideoSizeIsAmbiguous.GetValue($context) -and
+    [Drawing.Size]$rawGeometryVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty -and
+    -not [bool]$rawGeometryIsAmbiguous.GetValue($context)) `
+    "a new mirroring session forgets the previous device aspect and media-canvas classification"
 Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
     "actual mirroring start clears pending post-session maintenance"
 Assert-True ([long]$sessionEndedDue.GetValue($context) -eq 0) `
@@ -1519,6 +1760,11 @@ $resetCoreSession = $contextType.GetMethod(
     "ResetCoreSessionTracking", $instanceFlags)
 Assert-True ($null -ne $resetCoreSession) `
     "core shutdown exposes a complete session-state reset"
+$pendingVideoSizeIsAmbiguous.SetValue($context, $true)
+$currentVideoSizeIsAmbiguous.SetValue($context, $true)
+$rawGeometryVideoSize.SetValue($context, $presentationCanvas)
+$rawGeometryVideoSizeGeneration.SetValue($context, 7)
+$rawGeometryIsAmbiguous.SetValue($context, $true)
 $earlyDeviceFrameVideoSize.SetValue($context, $portraitFrame)
 $deviceFrameVideoSize.SetValue($context, $landscapeFrame)
 $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
@@ -1528,7 +1774,12 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
-    [Drawing.Size]::Empty) `
-    "core reset clears learned device orientation and suppression state"
+    [Drawing.Size]::Empty -and
+    -not [bool]$pendingVideoSizeIsAmbiguous.GetValue($context) -and
+    -not [bool]$currentVideoSizeIsAmbiguous.GetValue($context) -and
+    [Drawing.Size]$rawGeometryVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty -and
+    -not [bool]$rawGeometryIsAmbiguous.GetValue($context)) `
+    "core reset clears learned device orientation and media-canvas state"
 
 Write-Host "Receiver resilience checks passed."

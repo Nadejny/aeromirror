@@ -164,6 +164,22 @@ namespace AirPlayReceiverMvp
             return true;
         }
 
+        internal void ShowConnectionRecovered()
+        {
+            if (IsDisposed)
+                return;
+            titleLabel.Text = "Соединение восстановлено";
+            detailLabel.Text = "Ожидаем изображение…";
+        }
+
+        internal void ShowConnectionLost()
+        {
+            if (IsDisposed)
+                return;
+            titleLabel.Text = "Связь потеряна";
+            detailLabel.Text = "Ожидаем повторного подключения…";
+        }
+
         private void CancelRendererHandoff()
         {
             Timer timer = rendererHandoffTimer;

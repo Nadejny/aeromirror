@@ -46,8 +46,12 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
 - renames the stream window, gives a newly found renderer a provisional fit,
   captures an early phone-shaped size before the video-size debounce, ignores
   later media-canvas ratios that do not match the learned device frame, and
-  adapts it on real portrait/landscape changes; automatic fitting restores the
-  learned proportions after a manual resize unless the user turns it off;
+  treats only the complete observed Photos `3840x2160 aux=0x0` signature as an
+  ambiguous canvas when it arrives first; a later phone-shaped frame can still
+  establish portrait, while unresolved automatic fits cannot overwrite a valid
+  saved placement; the window adapts on real portrait/landscape changes, and
+  automatic fitting restores the learned proportions after a manual resize
+  unless the user turns it off;
   the last normal position, size, and DPI are restored on the next session and
   clamped into an available monitor; saved bounds are applied from the early
   window-show event, unchanged native-window policy is cached, and the window
@@ -62,13 +66,15 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   the reconnect handshake; after completed lost-client cleanup, the recovered
   native process and AirPlay port are preserved instead of immediately being
   replaced, while an ordinary clean disconnect still leaves the receiver
-  running; a patched core can show continuity after a five-second feedback gap
-  and dismiss it when the same session recovers; confirmed loss keeps a
+  running; after a capable native three-second warning, the shell can show
+  continuity at a deterministic four-second local deadline, cancel it on
+  earlier recovery, and show connection-restored/waiting-for-image while the
+  real renderer handoff is pending; confirmed loss keeps a
   softened in-memory view of unobscured renderer client pixels, or a dark
   fallback otherwise, until a positioned renderer is ready for a short fade
   handoff or the user closes it;
 - checks a configured public GitHub Release channel only when requested,
-  accepts only exact three-part release tags such as `v0.12.4`,
+  accepts only exact three-part release tags such as `v0.12.5`,
   requires the exact versioned asset name
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe`, displays curated release notes,
   and verifies the setup SHA-256 before launching an update;
@@ -77,7 +83,7 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   pre-filled GitHub Issue; the user reviews and attaches the file manually;
 - captures UxPlay stdout/stderr in the rotating log while masking PINs,
   passwords, MAC addresses, user-profile paths, and labelled cryptographic
-  material; 0.12.4 also records feedback-gap totals, the full raw AirPlay
+  material; the current review line records feedback-gap totals, the full raw AirPlay
   geometry header, and the selected GStreamer decoder/sink without treating
   the raw auxiliary geometry pair as crop, PAR, or rotation metadata;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
@@ -105,13 +111,15 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.4.exe
+AeroMirror-Setup-0.12.5.exe
 ```
 
-`v0.12.4` is the normal latest updater-visible review Release. Its
-managed/native, provenance, Setup, clean exact-tag, checksum, and public
-re-download/API digest gates pass. The installed update path and physical
-Windows 10/11 plus iPhone matrix remain separate pending review evidence.
+The current source prepares `v0.12.5` as the next updater-visible review
+Release. Until it is published, the latest-release link continues to return the
+immutable public `v0.12.4`. Do not treat 0.12.5 as downloadable until its
+automated, Setup, provenance-reuse, exact-tag, checksum, and public re-download
+gates are recorded; installed-update and physical Windows 10/11 plus iPhone
+evidence remain separate.
 
 The installer:
 
@@ -236,31 +244,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.4 `
+  -Version 0.12.5 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.4 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.4.zip
+  -Version 0.12.5 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.5.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.4.exe
+artifacts\installer\AeroMirror-Setup-0.12.5.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.4`.
+Public release names use three-part semantic versions such as `0.12.5`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.4.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.4`.
+show `0.12.5.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.5`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.4 `
+  -Version 0.12.5 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -273,7 +281,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.4.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.5.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -282,7 +290,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.4\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.5\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -370,6 +378,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.5/
+      RELEASE_NOTES.md       curated GitHub Release text
+      TEST_PLAN.md           Photos-first and recovery acceptance matrix
     0.12.4/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           recovery, frame-pacing, and renderer acceptance
@@ -436,9 +447,10 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
 - The continuity placeholder keeps only a softened renderer-client screenshot
   in process memory, writes no mirrored frame to disk, and uses a dark fallback
   whenever another visible window overlaps the renderer. With the patched
-  feedback-health marker it may appear after a five-second gap, and it hands
-  off only after the real renderer is visible and positioned. It does not make
-  iOS discovery or reconnection instantaneous.
+  feedback-health marker, a native three-second warning schedules it for a
+  four-second local deadline. Recovery before that deadline cancels the view;
+  once shown, it hands off only after the real renderer is visible and
+  positioned. It does not make iOS discovery or reconnection instantaneous.
 - Arbitrary window proportions cannot both fill the window and preserve the
   whole phone image: the alternatives would be black bars, stretching, or
   cropping. This MVP preserves the whole image and changes the window shape.
@@ -534,9 +546,9 @@ The current license inventory is an engineering review, not legal advice.
 For the 0.12 review, share the GitHub Release page or its network Setup—not a
 loose `AeroMirror.exe`. The Release must keep these assets together:
 
-- `AeroMirror-Setup-0.12.4.exe`;
-- `AeroMirror-source-0.12.4.zip`;
-- `AeroMirror-native-source-0.12.4.zip`;
+- `AeroMirror-Setup-0.12.5.exe`;
+- `AeroMirror-source-0.12.5.zip`;
+- `AeroMirror-native-source-0.12.5.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

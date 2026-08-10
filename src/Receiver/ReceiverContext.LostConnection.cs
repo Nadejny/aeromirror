@@ -17,12 +17,19 @@ namespace AirPlayReceiverMvp
         private int lostConnectionPlaceholderShowPending;
         private int lostConnectionPlaceholderClosePending;
         private int lostConnectionRendererHandoffPending;
+        private int lostConnectionLostStatePending;
+        private int lostConnectionRecoveredStatePending;
+        private long feedbackGapPlaceholderDueTicks;
         private Rectangle lastRendererBounds = Rectangle.Empty;
         private LostConnectionForm lostConnectionForm;
 
         private void QueueLostConnectionPlaceholder()
         {
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 1);
+            Interlocked.Exchange(
+                ref lostConnectionRecoveredStatePending, 0);
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 1);
         }
@@ -30,14 +37,21 @@ namespace AirPlayReceiverMvp
         private void QueueLostConnectionPlaceholderClose()
         {
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(
+                ref lostConnectionRecoveredStatePending, 0);
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 1);
         }
 
         private void QueueLostConnectionRendererHandoff()
         {
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 1);
+            Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 1);
         }
 
         private void RememberRendererBounds(IntPtr window)
@@ -57,6 +71,10 @@ namespace AirPlayReceiverMvp
 
         private void HandleLostConnectionPlaceholder()
         {
+            bool lostStateRequested = Interlocked.Exchange(
+                ref lostConnectionLostStatePending, 0) == 1;
+            bool recoveredStateRequested = Interlocked.Exchange(
+                ref lostConnectionRecoveredStatePending, 0) == 1;
             bool closeRequested = Interlocked.Exchange(
                 ref lostConnectionPlaceholderClosePending, 0) == 1;
             bool showRequested = Interlocked.Exchange(
@@ -67,6 +85,14 @@ namespace AirPlayReceiverMvp
 
             bool visible = lostConnectionForm != null &&
                 !lostConnectionForm.IsDisposed;
+            if (recoveredStateRequested && visible)
+            {
+                lostConnectionForm.ShowConnectionRecovered();
+                Log("AirPlay connection recovered; continuity remains visible " +
+                    "until the renderer produces an image.");
+            }
+            else if (lostStateRequested && visible)
+                lostConnectionForm.ShowConnectionLost();
             LostConnectionPlaceholderAction action =
                 DecideLostConnectionPlaceholderAction(
                     showRequested, closeRequested, visible);
@@ -108,6 +134,12 @@ namespace AirPlayReceiverMvp
                 };
                 lostConnectionForm = placeholder;
                 placeholder.Show();
+                if (recoveredStateRequested)
+                {
+                    placeholder.ShowConnectionRecovered();
+                    Log("AirPlay connection recovered before continuity was " +
+                        "displayed; waiting for the renderer image.");
+                }
                 Log("Lost-connection placeholder opened at the last renderer " +
                     "bounds; waiting for a new mirroring start.");
             }
@@ -289,12 +321,16 @@ namespace AirPlayReceiverMvp
             {
                 Interlocked.Exchange(
                     ref lostConnectionRendererHandoffPending, 0);
+                Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
                 return;
             }
             if (!placeholderVisible && !placeholderQueued)
             {
                 Interlocked.Exchange(
                     ref lostConnectionRendererHandoffPending, 0);
+                Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+                Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
                 return;
             }
 
@@ -309,6 +345,8 @@ namespace AirPlayReceiverMvp
 
             LostConnectionForm placeholder = lostConnectionForm;
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             if (!placeholder.BeginRendererHandoff(
@@ -334,6 +372,9 @@ namespace AirPlayReceiverMvp
         private void CloseLostConnectionPlaceholder()
         {
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             LostConnectionForm placeholder = lostConnectionForm;

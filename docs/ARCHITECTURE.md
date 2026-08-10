@@ -77,18 +77,21 @@ The current shell depends on these native integration behaviors:
    incoming video size changes. It also writes the full raw header as
    `AEROMIRROR_VIDEO_GEOMETRY ...`, including a previously ignored auxiliary
    width/height pair, and reports the actual GStreamer decoder/video sink as
-   `AEROMIRROR_GSTREAMER_SELECTED ...`. The auxiliary pair is diagnostic only;
-   it is not treated as crop, pixel-aspect-ratio, or rotation metadata.
+   `AEROMIRROR_GSTREAMER_SELECTED ...`. The shell correlates one raw-geometry
+   record with the following encoded-size record. The auxiliary pair remains
+   diagnostic only; it is not treated as crop, pixel-aspect-ratio, or rotation
+   metadata.
 7. A high-level connection request or PIN prompt establishes a bounded client
    activity grace. A later end marker belonging to the previous session must
    not erase that newer grace or allow deferred settings/network maintenance
    to interrupt the new handshake.
 8. A patched core announces `AEROMIRROR_FEEDBACK_HEALTH_READY` and emits
    `AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=<n>` when periodic client
-   feedback resumes. Only after that capability marker may the shell turn a
-   five-second warning into visual continuity and later dismiss it without
-   ending the active session. A legacy core is excluded because it cannot
-   provide the recovery acknowledgement.
+   feedback resumes. Only after that capability marker may the shell use the
+   native three-second warning to arm a four-second local continuity deadline.
+   Recovery before the deadline cancels it; acknowledged later recovery queues
+   the existing renderer handoff without ending the active session. A legacy
+   core is excluded because it cannot provide the recovery acknowledgement.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -114,14 +117,22 @@ the recorded direct-in-Photos sequence in which `998x2160` arrives about
 130 ms before the stable `3840x2160` presentation canvas. A generic 16:9
 marker is never promoted through this early path.
 
-The first stable exact size uses that early candidate when available; otherwise
-the existing conservative baseline rules apply. Later sizes whose normalized
-aspect matches within `0.03` are authoritative rotation events, while other
-ratios retain the learned device orientation. This prevents a Photos
-`3840x2160` presentation canvas from reshaping a window after a `998x2160`
+The first stable exact size uses that early candidate when available. In
+addition, only the complete recorded Photos signature—primary, source, and
+encoded `3840x2160` plus `aux=0x0`—is classified as an ambiguous presentation
+canvas. It cannot seed the device-frame baseline even when it arrives first. A
+later phone-shaped `998x2160 aux=1421x0` marker can establish portrait in the
+same session. The observed real-landscape `3840x1776 aux=0x192` signature and
+ordinary nonmatching 16:9 streams remain eligible, so the narrow rule does not
+turn auxiliary values into general orientation metadata.
+
+Later sizes whose normalized aspect matches within `0.03` are authoritative
+rotation events, while other ratios retain the learned device orientation.
+This prevents a Photos presentation canvas from reshaping a window after a
 device frame and still allows physical `1080x1920`/`1920x1080` devices. A
-session that exposes only a generic media canvas remains ambiguous because
-stdout still provides no independent device-orientation metadata.
+session that exposes only the exact ambiguous canvas remains unresolved because
+stdout still provides no independent device-orientation metadata; the shell
+keeps the previous/provisional outer orientation rather than guessing.
 
 The shell installs an out-of-context WinEvent hook scoped to the active native
 core process and watches both the renderer's early show event and interactive
@@ -144,7 +155,11 @@ disconnected-monitor coordinates into an available Windows work area. The
 subsequent provisional and exact-size fits preserve the restored center and
 approximate client area. Minimized/maximized states are not saved. Applied
 title, taskbar style, and topmost state are cached so an unchanged renderer is
-not mutated on every 250 ms supervision tick.
+not mutated on every 250 ms supervision tick. Restoration alone and an
+unresolved automatic/provisional fit do not rewrite the saved bounds. The
+current window becomes persistable after a trustworthy device-oriented fit or
+an explicit user move, resize, or manual fit, so closing an ambiguous
+Photos-first session cannot poison the next session's placement.
 
 The marker reports the encoded stream dimensions; it is not remote-control
 input, pixel-aspect metadata, or a guarantee that an iPhone application itself
@@ -165,17 +180,21 @@ to settings, logs, diagnostics, or a temporary file. If unobscured client-area
 capture is unsafe or unavailable, the form uses a dark fallback.
 
 This managed placeholder is presentation continuity, not protocol state or a
-second renderer. A five-second feedback warning may open it only after the
-patched core has announced recovery-marker capability; recovered feedback can
-then dismiss that transient episode without restarting the active session. A
-confirmed fatal loss retains continuity through cleanup and a reconnect
-handshake. A protocol-start marker alone is insufficient: the placeholder
-stays until a real renderer exists and has been positioned, then hands off with
-a short nonblocking opacity fade. Explicit user close, manual receiver stop,
-settings-driven shutdown, and application exit close it immediately. Its
-taskbar and always-on-top policy follow the stream-window settings. A clean
-disconnect does not open it. Discovery speed and stale iOS browse rows remain
-properties of the native/network path.
+second renderer. A native three-second feedback warning may schedule it for a
+four-second local deadline only after the patched core has announced
+recovery-marker capability. If feedback recovers earlier, the pending view is
+canceled. If it is already visible, acknowledged feedback or a replacement
+connection changes the text to connection-restored/waiting-for-image and queues
+the existing renderer handoff without restarting the active session.
+
+A confirmed fatal loss retains continuity through cleanup and a reconnect
+handshake. A protocol-start marker alone is insufficient to close it: the
+placeholder stays until a real renderer exists and has been positioned, then
+hands off with a short nonblocking opacity fade. Explicit user close, manual
+receiver stop, settings-driven shutdown, and application exit close it
+immediately. Its taskbar and always-on-top policy follow the stream-window
+settings. A clean disconnect does not open it. Discovery speed and stale iOS
+browse rows remain properties of the native/network path.
 
 ## Native build provenance
 

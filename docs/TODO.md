@@ -124,6 +124,14 @@ marker pair. This avoids the shell immediately replacing an already recovered
 core, but it is still stdout observation rather than acknowledged IPC or
 in-place DNS-SD/BLE re-publication.
 
+Version 0.12.5 makes the existing pre-fatal short-gap continuity path
+deterministic: the native three-second warning arms a four-second local
+deadline, and recovery before that deadline cancels it. Acknowledged recovery
+changes the placeholder to connection-restored/waiting-for-image while the
+existing renderer-gated handoff waits for visible video. This does not add a
+native ready acknowledgement, re-publish discovery in place, or force an
+iPhone to refresh a stale browse result.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -131,9 +139,9 @@ in-place DNS-SD/BLE re-publication.
   `error`.
 - [ ] Include stable error codes and a short user-safe explanation with every
   failure event.
-- [x] Add a compact native capability and feedback-recovered marker so a
-  transient five-second continuity view can close without guessing on legacy
-  cores.
+- [x] Add a compact native capability and feedback-recovered marker so the
+  transient continuity view can close without guessing on legacy cores; the
+  current shell schedules its local deadline at four seconds.
 - [ ] Add graceful commands such as `shutdown`, `refreshDiscovery`, and
   `getStatus`; do not use process presence or renderer-window discovery as a
   substitute for readiness.
@@ -212,12 +220,23 @@ and sink. These are diagnostic fields only. The auxiliary pair has not been
 validated as a content rectangle, pixel-aspect ratio, or rotation signal and
 is not consumed as one.
 
+Version 0.12.5 correlates that raw record with the following encoded-size
+record and treats only the complete observed
+`3840x2160 aux=0x0 encoded=3840x2160` Photos signature as ambiguous. It cannot
+seed or persist a false device orientation; a later phone-shaped marker can
+establish portrait in the same session. This is a narrow replay-backed rule,
+not a generic interpretation of the auxiliary pair, and it does not crop the
+small photo and black bars already encoded inside the canvas.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
   baseline has been learned for the current session.
 - [x] Retain an early phone-shaped raw marker before the debounce so the known
   direct-in-Photos startup sequence cannot lose its device baseline.
+- [x] Prevent the exact replayed Photos-first `3840x2160 aux=0x0` canvas from
+  becoming the device baseline or replacing a valid saved placement before a
+  trustworthy frame or explicit user action exists.
 - [ ] Resolve sessions that start with only a generic media canvas and no early
   phone-shaped marker, without guessing that the canvas is the physical device
   ratio.

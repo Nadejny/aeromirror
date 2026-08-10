@@ -20,7 +20,7 @@ namespace AirPlayReceiverMvp
 {
     internal sealed partial class ReceiverContext
     {
-        private const int FeedbackGapPlaceholderSeconds = 5;
+        private const int FeedbackGapPlaceholderSeconds = 4;
 
         private enum LostConnectionRecoveryAction
         {
@@ -439,8 +439,13 @@ namespace AirPlayReceiverMvp
                         pendingVideoSize = Size.Empty;
                         pendingVideoSizeDueUtc = DateTime.MinValue;
                         pendingVideoSizeGeneration = 0;
+                        pendingVideoSizeIsAmbiguousMediaCanvas = false;
                         currentVideoSize = Size.Empty;
                         currentVideoSizeGeneration = 0;
+                        currentVideoSizeIsAmbiguousMediaCanvas = false;
+                        rawGeometryVideoSize = Size.Empty;
+                        rawGeometryVideoSizeGeneration = 0;
+                        rawGeometryIsAmbiguousMediaCanvas = false;
                         earlyDeviceFrameVideoSize = Size.Empty;
                         deviceFrameVideoSize = Size.Empty;
                         lastSuppressedVideoSize = Size.Empty;
@@ -469,16 +474,69 @@ namespace AirPlayReceiverMvp
                     lostClient ? "lost mirroring client" :
                         "fatal mirror receive error");
 
+            Match videoGeometry = Regex.Match(
+                line,
+                @"^AEROMIRROR_VIDEO_GEOMETRY width0=(\d+) height0=(\d+) " +
+                    @"source=(\d+)x(\d+) aux=(\d+)x(\d+) " +
+                    @"encoded=(\d+)x(\d+)$",
+                RegexOptions.CultureInvariant);
+            if (videoGeometry.Success)
+            {
+                int width0 = 0;
+                int height0 = 0;
+                int sourceWidth = 0;
+                int sourceHeight = 0;
+                int auxiliaryWidth = 0;
+                int auxiliaryHeight = 0;
+                int encodedWidth = 0;
+                int encodedHeight = 0;
+                bool valid =
+                    int.TryParse(videoGeometry.Groups[1].Value, out width0) &&
+                    int.TryParse(videoGeometry.Groups[2].Value, out height0) &&
+                    int.TryParse(videoGeometry.Groups[3].Value, out sourceWidth) &&
+                    int.TryParse(videoGeometry.Groups[4].Value, out sourceHeight) &&
+                    int.TryParse(videoGeometry.Groups[5].Value, out auxiliaryWidth) &&
+                    int.TryParse(videoGeometry.Groups[6].Value, out auxiliaryHeight) &&
+                    int.TryParse(videoGeometry.Groups[7].Value, out encodedWidth) &&
+                    int.TryParse(videoGeometry.Groups[8].Value, out encodedHeight) &&
+                    encodedWidth >= 64 && encodedWidth <= 8192 &&
+                    encodedHeight >= 64 && encodedHeight <= 8192;
+                lock (videoSizeSync)
+                {
+                    rawGeometryVideoSize = valid
+                        ? new Size(encodedWidth, encodedHeight)
+                        : Size.Empty;
+                    rawGeometryVideoSizeGeneration = valid
+                        ? Interlocked.CompareExchange(
+                            ref mirrorSessionGeneration, 0, 0)
+                        : 0;
+                    rawGeometryIsAmbiguousMediaCanvas = valid &&
+                        IsKnownAmbiguousMediaCanvasGeometry(
+                            width0, height0,
+                            sourceWidth, sourceHeight,
+                            auxiliaryWidth, auxiliaryHeight,
+                            encodedWidth, encodedHeight);
+                }
+            }
+
             Match videoSize = Regex.Match(
                 line,
                 @"^AEROMIRROR_VIDEO_SIZE source=(\d+)x(\d+) encoded=(\d+)x(\d+)$",
                 RegexOptions.CultureInvariant);
             if (videoSize.Success)
             {
+                int sourceWidth;
+                int sourceHeight;
                 int width;
                 int height;
-                if (int.TryParse(videoSize.Groups[3].Value, out width) &&
+                if (int.TryParse(
+                        videoSize.Groups[1].Value, out sourceWidth) &&
+                    int.TryParse(
+                        videoSize.Groups[2].Value, out sourceHeight) &&
+                    int.TryParse(videoSize.Groups[3].Value, out width) &&
                     int.TryParse(videoSize.Groups[4].Value, out height) &&
+                    sourceWidth >= 64 && sourceWidth <= 8192 &&
+                    sourceHeight >= 64 && sourceHeight <= 8192 &&
                     width >= 64 && width <= 8192 &&
                     height >= 64 && height <= 8192)
                 {
@@ -486,6 +544,19 @@ namespace AirPlayReceiverMvp
                     lock (videoSizeSync)
                     {
                         Size observedVideoSize = new Size(width, height);
+                        int sessionGeneration =
+                            Interlocked.CompareExchange(
+                                ref mirrorSessionGeneration, 0, 0);
+                        bool ambiguousMediaCanvas =
+                            rawGeometryVideoSizeGeneration ==
+                                sessionGeneration &&
+                            rawGeometryVideoSize == observedVideoSize &&
+                            sourceWidth == width &&
+                            sourceHeight == height &&
+                            rawGeometryIsAmbiguousMediaCanvas;
+                        rawGeometryVideoSize = Size.Empty;
+                        rawGeometryVideoSizeGeneration = 0;
+                        rawGeometryIsAmbiguousMediaCanvas = false;
                         if (earlyDeviceFrameVideoSize.IsEmpty &&
                             IsLikelyModernIPhoneDeviceFrame(observedVideoSize))
                         {
@@ -493,9 +564,9 @@ namespace AirPlayReceiverMvp
                             capturedEarlyDeviceFrame = true;
                         }
                         pendingVideoSize = observedVideoSize;
-                        pendingVideoSizeGeneration =
-                            Interlocked.CompareExchange(
-                                ref mirrorSessionGeneration, 0, 0);
+                        pendingVideoSizeGeneration = sessionGeneration;
+                        pendingVideoSizeIsAmbiguousMediaCanvas =
+                            ambiguousMediaCanvas;
                         pendingVideoSizeDueUtc =
                             DateTime.UtcNow.AddMilliseconds(350);
                     }
@@ -600,6 +671,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
+                Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
                 Interlocked.Exchange(ref mirrorSessionActive, 1);
                 QueueLostConnectionRendererHandoff();
                 canceledDeferredRestart = Interlocked.Exchange(
@@ -656,6 +728,7 @@ namespace AirPlayReceiverMvp
                 if (Interlocked.Exchange(ref mirrorSessionActive, 0) != 1)
                     return;
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
+                Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
                 if (!abnormalLossRecoveryPending)
                 {
                     closeTransientFeedbackPlaceholder = Interlocked.Exchange(
@@ -738,21 +811,35 @@ namespace AirPlayReceiverMvp
                         Interlocked.Increment(ref feedbackGapEpisodeCount);
                     UpdateMaximum(
                         ref feedbackGapLongestSeconds, warningSeconds);
-                    if (warningSeconds >= FeedbackGapPlaceholderSeconds &&
-                        Interlocked.CompareExchange(
+                    if (Interlocked.CompareExchange(
                             ref feedbackHealthMarkersReady, 0, 0) == 1 &&
-                        Interlocked.Exchange(
-                            ref feedbackGapPlaceholderActive, 1) == 0)
-                        showPlaceholder = true;
+                        Interlocked.CompareExchange(
+                            ref feedbackGapPlaceholderActive, 0, 0) == 0)
+                    {
+                        long candidateDueTicks =
+                            CalculateFeedbackGapPlaceholderDueTicks(
+                                warningSeconds, DateTime.UtcNow.Ticks);
+                        long currentDueTicks = Interlocked.Read(
+                            ref feedbackGapPlaceholderDueTicks);
+                        if (currentDueTicks <= 0 ||
+                            candidateDueTicks < currentDueTicks)
+                        {
+                            Interlocked.Exchange(
+                                ref feedbackGapPlaceholderDueTicks,
+                                candidateDueTicks);
+                        }
+                    }
+                    showPlaceholder =
+                        TryQueueDueFeedbackGapPlaceholderLocked(
+                            DateTime.UtcNow.Ticks);
                 }
 
                 if (showPlaceholder)
                 {
-                    QueueLostConnectionPlaceholder();
-                    Log("AirPlay client feedback has been absent for " +
-                        warningSeconds + " seconds; showing continuity " +
-                        "while the existing session is still allowed to " +
-                        "recover.");
+                    Log("AirPlay client feedback reached the bounded " +
+                        "four-second continuity threshold; showing the " +
+                        "last frame while the existing session is still " +
+                        "allowed to recover.");
                 }
                 return;
             }
@@ -773,14 +860,77 @@ namespace AirPlayReceiverMvp
                 UpdateMaximum(
                     ref feedbackGapLongestSeconds, recoveredGapSeconds);
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
+                Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
                 closePlaceholder = Interlocked.Exchange(
                     ref feedbackGapPlaceholderActive, 0) == 1;
+                if (closePlaceholder)
+                    QueueLostConnectionRendererHandoff();
             }
-            if (closePlaceholder)
-                QueueLostConnectionRendererHandoff();
             Log("AirPlay client feedback resumed after a " +
                 recoveredGapSeconds + "-second gap; the existing " +
                 "mirroring session remains active.");
+        }
+
+        private void HandleFeedbackGapPlaceholderTimer()
+        {
+            bool showPlaceholder;
+            lock (postSessionMaintenanceSync)
+            {
+                showPlaceholder =
+                    TryQueueDueFeedbackGapPlaceholderLocked(
+                        DateTime.UtcNow.Ticks);
+            }
+            if (showPlaceholder)
+            {
+                Log("AirPlay client feedback reached the bounded " +
+                    "four-second continuity threshold; showing the last " +
+                    "frame while the existing session is still allowed " +
+                    "to recover.");
+            }
+        }
+
+        private bool TryQueueDueFeedbackGapPlaceholderLocked(long nowTicks)
+        {
+            long dueTicks = Interlocked.Read(
+                ref feedbackGapPlaceholderDueTicks);
+            if (!ShouldShowFeedbackGapPlaceholder(
+                    dueTicks,
+                    nowTicks,
+                    IsMirrorSessionActive,
+                    Interlocked.CompareExchange(
+                        ref feedbackHealthMarkersReady, 0, 0) == 1,
+                    Interlocked.CompareExchange(
+                        ref feedbackGapEpisodeActive, 0, 0) == 1,
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 0, 0) == 1))
+                return false;
+
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
+            if (Interlocked.Exchange(
+                    ref feedbackGapPlaceholderActive, 1) == 1)
+                return false;
+            QueueLostConnectionPlaceholder();
+            return true;
+        }
+
+        private static long CalculateFeedbackGapPlaceholderDueTicks(
+            int warningSeconds, long nowTicks)
+        {
+            if (warningSeconds <= 0 || nowTicks <= 0)
+                return 0;
+            int remainingSeconds = Math.Max(
+                0, FeedbackGapPlaceholderSeconds - warningSeconds);
+            return nowTicks + TimeSpan.FromSeconds(remainingSeconds).Ticks;
+        }
+
+        private static bool ShouldShowFeedbackGapPlaceholder(
+            long dueTicks, long nowTicks, bool mirrorActive,
+            bool feedbackMarkersReady, bool gapEpisodeActive,
+            bool fatalRecoveryPending)
+        {
+            return dueTicks > 0 && nowTicks >= dueTicks && mirrorActive &&
+                feedbackMarkersReady && gapEpisodeActive &&
+                !fatalRecoveryPending;
         }
 
         private static int ParseClientFeedbackWarningSeconds(string line)
@@ -991,6 +1141,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
+                Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
                 Interlocked.Exchange(ref feedbackHealthMarkersReady, 0);
                 Interlocked.Exchange(ref coreClientActivityReadyPending, 0);
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
@@ -1007,8 +1158,13 @@ namespace AirPlayReceiverMvp
                 pendingVideoSize = Size.Empty;
                 pendingVideoSizeDueUtc = DateTime.MinValue;
                 pendingVideoSizeGeneration = 0;
+                pendingVideoSizeIsAmbiguousMediaCanvas = false;
                 currentVideoSize = Size.Empty;
                 currentVideoSizeGeneration = 0;
+                currentVideoSizeIsAmbiguousMediaCanvas = false;
+                rawGeometryVideoSize = Size.Empty;
+                rawGeometryVideoSizeGeneration = 0;
+                rawGeometryIsAmbiguousMediaCanvas = false;
                 earlyDeviceFrameVideoSize = Size.Empty;
                 deviceFrameVideoSize = Size.Empty;
                 lastSuppressedVideoSize = Size.Empty;
@@ -1814,6 +1970,7 @@ namespace AirPlayReceiverMvp
                 }
               }
             }
+            HandleFeedbackGapPlaceholderTimer();
             HandleLostConnectionPlaceholder();
             HandleLostConnectionRecovery();
             HandleCoreDiscoveryRecovery();

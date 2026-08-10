@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.12.5 — safer Photos startup and recovery feedback
+
+### Fixed
+
+- A session that starts with the exact recorded Photos
+  `3840x2160 aux=0x0` presentation canvas no longer treats that canvas as the
+  iPhone's device orientation. A later phone-shaped `998x2160` frame can
+  establish portrait for the same session, while the observed real-landscape
+  geometry and unrelated 16:9 streams remain accepted.
+- An unresolved automatic/provisional fit no longer overwrites a valid saved
+  stream-window placement. Placement is persisted after a trustworthy device
+  frame or an explicit user move, resize, or manual fit.
+- A native three-second feedback warning now schedules the capable pre-fatal
+  continuity view for a four-second local deadline instead of depending on a
+  later warning line that may never arrive. Recovery before the deadline
+  cancels it. If the view has already appeared, acknowledged recovery now
+  changes its text to **Connection restored / Waiting for image** while the
+  existing renderer-gated handoff continues to wait for visible video.
+
+### Compatibility and verification status
+
+- This patch changes the managed shell only. The pinned UxPlay core, native
+  source provenance, third-party runtime, receiver identity/trust state,
+  settings location, update identity, and physical-network protection policy
+  remain unchanged from 0.12.4.
+- Automated build, resilience, review-payload, Setup, provenance-reuse,
+  package, version/link, exact-tag, and public-asset checks are required before
+  publication. Physical Windows 10/11 plus iPhone results remain separate and
+  may stay pending for an explicitly authorized public review Release.
+- The inner Photos problem is not fully fixed. iOS may still encode a small
+  photo and black bars inside the `3840x2160` canvas; AeroMirror now protects
+  outer orientation and saved placement but does not crop or zoom those
+  pixels.
+- Receiver visibility after delayed Wi-Fi join or a stale iOS browse result
+  remains a physical discovery gate. This patch does not claim that a manual
+  refresh can force an iPhone request that never reached Windows.
+- The published `v0.12.4` tag and assets remain immutable. This correction
+  uses 0.12.5 rather than replacing an existing public file.
+
 ## 0.12.4 — smoother recovery, renderer handoff, and diagnostics
 
 ### Fixed

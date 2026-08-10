@@ -93,8 +93,13 @@ namespace AirPlayReceiverMvp
         private Size pendingVideoSize = Size.Empty;
         private DateTime pendingVideoSizeDueUtc = DateTime.MinValue;
         private int pendingVideoSizeGeneration;
+        private bool pendingVideoSizeIsAmbiguousMediaCanvas;
         private Size currentVideoSize = Size.Empty;
         private int currentVideoSizeGeneration;
+        private bool currentVideoSizeIsAmbiguousMediaCanvas;
+        private Size rawGeometryVideoSize = Size.Empty;
+        private int rawGeometryVideoSizeGeneration;
+        private bool rawGeometryIsAmbiguousMediaCanvas;
         private Size earlyDeviceFrameVideoSize = Size.Empty;
         private Size deviceFrameVideoSize = Size.Empty;
         private Size lastSuppressedVideoSize = Size.Empty;
@@ -121,6 +126,7 @@ namespace AirPlayReceiverMvp
         private IntPtr pendingStreamWindowPlacementWindow = IntPtr.Zero;
         private DateTime pendingStreamWindowPlacementDueUtc = DateTime.MinValue;
         private int streamWindowPlacementSaveFailures;
+        private IntPtr persistableStreamWindowPlacementWindow = IntPtr.Zero;
         private IntPtr restoredStreamWindowPlacementWindow = IntPtr.Zero;
         private int lostConnectionRecoveryPending;
         private int lostConnectionRecoveryPid;

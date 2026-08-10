@@ -21,5 +21,5 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("AeroMirror open-source project")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("0.12.4.0")]
-[assembly: AssemblyFileVersion("0.12.4.0")]
+[assembly: AssemblyVersion("0.12.5.0")]
+[assembly: AssemblyFileVersion("0.12.5.0")]

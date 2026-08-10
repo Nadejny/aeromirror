@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.12.4",
+    [string]$Version = "0.12.5",
 
     [string]$RuntimePath = ".\artifacts\headless-runtime",
 
