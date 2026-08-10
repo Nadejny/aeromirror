@@ -25,10 +25,15 @@
   source provenance, third-party runtime, receiver identity/trust state,
   settings location, update identity, and physical-network protection policy
   remain unchanged from 0.12.4.
-- Automated build, resilience, review-payload, Setup, provenance-reuse,
-  package, version/link, exact-tag, and public-asset checks are required before
-  publication. Physical Windows 10/11 plus iPhone results remain separate and
-  may stay pending for an explicitly authorized public review Release.
+- Managed build, resilience, exact 13-entry review-payload, Setup/lifecycle,
+  embedded-payload hash, native-source/provenance-reuse, version/link,
+  exact-tag, normal latest-channel, API-digest, and public re-download checks
+  pass for the published review Release. The released native core is
+  byte-identical to 0.12.4.
+- The former `Nadejny/aeromirror` updater API and Setup URL redirect to the
+  canonical `pyram1da/aeromirror` repository and expose 0.12.5 successfully.
+  The actual installed 0.12.4-to-0.12.5 update and all physical Windows 10/11
+  plus iPhone tests remain pending.
 - The inner Photos problem is not fully fixed. iOS may still encode a small
   photo and black bars inside the `3840x2160` canvas; AeroMirror now protects
   outer orientation and saved placement but does not crop or zoom those
@@ -36,8 +41,8 @@
 - Receiver visibility after delayed Wi-Fi join or a stale iOS browse result
   remains a physical discovery gate. This patch does not claim that a manual
   refresh can force an iPhone request that never reached Windows.
-- The published `v0.12.4` tag and assets remain immutable. This correction
-  uses 0.12.5 rather than replacing an existing public file.
+- The published `v0.12.5` tag and four assets are immutable. Any correction
+  uses 0.12.6 or later rather than replacing an existing public file.
 
 ## 0.12.4 — smoother recovery, renderer handoff, and diagnostics
 

@@ -8,10 +8,10 @@ next step changes.
 
 ## Latest public release
 
-- Version: `v0.12.4`
-- Tag commit: `31042ffa50773eb053239ab5ed687f44b4f35d94`
-- Release URL: https://github.com/Nadejny/aeromirror/releases/tag/v0.12.4
-- Published: `2026-08-10T00:17:54Z`
+- Version: `v0.12.5`
+- Tag commit: `22ec7536062679b2e90f47d5174c970f3f6b587f`
+- Release URL: https://github.com/pyram1da/aeromirror/releases/tag/v0.12.5
+- Published: `2026-08-10T10:32:59Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
 - Updater status: current `releases/latest` public review Release
 - Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
@@ -20,16 +20,17 @@ next step changes.
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-The `v0.12.4` tag and its four assets are immutable. Any correction must use
-0.12.5 or later; never move the tag or replace a published file. Exact evidence
-is recorded in `docs/releases/0.12.4/BUILD_REPORT.md`.
+The `v0.12.5` tag and its four assets are immutable. Any correction must use
+0.12.6 or later; never move the tag or replace a published file. Exact evidence
+is recorded in `docs/releases/0.12.5/BUILD_REPORT.md`.
 
-The immutable 0.12.3, 0.12.2, 0.12.1, 0.12.0, and 0.11 releases and their
-verification remain under `docs/releases/` or the historical 0.11 report paths.
+The immutable 0.12.4, 0.12.3, 0.12.2, 0.12.1, 0.12.0, and 0.11 releases and
+their verification remain under `docs/releases/` or the historical 0.11
+report paths.
 
-## Current 0.12.5 review candidate
+## What 0.12.5 changes
 
-- Status: unpublished managed-shell correction based on public 0.12.4.
+- Status: published normal updater-visible review Release.
 - Public/app/Setup version: `0.12.5`; Windows PE/file version: `0.12.5.0`.
 - The exact recorded Photos geometry
   `3840x2160 aux=0x0 encoded=3840x2160` is now classified as an ambiguous
@@ -53,20 +54,21 @@ verification remain under `docs/releases/` or the historical 0.11 report paths.
   payload, network Setup build and shortcut/update lifecycle self-checks,
   prepared native-source build, shell/Setup `0.12.5.0` PE audit, Setup embedded-
   payload SHA-256 comparison, source/default/document/link checks, and
-  `git diff --check` pass in the current pre-tag gate run.
+  `git diff --check` pass for the tagged source.
 - The final payload and Setup were regenerated after the evidence update; the
   embedded payload hash, lifecycle checks, and version audits passed again.
-  Exact-tag packaging, public-asset verification,
-  installed update, and physical Windows/iPhone evidence remain pending until
-  recorded in `docs/releases/0.12.5/TEST_PLAN.md` and, after publication,
-  `BUILD_REPORT.md`.
+  Exact-tag packaging, the normal latest channel, four API digests, and public
+  re-download size/SHA-256 verification also pass.
+- GitHub's canonical repository is now `pyram1da/aeromirror`. The checked-in
+  updater slug remains `Nadejny/aeromirror` in this immutable release; its old
+  API and Setup URLs followed GitHub redirects and successfully reached the
+  canonical 0.12.5 Release. The actual installed update remains pending.
 
-This candidate does not crop or zoom the small photo and black bars that Photos
+This release does not crop or zoom the small photo and black bars that Photos
 may already encode inside its `3840x2160` canvas. It also does not claim to fix
-delayed iOS browse-cache visibility when no request reaches Windows. With
-explicit authorization, it may be published as a normal updater-visible review
-Release after automated release gates pass while those physical tests remain
-clearly pending; it must not be called physically accepted or 1.0.
+delayed iOS browse-cache visibility when no request reaches Windows. Installed
+update and physical Windows/iPhone tests remain clearly pending; the release
+must not be called physically accepted or 1.0.
 
 ## What 0.12.4 changes
 
@@ -101,12 +103,13 @@ together.
 
 ## Release verification
 
-Passed against the exact source published as `v0.12.4`:
+Passed against the exact source published as `v0.12.5`:
 
 1. managed x64 shell build and receiver resilience suite;
-2. native rebuild, `UPSTREAM.lock` consistency, prepared corresponding-source
-   packaging, and patch/source/input/core-hash provenance validation;
-3. thin review payload, Setup build, and installer lifecycle verification;
+2. prepared native source with 139 files and all 12 provenance hashes, with
+   the released native core byte-identical to 0.12.4;
+3. exact 13-entry thin review payload, Setup build, embedded-payload SHA-256,
+   and shortcut/update lifecycle verification;
 4. shell, Setup PE, internal Setup version, script-default, asset-name,
    documentation-version, local-link, changed-file, and `git diff --check`
    audits;
@@ -114,16 +117,18 @@ Passed against the exact source published as `v0.12.4`:
 6. normal latest GitHub channel with `draft=false`, `prerelease=false`, and
    exactly four expected assets;
 7. public re-download byte sizes and SHA-256 values match local release files,
-   and all four GitHub API digest fields match.
+   and all four GitHub API digest fields match;
+8. the configured old updater API and Setup download URLs redirect to the
+   canonical repository and expose/download 0.12.5 successfully.
 
 No physical Windows/iPhone result is claimed by these gates. Exact asset
-evidence is in `docs/releases/0.12.4/BUILD_REPORT.md`.
+evidence is in `docs/releases/0.12.5/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
-- the installed updater path from public 0.12.4 to candidate 0.12.5, including settings,
-  trust state, shortcuts, autostart, runtime-cache reuse, digest verification,
-  Setup launch, and rollback;
+- the installed updater path from public 0.12.4 to public 0.12.5, including
+  settings, trust state, shortcuts, autostart, runtime-cache reuse, digest
+  verification, Setup launch, and rollback;
 - Windows 11 x64 and Windows 10 1809+ x64 with an iPhone: 3–4 second,
   5–8 second, and longer-than-15-second Wi-Fi interruptions; native in-place
   recovery; fatal recovery; normal disconnect; immediate and repeated
@@ -146,23 +151,20 @@ evidence is in `docs/releases/0.12.4/BUILD_REPORT.md`.
   fallback remains necessary when safe renderer capture is unavailable;
 - genuine AirDrop interoperability remains separate Bluetooth/AWDL, identity,
   and encrypted-transfer research. A staged AeroDrop companion/share-extension
-  path is a separate future product decision, not part of 0.12.4;
+  path is a separate future product decision, not part of 0.12.5;
 - localization is not included. D-006 remains the planned resource-based
   system-language and manual override design.
 
 ## Immediate next steps
 
-1. Regenerate the final 0.12.5 review payload and Setup after this evidence
-   update, repeat their content/version/SHA checks, then create one reviewed
-   exact `v0.12.5` tag and run exact-tag release packaging.
-2. If publication remains authorized, publish 0.12.5 as a normal review
-   Release, re-download and verify every public asset, then add
-   `docs/releases/0.12.5/BUILD_REPORT.md` without changing the release tag.
-3. Run the physical Windows 11 and Windows 10/iPhone matrix in
+1. Install public 0.12.4 and use its in-app updater to discover, download, and
+   install public 0.12.5; record persistence, Setup, and rollback evidence.
+2. Run the physical Windows 11 and Windows 10/iPhone matrix in
    `docs/releases/0.12.5/TEST_PLAN.md`, preserving redacted log intervals,
-   screenshots, and recordings. Any later correction uses 0.12.6 or later;
-   never modify the immutable 0.12.4 tag or assets, and do not use a 1.0
-   designation until D-008 physical acceptance is complete.
+   screenshots, and recordings.
+3. Correct any defect in 0.12.6 or later; never modify the immutable 0.12.5
+   tag or assets, and do not use a 1.0 designation until D-008 physical
+   acceptance is complete.
 
 ## Where information belongs
 

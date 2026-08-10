@@ -75,15 +75,21 @@ network Setup and shortcut/update lifecycle self-checks, shell/Setup
 `0.12.5.0` PE checks, embedded-payload SHA comparison, prepared native-source
 build, and version/document/link/diff audits pass. The native package contains
 139 files with all 12 provenance hashes validated, and its core executable is
-byte-identical to 0.12.4. The final payload and Setup are regenerated after the
-evidence documentation update and rechecked before tagging.
+byte-identical to 0.12.4. The final payload and Setup were regenerated after
+the evidence documentation update and rechecked before tagging.
 
-Exact-tag packaging and public-asset verification remain pending. With explicit
-publication authorization, 0.12.5 may be published as a normal updater-visible
-**review** Release after those remaining automated gates pass while the
-installed-update and physical Windows/iPhone rows in `TEST_PLAN.md` remain
-clearly marked pending. Passing automated checks does not make this a
+Clean exact-tag packaging passed, and `v0.12.5` is published as the normal
+latest updater-visible **review** Release:
+
+https://github.com/pyram1da/aeromirror/releases/tag/v0.12.5
+
+All four public assets were re-downloaded with matching byte sizes and SHA-256
+values, and every GitHub API digest field matched. The configured former
+`Nadejny/aeromirror` updater API and Setup URL also followed GitHub redirects
+to the canonical repository and returned 0.12.5 successfully. The actual
+installed 0.12.4-to-0.12.5 update and all physical Windows/iPhone rows in
+`TEST_PLAN.md` remain pending. Passing release gates does not make this a
 physically accepted or 1.0 release.
 
-The published `v0.12.4` tag and assets remain immutable. This correction uses
-the new `v0.12.5` version and does not replace any 0.12.4 file.
+The published `v0.12.5` tag and assets are immutable. Any correction uses
+0.12.6 or later and must not replace a 0.12.5 file.

@@ -7,9 +7,15 @@ recorded Photos `3840x2160 aux=0x0` presentation canvas, saved stream-window
 placement, deterministic short-gap continuity, and same-session recovery.
 It also retains delayed-discovery and reconnect as explicit physical gates.
 
-The candidate is unpublished. The public `v0.12.4` tag and assets are
-immutable. Automated checks and physical-device checks are separate: a passing
-build or replay test does not prove Windows/iPhone interoperability.
+Version `v0.12.5` was published from commit
+`22ec7536062679b2e90f47d5174c970f3f6b587f` as the normal latest review
+Release:
+
+https://github.com/pyram1da/aeromirror/releases/tag/v0.12.5
+
+Automated checks and physical-device checks are separate: a passing build,
+replay, package, or public-asset audit does not prove Windows/iPhone
+interoperability.
 
 For each physical row, retain the date, Windows build, GPU/driver, iPhone model
 and iOS version, network topology, Rotation Lock state, relevant redacted log
@@ -73,7 +79,7 @@ Expected automated results:
 Any failed automated, provenance, Setup, package, version, or diff gate blocks
 publication.
 
-### Candidate results — 2026-08-10
+### Release results — 2026-08-10
 
 | Gate | Result |
 |---|---|
@@ -87,17 +93,23 @@ publication.
 | Built x64 shell and Setup PE/file version `0.12.5.0` | PASS |
 | Setup embedded review-payload SHA-256 matches the input ZIP | PASS |
 | `git diff --check` | PASS |
-| Clean exact `v0.12.5` tag and release packaging | PENDING |
-| GitHub channel, public re-download, SHA-256, and API digests | PENDING |
+| Clean exact `v0.12.5` tag and `release.ps1` packaging | PASS |
+| GitHub channel, public re-download, SHA-256, and API digests | PASS |
+| Former updater API and Setup URL redirect to canonical repository | PASS |
 | Installed 0.12.4-to-0.12.5 update | PENDING |
 | Physical Windows 10/11 plus iPhone matrix | PENDING |
 
-These are pre-tag results. This evidence-only documentation update changes
-packaged source material, so the final review payload and Setup must be
-regenerated and their content/version/SHA checks repeated before creating the
-exact tag. The successful managed, resilience, native-reuse, and provenance
-results remain valid; no exact-tag, public-channel, installed-update, or
-physical result is inferred from them.
+The final review payload and Setup were regenerated after the pre-tag evidence
+update, and their content, version, embedded-payload SHA, and lifecycle checks
+passed again before tagging. Exact-tag packaging then passed. All four public
+assets were re-downloaded with matching byte sizes and SHA-256 values, and all
+four GitHub API digest fields matched. The former `Nadejny/aeromirror` updater
+API and Setup URL followed redirects to canonical `pyram1da/aeromirror` and
+returned 0.12.5 successfully.
+
+These results prove release discovery and artifact integrity, not the installed
+0.12.4-to-0.12.5 update or any physical Windows/iPhone scenario. Exact public
+evidence is in `BUILD_REPORT.md`.
 
 ## Photos-first orientation and placement
 
@@ -222,14 +234,11 @@ Any privacy or fail-closed regression blocks publication.
 
 ## Acceptance gate
 
-With explicit user authorization, 0.12.5 may be published as a normal,
-updater-visible **review** Release after all automated, Setup, provenance,
-package, exact-tag, and public-asset gates pass even if clearly labelled
-physical rows remain pending. It must not be described as physically accepted,
-stable, or 1.0 until the complete Windows 10 and Windows 11 plus iPhone matrix
-passes with retained evidence.
+0.12.5 is published as a normal updater-visible **review** Release after its
+automated, Setup, provenance, package, exact-tag, redirect, and public-asset
+gates passed. Exact evidence is in `BUILD_REPORT.md`. It must not be described
+as physically accepted, stable, or 1.0 until the installed update and complete
+Windows 10 and Windows 11 plus iPhone matrix pass with retained evidence.
 
-After publication, record the exact tag, source commit, public asset sizes and
-SHA-256 values, re-download verification, and remaining physical rows in
-`BUILD_REPORT.md`. Any later correction receives 0.12.6 or later; never move
-the tag or replace a published 0.12.5 asset.
+Any later correction receives 0.12.6 or later; never move the tag or replace a
+published 0.12.5 asset.

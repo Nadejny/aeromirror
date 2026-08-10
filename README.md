@@ -107,19 +107,23 @@ included.
 ## Installer: recommended
 
 For normal use, open the
-[latest AeroMirror release](https://github.com/Nadejny/aeromirror/releases/latest)
+[latest AeroMirror release](https://github.com/pyram1da/aeromirror/releases/latest)
 and download:
 
 ```text
 AeroMirror-Setup-0.12.5.exe
 ```
 
-The current source prepares `v0.12.5` as the next updater-visible review
-Release. Until it is published, the latest-release link continues to return the
-immutable public `v0.12.4`. Do not treat 0.12.5 as downloadable until its
-automated, Setup, provenance-reuse, exact-tag, checksum, and public re-download
-gates are recorded; installed-update and physical Windows 10/11 plus iPhone
-evidence remain separate.
+`v0.12.5` is the normal latest updater-visible public review Release. Its
+managed build, resilience, Setup/lifecycle, provenance-reuse, exact-tag,
+checksum, API-digest, and public re-download gates pass. The installed
+0.12.4-to-0.12.5 update and physical Windows 10/11 plus iPhone matrix remain
+pending and are not implied by those automated results.
+
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.5 still
+contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
+`releases/latest` API and Setup download to the canonical repository, and both
+redirect paths were verified after publication.
 
 The installer:
 
@@ -381,6 +385,7 @@ docs/
     0.12.5/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           Photos-first and recovery acceptance matrix
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.4/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           recovery, frame-pacing, and renderer acceptance
@@ -466,8 +471,9 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   it does not prove that an iPhone session is active.
 - The executables are not yet code-signed, so Windows SmartScreen may warn
   about an unknown publisher.
-- GitHub update checking is configured for the public
-  `Nadejny/aeromirror` release channel.
+- GitHub update checking in 0.12.5 uses the former `Nadejny/aeromirror` slug;
+  GitHub redirects it to canonical `pyram1da/aeromirror`, and the public latest
+  API plus Setup download redirect were verified for this release.
 - Bonjour/mDNS and Windows Firewall configuration remain external system
   dependencies. Allow the receiver only on the network categories you intend
   to use. Some managed or guest Wi-Fi networks block device discovery.
