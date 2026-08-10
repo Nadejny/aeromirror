@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.3"
+    [string]$Version = "0.12.4"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +20,7 @@ $upstream = (Resolve-Path -LiteralPath $UpstreamRoot).Path
 $libuxplay = Join-Path $upstream "libuxplay"
 $nativeRoot = Join-Path $projectRoot "native-core"
 $provenancePath = Join-Path $nativeRoot "source-provenance.json"
+$upstreamLockPath = Join-Path $projectRoot "UPSTREAM.lock"
 $temporaryRoot = Join-Path $artifactRoot (
     "native-source-stage-" + [Guid]::NewGuid().ToString("N"))
 $bundleName = "AeroMirror-native-source-" + $Version
@@ -67,6 +68,30 @@ function Assert-FileHash(
     }
 }
 
+function Read-UpstreamLock([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "UPSTREAM.lock is missing: $Path"
+    }
+    $values = @{}
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith("#")) {
+            continue
+        }
+        $separator = $trimmed.IndexOf('=')
+        if ($separator -le 0) {
+            throw "UPSTREAM.lock contains an invalid line: $trimmed"
+        }
+        $key = $trimmed.Substring(0, $separator).Trim()
+        $value = $trimmed.Substring($separator + 1).Trim()
+        if ($values.ContainsKey($key) -or -not $value) {
+            throw "UPSTREAM.lock contains a duplicate or empty key: $key"
+        }
+        $values[$key] = $value
+    }
+    return $values
+}
+
 if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
     throw "Native source provenance is missing: $provenancePath"
 }
@@ -82,6 +107,27 @@ if ($provenance.schemaVersion -ne 1 -or
 }
 $expectedUpstream = [string]$provenance.uxplayWindowsCommit
 $expectedLibuxplay = [string]$provenance.libuxplayCommit
+$upstreamLock = Read-UpstreamLock -Path $upstreamLockPath
+$requiredLockValues = @{
+    "uxplay-windows.source.commit" = $expectedUpstream
+    "libuxplay.commit" = $expectedLibuxplay
+    "aeromirror.uxplay-windows.patch.sha256" =
+        [string]$provenance.uxplayWindowsPatchSha256
+    "aeromirror.libuxplay.patch.sha256" =
+        [string]$provenance.libuxplayPatchSha256
+    "aeromirror.headless-executable.sha256" =
+        [string]$provenance.headlessExecutableSha256
+}
+foreach ($entry in $requiredLockValues.GetEnumerator()) {
+    $actual = [string]$upstreamLock[$entry.Key]
+    if (-not [string]::Equals(
+            $actual, [string]$entry.Value,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw (
+            "UPSTREAM.lock value for " + $entry.Key +
+            " does not match source-provenance.json.")
+    }
+}
 
 $upstreamCommit = (
     & git -c ("safe.directory=" + $upstream) -C $upstream rev-parse HEAD
@@ -115,6 +161,7 @@ $libModified = @(
         status --short --untracked-files=no
 )
 $expectedLibModified = @(
+    " M lib/raop_rtp_mirror.c",
     " M renderers/video_renderer.c",
     " M uxplay.cpp"
 )
@@ -165,6 +212,7 @@ try {
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
         diff --binary --no-ext-diff `
         ("--output=" + $actualLibPatch) -- `
+        "lib/raop_rtp_mirror.c" `
         "renderers/video_renderer.c" `
         "uxplay.cpp"
     if ($LASTEXITCODE -ne 0) {
@@ -232,6 +280,7 @@ try {
             -Destination (Join-Path $sourceRoot $relative) -Force
     }
     foreach ($relative in @(
+        "lib\raop_rtp_mirror.c",
         "renderers\video_renderer.c",
         "uxplay.cpp"
     )) {

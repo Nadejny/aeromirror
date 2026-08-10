@@ -118,6 +118,12 @@ confirmed fatal loss. It deliberately stays separate from readiness: keeping
 the last visible frame on screen does not mean discovery or reconnection has
 completed.
 
+Version 0.12.4 preserves UxPlay's same-process/same-port socket recovery after
+completed cleanup and adds a compact feedback-health capability/recovered
+marker pair. This avoids the shell immediately replacing an already recovered
+core, but it is still stdout observation rather than acknowledged IPC or
+in-place DNS-SD/BLE re-publication.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -125,6 +131,9 @@ completed.
   `error`.
 - [ ] Include stable error codes and a short user-safe explanation with every
   failure event.
+- [x] Add a compact native capability and feedback-recovered marker so a
+  transient five-second continuity view can close without guessing on legacy
+  cores.
 - [ ] Add graceful commands such as `shutdown`, `refreshDiscovery`, and
   `getStatus`; do not use process presence or renderer-window discovery as a
   substitute for readiness.
@@ -197,6 +206,12 @@ versioned IPC, sessions without any phone-shaped marker, inner encoded-canvas
 sizing, device validation, and edge cases still required before this behavior
 is considered complete.
 
+Version 0.12.4 adds the complete raw AirPlay geometry header, including the
+previously ignored auxiliary pair, and the actual selected GStreamer decoder
+and sink. These are diagnostic fields only. The auxiliary pair has not been
+validated as a content rectangle, pixel-aspect ratio, or rotation signal and
+is not consumed as one.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
@@ -222,6 +237,32 @@ is considered complete.
 Acceptance target: photos and videos keep their correct proportions and remain
 legible while the viewer changes orientation only when the incoming stream
 does.
+
+### Frame pacing and viewer ownership
+
+Version 0.12.4 makes two conservative experiments reviewable: Interactive
+latency now applies only `-vsync no`, and explicit Direct3D choices pin matching
+decoders and sinks. It also caches unchanged foreign-window policy and applies
+saved placement from the early show event. These changes do not turn the
+external GStreamer HWND into an AeroMirror-owned viewer.
+
+- [x] Remove the aggressive 50 ms audio-buffer request from the Interactive
+  profile while keeping Balanced as the default.
+- [x] Pin both decoder and video sink for explicit Direct3D 11/12 comparisons.
+- [ ] Add bounded frame-pacing, decoder QoS/drop, packet-jitter, and render-time
+  telemetry that does not contain mirrored content.
+- [ ] Benchmark Balanced and Interactive on identical local-network conditions
+  across Windows 10/11 and representative GPUs before changing the default.
+- [ ] Embed or parent a native D3D surface behind a versioned local IPC contract
+  before promising a Mac-style hover-only frame, borderless viewer, seamless
+  frozen-frame handoff, or live aspect lock during edge dragging.
+- [ ] Define keyboard-accessible move, close, fullscreen, and size controls for
+  any hover-only chrome; do not remove the standard frame before those controls
+  exist.
+
+Acceptance target: physical evidence distinguishes transport jitter, decode,
+and presentation pacing, while viewer chrome and resizing remain accessible
+and never require unsafe cross-process window subclassing.
 
 ## Future capabilities
 
@@ -262,6 +303,14 @@ as a small extension of screen mirroring.
   quarantine/Mark-of-the-Web behavior, duplicate names, and transfer limits.
 - [ ] Evaluate a standards-based or companion-app transfer mode as a separate
   product path if native AirDrop interoperability is not reliable.
+- [ ] Prototype a separately named **AeroDrop** path only after defining its
+  trust model: an iOS Share Extension or companion can transfer over an
+  authenticated local HTTPS session, default to `Downloads\AeroMirror`, show
+  an explicit accept/open-folder notification, sanitize and deduplicate names,
+  apply size limits, and never auto-open executable/archive content.
+- [ ] Keep genuine AirDrop/AWDL interoperability as a separate feasibility
+  track; appearing as an AirPlay/Apple TV receiver does not make AeroMirror an
+  AirDrop target.
 - [ ] Keep file transfer isolated from the receiver process and its firewall
   surface.
 

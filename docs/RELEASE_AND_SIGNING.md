@@ -66,16 +66,16 @@ update.
 
 For a working automatic update, every GitHub Release must include:
 
-- a semantic tag such as `v0.12.3`;
+- a semantic tag such as `v0.12.4`;
 - a setup asset named exactly
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe` for that release version;
 - GitHub's SHA-256 asset digest;
 - a short user-facing release body.
 
 The updater accepts only an exact three-part numeric tag with an optional
-leading `v`, for example `0.12.3` or `v0.12.3`. It rejects two-part,
+leading `v`, for example `0.12.4` or `v0.12.4`. It rejects two-part,
 four-part, suffixed, or otherwise malformed values. Do not rely on a tag such
-as `v0.12.3-beta` being normalized into the public update channel.
+as `v0.12.4-beta` being normalized into the public update channel.
 
 The current application checks GitHub's `releases/latest` endpoint. A release
 that should be found by installed AeroMirror clients must therefore be
@@ -95,8 +95,8 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. For 0.12.3, use
-[`releases/0.12.3/TEST_PLAN.md`](releases/0.12.3/TEST_PLAN.md). Historical 0.11
+passes. For 0.12.4, use
+[`releases/0.12.4/TEST_PLAN.md`](releases/0.12.4/TEST_PLAN.md). Historical 0.11
 plans remain part of the evidence required before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the

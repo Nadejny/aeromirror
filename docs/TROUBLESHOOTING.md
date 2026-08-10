@@ -119,7 +119,13 @@ Depending on the review build, the log may include:
   server-socket initialization;
 - relevant physical-network changes without stream content;
 - UxPlay standard output and error messages;
-- GStreamer decoder, renderer, pipeline warnings, and errors.
+- feedback-gap episode count, longest duration, and native recovery-marker
+  capability state in 0.12.4 and later;
+- the raw AirPlay geometry header, including an auxiliary width/height pair
+  that is diagnostic only and is not a validated crop, pixel-aspect-ratio, or
+  rotation field;
+- the actual GStreamer decoder/video sink selected at pipeline creation, plus
+  renderer, pipeline warnings, and errors.
 
 The log is intended not to contain:
 
@@ -144,6 +150,10 @@ Please include:
   **Start receiver** cycle helped;
 - whether the receiver process or only the video window disappeared;
 - the selected quality, latency, renderer, and audio options;
+- for stutter, the local Wi-Fi band/channel and PC connection type, a 60-second
+  reproduction interval, visible freeze count, audio drift, CPU/GPU load, and
+  the feedback-gap totals from diagnostics; public internet speed alone does
+  not measure the local AirPlay path;
 - Bonjour status from AeroMirror diagnostics, if available;
 - whether VPN, Hyper-V, WSL, a mobile hotspot, or a virtual network adapter was
   active;

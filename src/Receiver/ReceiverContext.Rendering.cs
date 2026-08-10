@@ -26,10 +26,11 @@ namespace AirPlayReceiverMvp
         private void InstallRendererMoveSizeHook(int processId)
         {
             ResetRendererMoveSizeTracking();
-            if (processId <= 0 || rendererMoveSizeEventProc == null)
+            if (processId <= 0 || rendererMoveSizeEventProc == null ||
+                rendererWindowShowEventProc == null)
                 return;
 
-            IntPtr hook = NativeMethods.SetWinEventHook(
+            IntPtr moveSizeHook = NativeMethods.SetWinEventHook(
                 NativeMethods.EVENT_SYSTEM_MOVESIZESTART,
                 NativeMethods.EVENT_SYSTEM_MOVESIZEEND,
                 IntPtr.Zero,
@@ -37,24 +38,45 @@ namespace AirPlayReceiverMvp
                 (uint)processId,
                 0,
                 NativeMethods.WINEVENT_OUTOFCONTEXT);
-            if (hook == IntPtr.Zero)
+            IntPtr showHook = NativeMethods.SetWinEventHook(
+                NativeMethods.EVENT_OBJECT_SHOW,
+                NativeMethods.EVENT_OBJECT_SHOW,
+                IntPtr.Zero,
+                rendererWindowShowEventProc,
+                (uint)processId,
+                0,
+                NativeMethods.WINEVENT_OUTOFCONTEXT);
+            rendererMoveSizeHook = moveSizeHook;
+            rendererWindowShowHook = showHook;
+            rendererMoveSizeHookPid = processId;
+            if (moveSizeHook == IntPtr.Zero)
             {
                 Log("Renderer move/size event hook was not available; " +
                     "manual window fitting remains available from the tray.");
-                return;
             }
-
-            rendererMoveSizeHook = hook;
-            rendererMoveSizeHookPid = processId;
-            Log("Watching renderer move/size completion for core PID " +
-                processId + ".");
+            if (showHook == IntPtr.Zero)
+            {
+                Log("Renderer show event hook was not available; saved " +
+                    "placement will be restored by normal supervision.");
+            }
+            if (moveSizeHook != IntPtr.Zero || showHook != IntPtr.Zero)
+            {
+                Log("Watching renderer window events for core PID " +
+                    processId + ".");
+            }
         }
 
         private void ResetRendererMoveSizeTracking()
         {
             IntPtr hook = rendererMoveSizeHook;
+            IntPtr showHook = rendererWindowShowHook;
             rendererMoveSizeHook = IntPtr.Zero;
+            rendererWindowShowHook = IntPtr.Zero;
             rendererMoveSizeHookPid = 0;
+            rendererPolicyWindow = IntPtr.Zero;
+            rendererPolicyApplied = false;
+            rendererPolicyAlwaysOnTop = false;
+            rendererPolicyShowInTaskbar = false;
             rendererMoveSizeWindow = IntPtr.Zero;
             rendererMoveSizeStartClientSize = Size.Empty;
             ClearPendingManualRendererFit();
@@ -65,6 +87,46 @@ namespace AirPlayReceiverMvp
                 try { NativeMethods.UnhookWinEvent(hook); }
                 catch { }
             }
+            if (showHook != IntPtr.Zero)
+            {
+                try { NativeMethods.UnhookWinEvent(showHook); }
+                catch { }
+            }
+        }
+
+        private void OnRendererWindowShowEvent(
+            IntPtr hook, uint eventType, IntPtr window,
+            int objectId, int childId, uint eventThread, uint eventTime)
+        {
+            if (hook == IntPtr.Zero || hook != rendererWindowShowHook ||
+                eventType != NativeMethods.EVENT_OBJECT_SHOW ||
+                window == IntPtr.Zero ||
+                objectId != NativeMethods.OBJID_WINDOW || childId != 0)
+                return;
+
+            int processId = Interlocked.CompareExchange(
+                ref activeCorePid, 0, 0);
+            if (processId <= 0 || processId != rendererMoveSizeHookPid)
+                return;
+
+            uint windowProcessId;
+            NativeMethods.GetWindowThreadProcessId(window, out windowProcessId);
+            if (windowProcessId != (uint)processId)
+                return;
+
+            var title = new StringBuilder(512);
+            NativeMethods.GetWindowText(window, title, title.Capacity);
+            if (!IsRendererWindowTitle(title.ToString()))
+                return;
+
+            // EVENT_OBJECT_SHOW reaches the shell before the 250 ms polling
+            // path. Apply only the already-loaded placement here: no settings
+            // writes, logging, activation or aspect fitting belong in this
+            // out-of-context callback.
+            Rectangle ignoredBounds;
+            int ignoredDpi;
+            TryApplySavedStreamWindowPlacement(
+                window, out ignoredBounds, out ignoredDpi);
         }
 
         private void OnRendererMoveSizeEvent(
@@ -134,7 +196,7 @@ namespace AirPlayReceiverMvp
             pendingManualFitWindow = window;
             Interlocked.Exchange(
                 ref pendingManualFitDueTicks,
-                DateTime.UtcNow.AddMilliseconds(150).Ticks);
+                DateTime.UtcNow.Ticks);
             Interlocked.Exchange(ref pendingManualFit, 1);
         }
 
@@ -341,6 +403,25 @@ namespace AirPlayReceiverMvp
 
         private bool TryRestoreStreamWindowPlacement(IntPtr window)
         {
+            Rectangle restored;
+            int targetDpi;
+            if (!TryApplySavedStreamWindowPlacement(
+                    window, out restored, out targetDpi))
+                return false;
+
+            Log("Restored renderer window placement " +
+                restored.Left + "," + restored.Top + " " +
+                restored.Width + "x" + restored.Height +
+                " at " + targetDpi + " DPI.");
+            QueueStreamWindowPlacementSave(window, 250);
+            return true;
+        }
+
+        private bool TryApplySavedStreamWindowPlacement(
+            IntPtr window, out Rectangle restored, out int targetDpi)
+        {
+            restored = Rectangle.Empty;
+            targetDpi = 96;
             if (!settings.HasValidStreamWindowPlacement())
                 return false;
 
@@ -372,18 +453,12 @@ namespace AirPlayReceiverMvp
             if (preliminary.IsEmpty || !SetRendererOuterBounds(window, preliminary))
                 return false;
 
-            int targetDpi = NativeMethods.GetWindowDpi(window);
-            Rectangle restored = ClampSavedStreamWindowBounds(
+            targetDpi = NativeMethods.GetWindowDpi(window);
+            restored = ClampSavedStreamWindowBounds(
                 savedBounds, preliminary, workAreas,
                 settings.StreamWindowDpi, targetDpi);
             if (restored.IsEmpty || !SetRendererOuterBounds(window, restored))
                 return false;
-
-            Log("Restored renderer window placement " +
-                restored.Left + "," + restored.Top + " " +
-                restored.Width + "x" + restored.Height +
-                " at " + targetDpi + " DPI.");
-            QueueStreamWindowPlacementSave(window, 250);
             return true;
         }
 
@@ -556,10 +631,29 @@ namespace AirPlayReceiverMvp
                 return;
             RememberRendererBounds(window);
 
-            NativeMethods.SetWindowText(window, "iPhone · AeroMirror");
-            NativeMethods.SetToolWindowStyle(
-                window, !settings.ShowStreamInTaskbar);
             bool newWindow = previousWindow != window;
+            if (ShouldApplyRendererWindowPolicy(
+                    window, rendererPolicyWindow,
+                    rendererPolicyApplied,
+                    settings.AlwaysOnTop, rendererPolicyAlwaysOnTop,
+                    settings.ShowStreamInTaskbar,
+                    rendererPolicyShowInTaskbar))
+            {
+                NativeMethods.SetWindowText(window, "iPhone · AeroMirror");
+                NativeMethods.SetToolWindowStyle(
+                    window, !settings.ShowStreamInTaskbar);
+                NativeMethods.SetWindowPos(window,
+                    settings.AlwaysOnTop
+                        ? NativeMethods.HWND_TOPMOST
+                        : NativeMethods.HWND_NOTOPMOST,
+                    0, 0, 0, 0,
+                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE |
+                    NativeMethods.SWP_NOACTIVATE);
+                rendererPolicyWindow = window;
+                rendererPolicyApplied = true;
+                rendererPolicyAlwaysOnTop = settings.AlwaysOnTop;
+                rendererPolicyShowInTaskbar = settings.ShowStreamInTaskbar;
+            }
             if (newWindow)
             {
                 ClearPendingManualRendererFit();
@@ -664,13 +758,18 @@ namespace AirPlayReceiverMvp
             }
             SavePendingStreamWindowPlacement(window);
             RememberRendererBounds(window);
-            NativeMethods.SetWindowPos(window,
-                settings.AlwaysOnTop
-                    ? NativeMethods.HWND_TOPMOST
-                    : NativeMethods.HWND_NOTOPMOST,
-                0, 0, 0, 0,
-                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE |
-                NativeMethods.SWP_NOACTIVATE);
+            CompleteLostConnectionRendererHandoff();
+        }
+
+        private static bool ShouldApplyRendererWindowPolicy(
+            IntPtr window, IntPtr previousWindow, bool policyApplied,
+            bool alwaysOnTop, bool previousAlwaysOnTop,
+            bool showInTaskbar, bool previousShowInTaskbar)
+        {
+            return window != IntPtr.Zero &&
+                (!policyApplied || window != previousWindow ||
+                 alwaysOnTop != previousAlwaysOnTop ||
+                 showInTaskbar != previousShowInTaskbar);
         }
 
         private void FitStreamWindow(bool notifyIfMissing)

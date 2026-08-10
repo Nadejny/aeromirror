@@ -20,11 +20,13 @@ namespace AirPlayReceiverMvp
 {
     internal sealed partial class ReceiverContext
     {
+        private const int FeedbackGapPlaceholderSeconds = 5;
+
         private enum LostConnectionRecoveryAction
         {
             None,
             RestartStalledSession,
-            RenewDiscovery
+            PreserveNativeRecovery
         }
 
         public void StartCore()
@@ -414,6 +416,8 @@ namespace AirPlayReceiverMvp
                     processId, PinEntryGraceSeconds,
                     "AirPlay authentication progress");
 
+            ObserveClientFeedbackHealth(processId, line);
+
             Match chosenDeviceId = Regex.Match(
                 line,
                 @"\busing (?:system|user-set|randomly-generated) MAC address " +
@@ -594,8 +598,10 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
+                Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
+                Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
                 Interlocked.Exchange(ref mirrorSessionActive, 1);
-                QueueLostConnectionPlaceholderClose();
+                QueueLostConnectionRendererHandoff();
                 canceledDeferredRestart = Interlocked.Exchange(
                     ref mirrorSessionEndedPending, 0) == 1;
                 Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
@@ -629,6 +635,7 @@ namespace AirPlayReceiverMvp
         private void HandleMirroringEndedMaintenance(int processId)
         {
             string message = "";
+            bool closeTransientFeedbackPlaceholder = false;
             lock (postSessionMaintenanceSync)
             {
                 if (Interlocked.CompareExchange(
@@ -648,6 +655,15 @@ namespace AirPlayReceiverMvp
                 }
                 if (Interlocked.Exchange(ref mirrorSessionActive, 0) != 1)
                     return;
+                Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
+                if (!abnormalLossRecoveryPending)
+                {
+                    closeTransientFeedbackPlaceholder = Interlocked.Exchange(
+                        ref feedbackGapPlaceholderActive, 0) == 1 ||
+                        Interlocked.CompareExchange(
+                            ref lostConnectionRendererHandoffPending,
+                            0, 0) == 1;
+                }
 
                 DateTime now = DateTime.UtcNow;
                 long reconnectGraceDueTicks = Interlocked.Read(
@@ -682,8 +698,9 @@ namespace AirPlayReceiverMvp
                     Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
                     message = abnormalLossRecoveryPending
                         ? "Mirroring session cleanup completed after an abnormal " +
-                            "client loss; one bounded discovery renewal remains " +
-                            "armed."
+                            "client loss; the bounded watchdog will preserve " +
+                            "UxPlay's in-process recovery when its socket reset " +
+                            "has completed."
                         : "Mirroring session cleanup completed; the receiver " +
                             "stays running and no post-session restart was " +
                             "scheduled. The bounded ten-minute idle discovery " +
@@ -691,6 +708,120 @@ namespace AirPlayReceiverMvp
                 }
             }
             Log(message);
+            if (closeTransientFeedbackPlaceholder)
+                QueueLostConnectionPlaceholderClose();
+        }
+
+        private void ObserveClientFeedbackHealth(int processId, string line)
+        {
+            if (line.IndexOf(
+                    "AEROMIRROR_FEEDBACK_HEALTH_READY",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Interlocked.Exchange(ref feedbackHealthMarkersReady, 1);
+                return;
+            }
+
+            int warningSeconds = ParseClientFeedbackWarningSeconds(line);
+            if (warningSeconds > 0)
+            {
+                bool showPlaceholder = false;
+                lock (postSessionMaintenanceSync)
+                {
+                    if (Interlocked.CompareExchange(
+                            ref activeCorePid, 0, 0) != processId ||
+                        !IsMirrorSessionActive)
+                        return;
+
+                    if (Interlocked.CompareExchange(
+                            ref feedbackGapEpisodeActive, 1, 0) == 0)
+                        Interlocked.Increment(ref feedbackGapEpisodeCount);
+                    UpdateMaximum(
+                        ref feedbackGapLongestSeconds, warningSeconds);
+                    if (warningSeconds >= FeedbackGapPlaceholderSeconds &&
+                        Interlocked.CompareExchange(
+                            ref feedbackHealthMarkersReady, 0, 0) == 1 &&
+                        Interlocked.Exchange(
+                            ref feedbackGapPlaceholderActive, 1) == 0)
+                        showPlaceholder = true;
+                }
+
+                if (showPlaceholder)
+                {
+                    QueueLostConnectionPlaceholder();
+                    Log("AirPlay client feedback has been absent for " +
+                        warningSeconds + " seconds; showing continuity " +
+                        "while the existing session is still allowed to " +
+                        "recover.");
+                }
+                return;
+            }
+
+            int recoveredGapSeconds = ParseClientFeedbackRecoverySeconds(line);
+            if (recoveredGapSeconds <= 0)
+                return;
+
+            bool closePlaceholder = false;
+            lock (postSessionMaintenanceSync)
+            {
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) != processId ||
+                    !IsMirrorSessionActive ||
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 0, 0) == 1)
+                    return;
+                UpdateMaximum(
+                    ref feedbackGapLongestSeconds, recoveredGapSeconds);
+                Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
+                closePlaceholder = Interlocked.Exchange(
+                    ref feedbackGapPlaceholderActive, 0) == 1;
+            }
+            if (closePlaceholder)
+                QueueLostConnectionRendererHandoff();
+            Log("AirPlay client feedback resumed after a " +
+                recoveredGapSeconds + "-second gap; the existing " +
+                "mirroring session remains active.");
+        }
+
+        private static int ParseClientFeedbackWarningSeconds(string line)
+        {
+            Match match = Regex.Match(
+                line ?? "",
+                @"^\*\*\* ERROR:\s+(\d+) seconds since last client feedback request\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return ParseBoundedFeedbackGap(match);
+        }
+
+        private static int ParseClientFeedbackRecoverySeconds(string line)
+        {
+            Match match = Regex.Match(
+                line ?? "",
+                @"^AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=(\d+)$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return ParseBoundedFeedbackGap(match);
+        }
+
+        private static int ParseBoundedFeedbackGap(Match match)
+        {
+            int seconds;
+            return match.Success &&
+                int.TryParse(match.Groups[1].Value, out seconds) &&
+                seconds > 0 && seconds <= 3600
+                ? seconds
+                : 0;
+        }
+
+        private static void UpdateMaximum(ref int target, int candidate)
+        {
+            int observed = Interlocked.CompareExchange(ref target, 0, 0);
+            while (candidate > observed)
+            {
+                int previous = Interlocked.CompareExchange(
+                    ref target, candidate, observed);
+                if (previous == observed)
+                    return;
+                observed = previous;
+            }
         }
 
         private void ObserveCoreDiscoveryMarker(int processId, string line)
@@ -858,6 +989,9 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
+                Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
+                Interlocked.Exchange(ref feedbackHealthMarkersReady, 0);
                 Interlocked.Exchange(ref coreClientActivityReadyPending, 0);
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
                 Interlocked.Exchange(ref physicalNetworkRestartDeferred, 0);
@@ -1052,13 +1186,13 @@ namespace AirPlayReceiverMvp
                     ScheduleRestart(
                         "stalled mirror after lost client", false, 500);
                 }
-                else if (action == LostConnectionRecoveryAction.RenewDiscovery)
+                else if (action ==
+                    LostConnectionRecoveryAction.PreserveNativeRecovery)
                 {
-                    Log("UxPlay completed its lost-client cleanup; performing " +
-                        "one bounded AirPlay discovery renewal.");
-                    lastAutomaticDiscoveryRefreshUtc = DateTime.UtcNow;
-                    ScheduleRestart(
-                        "lost-client discovery renewal", false, 500);
+                    Log("UxPlay completed its lost-client cleanup and " +
+                        "reinitialized its listening socket; preserving the " +
+                        "same receiver process and AirPlay port for a faster " +
+                        "reconnect.");
                 }
             }
         }
@@ -1091,7 +1225,7 @@ namespace AirPlayReceiverMvp
                 return LostConnectionRecoveryAction.None;
             return mirrorActive
                 ? LostConnectionRecoveryAction.RestartStalledSession
-                : LostConnectionRecoveryAction.RenewDiscovery;
+                : LostConnectionRecoveryAction.PreserveNativeRecovery;
         }
 
         private void HandleCoreDiscoveryRecovery()
@@ -1225,14 +1359,19 @@ namespace AirPlayReceiverMvp
             }
 
             if (settings.Renderer == "d3d11")
+            {
+                parts.Add("-vd d3d11h264dec");
                 parts.Add("-vs d3d11videosink");
+            }
             else if (settings.Renderer == "d3d12")
+            {
+                parts.Add("-vd d3d12h264dec");
                 parts.Add("-vs d3d12videosink");
+            }
 
             if (settings.LatencyProfile == "low")
             {
                 parts.Add("-vsync no");
-                parts.Add("-al 0.05");
             }
             else if (settings.LatencyProfile == "stable")
             {
@@ -1242,7 +1381,7 @@ namespace AirPlayReceiverMvp
             if (settings.AudioOutput == "mute")
                 parts.Add("-a");
 
-            parts.Add("-reset 6");
+            parts.Add("-reset 15");
             if (!string.IsNullOrWhiteSpace(settings.AdvancedArguments))
                 parts.Add(settings.AdvancedArguments.Trim());
             return string.Join(" ", parts.ToArray());
@@ -1421,6 +1560,18 @@ namespace AirPlayReceiverMvp
                 (Interlocked.CompareExchange(
                     ref restartStopInProgress, 0, 0) == 1) +
                 "; networkWait=" + IsWaitingForNetwork + ".");
+            text.AppendLine("AirPlay feedback gaps: episodes=" +
+                Interlocked.CompareExchange(
+                    ref feedbackGapEpisodeCount, 0, 0) +
+                "; longestSeconds=" +
+                Interlocked.CompareExchange(
+                    ref feedbackGapLongestSeconds, 0, 0) +
+                "; active=" +
+                (Interlocked.CompareExchange(
+                    ref feedbackGapEpisodeActive, 0, 0) == 1) +
+                "; nativeMarkers=" +
+                (Interlocked.CompareExchange(
+                    ref feedbackHealthMarkersReady, 0, 0) == 1) + ".");
             text.AppendLine("Discovery registration: DNS-SD=" +
                 DiscoveryMarkerStatus(
                     Interlocked.CompareExchange(

@@ -325,7 +325,8 @@ namespace AirPlayReceiverMvp
             latency.Items.Add(new NamedValue(
                 "Сбалансированный — рекомендуется", "balanced"));
             latency.Items.Add(new NamedValue(
-                "Минимальный — меньше буфер, возможны рывки", "low"));
+                "Интерактивный — плавнее движение, возможен рассинхрон звука",
+                "low"));
             latency.Items.Add(new NamedValue(
                 "Стабильный — больше буфер и заметнее задержка", "stable"));
             settingsContent.Controls.Add(latency);
@@ -479,9 +480,9 @@ namespace AirPlayReceiverMvp
             renderer.Items.Add(new NamedValue(
                 "Автоматический выбор GStreamer — рекомендуется", "auto"));
             renderer.Items.Add(new NamedValue(
-                "Direct3D 11 — режим совместимости", "d3d11"));
+                "Direct3D 11 — совместимый декодер и вывод", "d3d11"));
             renderer.Items.Add(new NamedValue(
-                "Direct3D 12 — экспериментально", "d3d12"));
+                "Direct3D 12 — экспериментальный декодер и вывод", "d3d12"));
             advancedPage.Controls.Add(renderer);
             advancedPage.Controls.Add(MakeLabel(
                 "Дополнительные аргументы UxPlay", 24, 195));
@@ -1488,8 +1489,8 @@ namespace AirPlayReceiverMvp
 
         private static Button MakeBackButton(int x, int y)
         {
-            var button = MakeButton("←  Назад", x, y, 102, 38, false);
-            button.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
+            var button = MakeButton("←  Назад", x, y, 112, 40, false);
+            button.Font = new Font("Segoe UI", 11.5F, FontStyle.Regular);
             button.TextAlign = ContentAlignment.MiddleCenter;
             return button;
         }

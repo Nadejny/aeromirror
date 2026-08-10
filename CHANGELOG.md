@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.12.4 — smoother recovery, renderer handoff, and diagnostics
+
+### Fixed
+
+- Temporary AirPlay feedback gaps no longer force the shell to replace a core
+  that has already recovered its listening socket. AeroMirror keeps the same
+  native process and AirPlay port after completed in-process cleanup, and the
+  UxPlay reset tolerance returns to its upstream 15-second default instead of
+  declaring a six-second network interruption fatal.
+- A patched core now announces feedback-health support and recovery. After a
+  five-second feedback gap, AeroMirror can show continuity without ending the
+  active session; the placeholder closes if feedback resumes and remains
+  gated off for older cores that cannot report recovery.
+- A reconnect no longer dismisses continuity on the protocol-start line alone.
+  AeroMirror waits until the replacement renderer exists and has been placed,
+  then fades the placeholder over 180 ms. Saved bounds are also applied from
+  the renderer's early Windows show event, reducing the visible jump from the
+  default position.
+- The continuity snapshot now uses only the renderer client area and is
+  rejected when another visible window overlaps it. This captures more useful
+  last frames than the former foreground-only rule without copying unrelated
+  foreground content.
+- Repeated supervision no longer rewrites an unchanged renderer title,
+  taskbar style, or topmost state four times per second. Automatic proportion
+  fitting is queued after interactive resize completion rather than mutating
+  the external window during the drag.
+
+### Changed
+
+- The former Minimal latency profile is now **Interactive**. It disables
+  timestamp scheduling with `-vsync no` but no longer forces the aggressive
+  50 ms audio-buffer request that caused extra stutter on some networks. Audio
+  and video synchronization can be less exact in this mode; Balanced remains
+  the default.
+- Selecting Direct3D 11 or Direct3D 12 now pins both the matching Direct3D
+  decoder family and video sink, with codec matching performed when the
+  pipeline is created.
+- Support diagnostics record feedback-gap episode count, longest duration,
+  native capability state, the raw AirPlay geometry header (including its
+  previously ignored auxiliary pair), and the decoder/video sink selected by
+  GStreamer. The auxiliary fields are evidence only and are not treated as a
+  crop, pixel-aspect-ratio, or rotation signal.
+- The settings Back button is larger.
+
+### Compatibility and verification status
+
+- This patch changes both the managed shell and the reviewed native UxPlay
+  patch. The pinned upstream revisions and third-party runtime stay unchanged;
+  the rebuilt core, reviewed patch, modified source, build inputs, and prepared
+  corresponding source match the locked native provenance.
+- The managed build, resilience suite, review payload, Setup build and
+  lifecycle verifier, native-source/provenance validation, version/link audit,
+  and `git diff --check` pass for the candidate. Clean exact-tag packaging and
+  public-asset verification remain pending.
+- Physical Windows 10/11 plus iPhone recovery, smoothness, Photos, placement,
+  and installed-update tests remain pending and must not be inferred from the
+  automated checks.
+- Photos can still place a small image and black bars inside a
+  `3840x2160` encoded canvas. This patch adds geometry evidence but does not
+  guess a crop or fix that inner layout.
+- The renderer still belongs to the external GStreamer process. A Mac-style
+  hover-only frame, true borderless viewer, live aspect lock during dragging,
+  and a single embedded surface require a separate native renderer/IPC design.
+- AirDrop interoperability and localization are not included. Genuine AirDrop
+  requires separate Bluetooth/AWDL, identity, and encrypted-transfer research;
+  the resource-based language design remains tracked by decision D-006.
+
 ## 0.12.3 — connection-loss continuity and remembered stream windows
 
 ### Added

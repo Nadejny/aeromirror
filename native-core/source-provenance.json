@@ -3,8 +3,8 @@
   "uxplayWindowsCommit": "8cf3424b438424bc99a89155bd29a789f48a43c0",
   "libuxplayCommit": "437f37514257d9cb513ac7fbdee743b4da85852e",
   "uxplayWindowsPatchSha256": "0a47a4e67d45f21583a027e2b07450d0333369ddc8d3c156185aef29ee1145e5",
-  "libuxplayPatchSha256": "d85fa52ca0f98ce1c30b4a7a7de3d5f3ba7d1bfa3e6072aa11b8c92e74197651",
-  "headlessExecutableSha256": "984f58c053631005145b07dab44ee0cfb7cd637a0ca5e67f5b61500284e2d5b9",
+  "libuxplayPatchSha256": "f00746f2be66c875d44b57484f2295d8b0dc994dc671eae21f05d6a462127467",
+  "headlessExecutableSha256": "f6f1fd80fba69595bf9a82d5dc9cefbe9dc97bc272f8a1b30a9132c253d65533",
   "qtBuildVersion": "6.10.1",
   "pinnedRuntimeRelease": "2.0.0.1736",
   "coreRuntimeCompatibility": "uxplay-windows-2.0.0.1736",
@@ -14,8 +14,9 @@
     "src/main.cpp": "b746669cbb6e5040776021d4eb00b3ee9a248fe98ef52c7941fdfa7fac652727",
     "src/mainwindow.cpp": "9a7372a8a4ad2be47e3561035e169b177a7d8546fc17d2c47b9312524dc26550",
     "src/mainwindow.h": "541aa1df5e7561fedac969373df6d952854b3d1823ba7f848cda2c310681c0bb",
-    "libuxplay/renderers/video_renderer.c": "c5beb0d30d378a01d0bcfbc6531a13166a73aa866dfb8c5571603855d10be73b",
-    "libuxplay/uxplay.cpp": "c2e8ac789e0bc04a8efa07509a9ac847de9abd6b7f97cc4a9fad732b015912b2"
+    "libuxplay/lib/raop_rtp_mirror.c": "8760adbb0a70de900fa99845b6673af9c30e8f9ffcaea9da7fb714379fe013d8",
+    "libuxplay/renderers/video_renderer.c": "23c6037a7cccde29bb0cfbf2446d27b098ccb23dc9a06a37f4de323664d6e693",
+    "libuxplay/uxplay.cpp": "84f95f276f855f00e251b3b8eb6e66cd7b5faae7a8b06bcfbee931d92579061a"
   },
   "buildInputs": {
     "dns_sd.h": "5d0ca50f207f6eb02e09d743f9b65d2ade65e8f81862dcd3703845b4fe87a9c1",

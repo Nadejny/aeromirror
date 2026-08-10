@@ -11,6 +11,10 @@ uxplay.commit=21eef8df25d91e12635c36d8176ad192725baca2
 libuxplay.repository=https://github.com/leapbtw/libuxplay
 libuxplay.commit=437f37514257d9cb513ac7fbdee743b4da85852e
 
+aeromirror.uxplay-windows.patch.sha256=0A47A4E67D45F21583A027E2B07450D0333369DDC8D3C156185AEF29EE1145E5
+aeromirror.libuxplay.patch.sha256=F00746F2BE66C875D44B57484F2295D8B0DC994DC671EAE21F05D6A462127467
+aeromirror.headless-executable.sha256=F6F1FD80FBA69595BF9A82D5DC9CEFBE9DC97BC272F8A1B30A9132C253D65533
+
 runtime.msys2=20260611
 runtime.gstreamer=1.28.5
 runtime.qt=6.10.1

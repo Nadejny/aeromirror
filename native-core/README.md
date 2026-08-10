@@ -15,7 +15,10 @@ and is used to create a MinGW import library for local builds.
 The source changes are recorded in `uxplay-windows-headless.patch` and
 `libuxplay-aeromirror.patch`. The latter adds stable video-size and DNS-SD
 readiness log markers used by the Windows shell for window adaptation and
-discovery diagnostics. The launcher accepts `--beacon-ipv4 <numeric IPv4>`
+discovery diagnostics, plus raw AirPlay geometry, selected GStreamer pipeline,
+and feedback-health capability/recovered markers used only for diagnostics and
+bounded continuity. Its auxiliary geometry pair is not claimed as crop, PAR,
+or rotation metadata. The launcher accepts `--beacon-ipv4 <numeric IPv4>`
 before `--uxplay`, passes it to the Windows BLE helper, and forwards helper
 output to stdout with an `AEROMIRROR_BLE` prefix.
 

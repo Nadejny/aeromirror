@@ -68,18 +68,27 @@ The current shell depends on these native integration behaviors:
    markers. Listening sockets remain the readiness baseline.
 5. Existing native log lines still provide heuristic mirroring start, normal
    stop, and lost-client observations. A fatal loss marker arms one bounded
-   recovery decision: an active stalled session restarts, while completed
-   native cleanup triggers exactly one discovery renewal. A normal clean
-   disconnect does not restart the receiver. The same confirmed fatal marker
-   can open a managed continuity placeholder; a benign feedback warning or
-   clean disconnect cannot.
+   recovery decision: an active stalled session can restart, while completed
+   native cleanup preserves UxPlay's reinitialized listening socket in the same
+   process and on the same AirPlay port. A normal clean disconnect does not
+   restart the receiver.
 6. The reviewed libuxplay patch writes a stable
    `AEROMIRROR_VIDEO_SIZE source=<w>x<h> encoded=<w>x<h>` line when the
-   incoming video size changes.
+   incoming video size changes. It also writes the full raw header as
+   `AEROMIRROR_VIDEO_GEOMETRY ...`, including a previously ignored auxiliary
+   width/height pair, and reports the actual GStreamer decoder/video sink as
+   `AEROMIRROR_GSTREAMER_SELECTED ...`. The auxiliary pair is diagnostic only;
+   it is not treated as crop, pixel-aspect-ratio, or rotation metadata.
 7. A high-level connection request or PIN prompt establishes a bounded client
    activity grace. A later end marker belonging to the previous session must
    not erase that newer grace or allow deferred settings/network maintenance
    to interrupt the new handshake.
+8. A patched core announces `AEROMIRROR_FEEDBACK_HEALTH_READY` and emits
+   `AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=<n>` when periodic client
+   feedback resumes. Only after that capability marker may the shell turn a
+   five-second warning into visual continuity and later dismiss it without
+   ending the active session. A legacy core is excluded because it cannot
+   provide the recovery acknowledgement.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -115,15 +124,17 @@ session that exposes only a generic media canvas remains ambiguous because
 stdout still provides no independent device-orientation metadata.
 
 The shell installs an out-of-context WinEvent hook scoped to the active native
-core process and watches interactive move/size completion. A real resize queues
-a short delayed fit on the normal supervision thread; move-only activity,
-minimized/maximized windows, core replacement, and an explicit automatic-fit
-opt-out do not queue or apply it. The callback itself never resizes the foreign
-window. The resulting fit preserves the user's chosen client area while
-restoring the learned stream proportions. The tray action remains a manual
-one-shot fallback and resolves through the same learned device-frame baseline,
-so invoking it during a later Photos canvas does not recreate a false
-landscape fit.
+core process and watches both the renderer's early show event and interactive
+move/size completion. The show callback applies only validated saved placement
+already loaded in memory, reducing the interval in which the foreign window can
+appear at its native default position. A real resize queues fitting for the
+next normal supervision pass; move-only activity, minimized/maximized windows,
+core replacement, and an explicit automatic-fit opt-out do not queue or apply
+it. The callback never performs file I/O or a full aspect fit. The resulting
+fit preserves the user's chosen client area while restoring the learned stream
+proportions. The tray action remains a manual one-shot fallback and resolves
+through the same learned device-frame baseline, so invoking it during a later
+Photos canvas does not recreate a false landscape fit.
 
 Normal renderer outer bounds and their DPI are persisted through the existing
 atomic settings path after a queued initial, manual, or automatic fit, or after
@@ -131,8 +142,9 @@ move/resize work reaches the supervision timer. A new renderer first restores
 those bounds, scales them for its target DPI, and clamps stale, oversized, or
 disconnected-monitor coordinates into an available Windows work area. The
 subsequent provisional and exact-size fits preserve the restored center and
-approximate client area. Minimized/maximized states are not saved, and the
-out-of-context WinEvent callback performs no window mutation or file I/O.
+approximate client area. Minimized/maximized states are not saved. Applied
+title, taskbar style, and topmost state are cached so an unchanged renderer is
+not mutated on every 250 ms supervision tick.
 
 The marker reports the encoded stream dimensions; it is not remote-control
 input, pixel-aspect metadata, or a guarantee that an iPhone application itself
@@ -145,21 +157,25 @@ expose explicit stream, orientation, and content-layout events.
 
 ## Fatal-loss presentation continuity
 
-The native renderer remains an external window owned by the core process, so
-it closes when bounded fatal-loss recovery replaces that process. Before that
-cleanup completes, the managed shell remembers its bounds and may copy the
-visible foreground pixels inside those bounds. The copy is softened and
-darkened in process memory; it is never written to settings, logs, diagnostics,
-or a temporary file. If foreground capture is unsafe or unavailable, the form
-uses a dark fallback.
+The native renderer remains an external window owned by the core process.
+Before cleanup completes, the managed shell remembers its bounds and may copy
+the renderer's visible client pixels when no higher visible window overlaps
+them. The copy is softened and darkened in process memory; it is never written
+to settings, logs, diagnostics, or a temporary file. If unobscured client-area
+capture is unsafe or unavailable, the form uses a dark fallback.
 
 This managed placeholder is presentation continuity, not protocol state or a
-second renderer. It remains through native process renewal and a reconnect
-handshake, then closes only on a new mirroring-start marker, explicit user
-close, manual receiver stop, settings-driven shutdown, or application exit.
-Its taskbar and always-on-top policy follow the stream-window settings. A clean
-disconnect and benign client-feedback warnings never open it. Discovery speed
-and stale iOS browse rows remain properties of the native/network path.
+second renderer. A five-second feedback warning may open it only after the
+patched core has announced recovery-marker capability; recovered feedback can
+then dismiss that transient episode without restarting the active session. A
+confirmed fatal loss retains continuity through cleanup and a reconnect
+handshake. A protocol-start marker alone is insufficient: the placeholder
+stays until a real renderer exists and has been positioned, then hands off with
+a short nonblocking opacity fade. Explicit user close, manual receiver stop,
+settings-driven shutdown, and application exit close it immediately. Its
+taskbar and always-on-top policy follow the stream-window settings. A clean
+disconnect does not open it. Discovery speed and stale iOS browse rows remain
+properties of the native/network path.
 
 ## Native build provenance
 

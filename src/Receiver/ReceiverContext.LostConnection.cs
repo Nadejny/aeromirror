@@ -16,19 +16,28 @@ namespace AirPlayReceiverMvp
 
         private int lostConnectionPlaceholderShowPending;
         private int lostConnectionPlaceholderClosePending;
+        private int lostConnectionRendererHandoffPending;
         private Rectangle lastRendererBounds = Rectangle.Empty;
         private LostConnectionForm lostConnectionForm;
 
         private void QueueLostConnectionPlaceholder()
         {
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 1);
         }
 
         private void QueueLostConnectionPlaceholderClose()
         {
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 1);
+        }
+
+        private void QueueLostConnectionRendererHandoff()
+        {
+            Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 1);
         }
 
         private void RememberRendererBounds(IntPtr window)
@@ -178,18 +187,25 @@ namespace AirPlayReceiverMvp
             Bitmap snapshot = null;
             try
             {
+                Rectangle captureBounds;
+                if (!TryGetRendererClientScreenBounds(
+                        rendererWindow, out captureBounds))
+                    return null;
                 Rectangle virtualScreen = SystemInformation.VirtualScreen;
                 bool fullyOnScreen = Rectangle.Intersect(
-                    virtualScreen, bounds) == bounds;
+                    virtualScreen, captureBounds) == captureBounds;
                 if (NativeMethods.IsWindowVisible(rendererWindow) &&
-                    NativeMethods.GetForegroundWindow() == rendererWindow &&
+                    IsRendererWindowUnoccluded(
+                        rendererWindow, captureBounds) &&
                     fullyOnScreen)
                 {
-                    snapshot = new Bitmap(bounds.Width, bounds.Height);
+                    snapshot = new Bitmap(
+                        captureBounds.Width, captureBounds.Height);
                     using (Graphics graphics = Graphics.FromImage(snapshot))
                     {
                         graphics.CopyFromScreen(
-                            bounds.Left, bounds.Top, 0, 0, bounds.Size,
+                            captureBounds.Left, captureBounds.Top,
+                            0, 0, captureBounds.Size,
                             CopyPixelOperation.SourceCopy);
                     }
                     Log("Renderer snapshot is available from the desktop " +
@@ -198,7 +214,7 @@ namespace AirPlayReceiverMvp
                 }
 
                 Log("Renderer snapshot is unavailable or the renderer is " +
-                    "not in the foreground; the lost-connection placeholder " +
+                    "covered by another window; the lost-connection placeholder " +
                     "will use a dark fallback.");
                 return null;
             }
@@ -212,12 +228,115 @@ namespace AirPlayReceiverMvp
             }
         }
 
+        private static bool TryGetRendererClientScreenBounds(
+            IntPtr rendererWindow, out Rectangle bounds)
+        {
+            bounds = Rectangle.Empty;
+            NativeMethods.RECT client;
+            var origin = new NativeMethods.POINT();
+            if (!NativeMethods.GetClientRect(rendererWindow, out client) ||
+                !NativeMethods.ClientToScreen(rendererWindow, ref origin))
+                return false;
+            int width = client.Right - client.Left;
+            int height = client.Bottom - client.Top;
+            if (width <= 0 || height <= 0 ||
+                width > 8192 || height > 8192)
+                return false;
+            bounds = new Rectangle(origin.X, origin.Y, width, height);
+            return true;
+        }
+
+        private static bool IsRendererWindowUnoccluded(
+            IntPtr rendererWindow, Rectangle rendererBounds)
+        {
+            IntPtr window = NativeMethods.GetWindow(
+                rendererWindow, NativeMethods.GW_HWNDPREV);
+            int inspected = 0;
+            while (window != IntPtr.Zero && inspected++ < 512)
+            {
+                if (NativeMethods.IsWindowVisible(window) &&
+                    !NativeMethods.IsIconic(window))
+                {
+                    NativeMethods.RECT nativeBounds;
+                    if (NativeMethods.GetWindowRect(window, out nativeBounds))
+                    {
+                        var bounds = Rectangle.FromLTRB(
+                            nativeBounds.Left, nativeBounds.Top,
+                            nativeBounds.Right, nativeBounds.Bottom);
+                        Rectangle overlap = Rectangle.Intersect(
+                            rendererBounds, bounds);
+                        if (overlap.Width > 0 && overlap.Height > 0)
+                            return false;
+                    }
+                }
+                window = NativeMethods.GetWindow(
+                    window, NativeMethods.GW_HWNDPREV);
+            }
+            return window == IntPtr.Zero;
+        }
+
+        private void CompleteLostConnectionRendererHandoff()
+        {
+            if (Interlocked.CompareExchange(
+                    ref lostConnectionRendererHandoffPending, 0, 0) != 1)
+                return;
+
+            bool placeholderVisible = lostConnectionForm != null &&
+                !lostConnectionForm.IsDisposed;
+            bool placeholderQueued = Interlocked.CompareExchange(
+                ref lostConnectionPlaceholderShowPending, 0, 0) == 1;
+            if (!IsMirrorSessionActive)
+            {
+                Interlocked.Exchange(
+                    ref lostConnectionRendererHandoffPending, 0);
+                return;
+            }
+            if (!placeholderVisible && !placeholderQueued)
+            {
+                Interlocked.Exchange(
+                    ref lostConnectionRendererHandoffPending, 0);
+                return;
+            }
+
+            if (!placeholderVisible)
+            {
+                Log("Mirroring renderer is visible and positioned; canceled " +
+                    "the queued lost-connection placeholder before display.");
+                QueueLostConnectionPlaceholderClose();
+                HandleLostConnectionPlaceholder();
+                return;
+            }
+
+            LostConnectionForm placeholder = lostConnectionForm;
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
+            Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
+            if (!placeholder.BeginRendererHandoff(
+                delegate
+                {
+                    if (!ReferenceEquals(lostConnectionForm, placeholder))
+                        return;
+                    Log("Renderer handoff fade completed; closing the " +
+                        "lost-connection placeholder.");
+                    CloseLostConnectionPlaceholder();
+                },
+                delegate
+                {
+                    return Interlocked.CompareExchange(
+                        ref lostConnectionPlaceholderShowPending, 0, 0) == 1;
+                }))
+                return;
+
+            Log("Mirroring renderer is visible and positioned; beginning " +
+                "the lost-connection handoff fade.");
+        }
+
         private void CloseLostConnectionPlaceholder()
         {
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             LostConnectionForm placeholder = lostConnectionForm;
-            lostConnectionForm = null;
             if (placeholder == null)
                 return;
             try
@@ -228,6 +347,8 @@ namespace AirPlayReceiverMvp
             catch { }
             finally
             {
+                if (ReferenceEquals(lostConnectionForm, placeholder))
+                    lostConnectionForm = null;
                 placeholder.Dispose();
             }
         }
@@ -237,8 +358,10 @@ namespace AirPlayReceiverMvp
             LostConnectionForm placeholder = lostConnectionForm;
             if (placeholder == null || placeholder.IsDisposed)
                 return;
-            placeholder.TopMost = settings.AlwaysOnTop;
-            placeholder.ShowInTaskbar = settings.ShowStreamInTaskbar;
+            if (placeholder.TopMost != settings.AlwaysOnTop)
+                placeholder.TopMost = settings.AlwaysOnTop;
+            if (placeholder.ShowInTaskbar != settings.ShowStreamInTaskbar)
+                placeholder.ShowInTaskbar = settings.ShowStreamInTaskbar;
         }
     }
 }

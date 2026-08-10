@@ -49,8 +49,9 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   adapts it on real portrait/landscape changes; automatic fitting restores the
   learned proportions after a manual resize unless the user turns it off;
   the last normal position, size, and DPI are restored on the next session and
-  clamped into an available monitor; the window can stay on top and remains on
-  the taskbar by default;
+  clamped into an available monitor; saved bounds are applied from the early
+  window-show event, unchanged native-window policy is cached, and the window
+  can stay on top and remains on the taskbar by default;
 - debounces Windows network events, refreshes discovery only after an actual
   physical network change, keeps a healthy receiver running after a normal
   disconnect, and retains one bounded ten-minute idle-discovery fallback;
@@ -58,14 +59,16 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   interrupt the next handshake, while a full manual receiver restart remains
   available; a stale end marker from the previous session also preserves the
   newer request/PIN grace instead of triggering deferred maintenance during
-  the reconnect handshake; after an explicit lost-client marker and native
-  cleanup, one bounded discovery renewal replaces the stale advertisement,
-  while an ordinary clean disconnect still leaves the receiver running; a
-  fatal loss keeps a softened in-memory view at the renderer bounds when a
-  foreground capture is safe, or a dark fallback otherwise, with a reconnect
-  message and explicit close action until mirroring resumes;
+  the reconnect handshake; after completed lost-client cleanup, the recovered
+  native process and AirPlay port are preserved instead of immediately being
+  replaced, while an ordinary clean disconnect still leaves the receiver
+  running; a patched core can show continuity after a five-second feedback gap
+  and dismiss it when the same session recovers; confirmed loss keeps a
+  softened in-memory view of unobscured renderer client pixels, or a dark
+  fallback otherwise, until a positioned renderer is ready for a short fade
+  handoff or the user closes it;
 - checks a configured public GitHub Release channel only when requested,
-  accepts only exact three-part release tags such as `v0.12.3`,
+  accepts only exact three-part release tags such as `v0.12.4`,
   requires the exact versioned asset name
   `AeroMirror-Setup-<MAJOR.MINOR.PATCH>.exe`, displays curated release notes,
   and verifies the setup SHA-256 before launching an update;
@@ -74,7 +77,9 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   pre-filled GitHub Issue; the user reviews and attaches the file manually;
 - captures UxPlay stdout/stderr in the rotating log while masking PINs,
   passwords, MAC addresses, user-profile paths, and labelled cryptographic
-  material;
+  material; 0.12.4 also records feedback-gap totals, the full raw AirPlay
+  geometry header, and the selected GStreamer decoder/sink without treating
+  the raw auxiliary geometry pair as crop, PAR, or rotation metadata;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
 
@@ -100,13 +105,13 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.3.exe
+AeroMirror-Setup-0.12.4.exe
 ```
 
-`v0.12.3` is the normal latest GitHub Release and is visible to the in-app
-updater. Its automated, exact-tag, checksum, and public re-download gates pass;
-the installed update path and physical Windows 10/11 plus iPhone matrix remain
-pending review evidence.
+`v0.12.4` is prepared as a normal updater-visible review Release. It may be
+published only after its final managed/native, provenance, Setup, package, and
+exact-tag gates pass. The installed update path and physical Windows 10/11 plus
+iPhone matrix remain separate pending review evidence.
 
 The installer:
 
@@ -231,31 +236,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.3 `
+  -Version 0.12.4 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.3 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.3.zip
+  -Version 0.12.4 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.4.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.3.exe
+artifacts\installer\AeroMirror-Setup-0.12.4.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.3`.
+Public release names use three-part semantic versions such as `0.12.4`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.3.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.3`.
+show `0.12.4.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.4`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.3 `
+  -Version 0.12.4 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -268,7 +273,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.3.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.4.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -277,7 +282,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.3\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.4\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -365,6 +370,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.4/
+      RELEASE_NOTES.md       curated GitHub Release text
+      TEST_PLAN.md           recovery, frame-pacing, and renderer acceptance
     0.12.3/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           loss, placement, and Photos acceptance matrix
@@ -419,18 +427,24 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   it does not yet have native content-rectangle metadata or safe pixel analysis
   with which to crop or zoom that inner canvas. Photos may therefore still look
   very small even when the outer renderer proportions are correct.
-- After an abnormal Wi-Fi/client loss, AeroMirror performs one bounded receiver
-  discovery renewal after native cleanup. The first stale row tapped on iOS
-  may still fail before any request reaches Windows, and iOS may take time to
-  refresh its browse cache. A native same-port DNS-SD/BLE re-publication path
-  remains future work.
-- The fatal-loss placeholder keeps only a softened screenshot in process
-  memory, writes no mirrored frame to disk, and remains visible until a new
-  mirroring start, an explicit close, receiver stop, or application exit. It
-  does not make iOS discovery or reconnection instantaneous.
+- After an abnormal Wi-Fi/client loss, AeroMirror preserves UxPlay's recovered
+  process and listening port after completed in-process cleanup. The first
+  stale row tapped on iOS may still fail before any request reaches Windows,
+  and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
+  re-publication with an acknowledged ready state remains future work.
+- The continuity placeholder keeps only a softened renderer-client screenshot
+  in process memory, writes no mirrored frame to disk, and uses a dark fallback
+  whenever another visible window overlaps the renderer. With the patched
+  feedback-health marker it may appear after a five-second gap, and it hands
+  off only after the real renderer is visible and positioned. It does not make
+  iOS discovery or reconnection instantaneous.
 - Arbitrary window proportions cannot both fill the window and preserve the
   whole phone image: the alternatives would be black bars, stretching, or
   cropping. This MVP preserves the whole image and changes the window shape.
+- The stream window is an external GStreamer HWND. A Mac-style hover-only
+  frame, true borderless viewer, and live aspect lock during an edge drag need
+  an embedded native rendering surface and versioned IPC; the shell does not
+  cross-process-subclass that foreign window.
 - "Always on top" or automatic fitting may need to be toggled again with an
   unusual GStreamer sink.
 - The shell combines listening sockets with explicit DNS-SD/BLE health
@@ -448,8 +462,10 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   A wrongly classified physical profile can still produce a conservative
   warning; fix the category in Windows or enable PIN.
 - DRM-protected playback is not supported.
-- No AirDrop, clipboard sync, remote input, recording UI, multi-device UI,
-  virtual camera, OBS integration, or `Win+K` integration.
+- No AirDrop, AeroDrop companion, clipboard sync, remote input, recording UI,
+  multi-device UI, virtual camera, OBS integration, or `Win+K` integration.
+  AirDrop is separate from AirPlay and requires its own Bluetooth/AWDL,
+  identity, trust, and encrypted-transfer implementation.
 - Phone notifications, SMS, and call handling are not included. The app's
   notification option only covers failures and unsafe network status; a normal
   Windows autostart is silent.
@@ -485,18 +501,23 @@ original preset disables Save again.
 ## Latency profiles
 
 - **Balanced** keeps UxPlay's native timestamp synchronization and buffering.
-- **Minimal** disables timestamp synchronization and reports a 50 ms audio
-  buffer. It can stutter more because it has less room to absorb jitter.
+- **Interactive** disables timestamp scheduling with `-vsync no` without the
+  former 50 ms audio-buffer request. Motion may feel more immediate, but
+  audio/video synchronization can be less exact.
 - **Stable** reports a 350 ms audio buffer and adds visible delay.
 
 The receiver defaults to GStreamer's automatic sink and decoder selection.
 Earlier builds forced the newer D3D12 H.264 decoder, which can stutter on
-some GPU/driver combinations. D3D11 and D3D12 overrides remain available for
-troubleshooting.
+some GPU/driver combinations. The explicit D3D11 and D3D12 overrides now pin
+both the matching Direct3D decoder family and video sink for a consistent
+comparison; UxPlay selects the codec-matched decoder at pipeline creation.
 
 AirPlay itself and the iPhone encoder still add latency. Best results require
 the PC on Ethernet, the iPhone on strong 5/6 GHz Wi-Fi, no VPN in the local
-path, and no guest-network/client isolation.
+path, and no guest-network/client isolation. Public internet speed is not the
+AirPlay media path: local packet loss, interference, Wi-Fi scheduling, decode,
+and frame pacing matter. AeroMirror's optional Bluetooth beacon helps
+discovery only; it does not carry or combine bandwidth with the Wi-Fi video.
 
 ## License
 
@@ -512,9 +533,9 @@ The current license inventory is an engineering review, not legal advice.
 For the 0.12 review, share the GitHub Release page or its network Setup—not a
 loose `AeroMirror.exe`. The Release must keep these assets together:
 
-- `AeroMirror-Setup-0.12.3.exe`;
-- `AeroMirror-source-0.12.3.zip`;
-- `AeroMirror-native-source-0.12.3.zip`;
+- `AeroMirror-Setup-0.12.4.exe`;
+- `AeroMirror-source-0.12.4.zip`;
+- `AeroMirror-native-source-0.12.4.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

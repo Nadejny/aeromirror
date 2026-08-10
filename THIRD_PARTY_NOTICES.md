@@ -5,7 +5,11 @@ build of `leapbtw/uxplay-windows`. The patch adds a headless mode, direct
 argument passing, stable native `argv` storage, and a non-streaming loader
 compatibility check. AeroMirror 0.11 also adds a diagnostic video-size marker
 used by the shell to adapt the stream window when the iPhone orientation
-changes.
+changes. The reviewed 0.12.4 libuxplay patch additionally logs the complete raw
+AirPlay geometry header, selected GStreamer decoder/video sink, and compact
+feedback-health capability/recovery markers. The raw auxiliary geometry pair
+is diagnostic only and is not represented as a validated crop, pixel-aspect
+ratio, or rotation signal.
 
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
@@ -19,8 +23,8 @@ asset directly from GitHub and verifies it before extraction:
   `https://github.com/leapbtw/uxplay-windows/tree/8cf3424b438424bc99a89155bd29a789f48a43c0`
 
 The exact AeroMirror and patched native corresponding source are attached
-beside Setup as `AeroMirror-source-0.12.3.zip` and
-`AeroMirror-native-source-0.12.3.zip`. The native archive is a prepared source
+beside Setup as `AeroMirror-source-0.12.4.zip` and
+`AeroMirror-native-source-0.12.4.zip`. The native archive is a prepared source
 tree with both AeroMirror patches included separately and already applied.
 Its `source-provenance.json` records the reviewed patch, modified-source,
 Bonjour-header, `dnssd.def`, and resulting-core hashes. The included build

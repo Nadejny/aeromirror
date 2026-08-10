@@ -14,6 +14,8 @@ namespace AirPlayReceiverMvp
         private readonly Font titleFont;
         private readonly Font detailFont;
         private readonly Font buttonFont;
+        private Timer rendererHandoffTimer;
+        private DateTime rendererHandoffStartedUtc;
 
         internal LostConnectionForm(Rectangle bounds, Bitmap snapshot)
         {
@@ -74,6 +76,11 @@ namespace AirPlayReceiverMvp
             NativeMethods.SetImmersiveDarkMode(Handle, true);
         }
 
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
         protected override void OnPaintBackground(PaintEventArgs e)
         {
             e.Graphics.Clear(BackColor);
@@ -84,7 +91,7 @@ namespace AirPlayReceiverMvp
                 e.Graphics.DrawImage(snapshot, ClientRectangle);
             }
             using (var shade = new SolidBrush(
-                Color.FromArgb(snapshot == null ? 72 : 192, 12, 15, 21)))
+                Color.FromArgb(snapshot == null ? 72 : 112, 12, 15, 21)))
             {
                 e.Graphics.FillRectangle(shade, ClientRectangle);
             }
@@ -92,6 +99,12 @@ namespace AirPlayReceiverMvp
 
         protected override void Dispose(bool disposing)
         {
+            if (disposing && rendererHandoffTimer != null)
+            {
+                rendererHandoffTimer.Stop();
+                rendererHandoffTimer.Dispose();
+                rendererHandoffTimer = null;
+            }
             if (disposing && snapshot != null)
             {
                 snapshot.Dispose();
@@ -104,6 +117,64 @@ namespace AirPlayReceiverMvp
                 buttonFont.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        internal bool BeginRendererHandoff(
+            Action completed, Func<bool> cancellationRequested)
+        {
+            if (IsDisposed || rendererHandoffTimer != null)
+                return false;
+
+            if (IsHandleCreated)
+            {
+                NativeMethods.SetWindowPos(
+                    Handle, NativeMethods.HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    NativeMethods.SWP_NOMOVE |
+                    NativeMethods.SWP_NOSIZE |
+                    NativeMethods.SWP_NOACTIVATE);
+            }
+            rendererHandoffStartedUtc = DateTime.UtcNow;
+            rendererHandoffTimer = new Timer();
+            rendererHandoffTimer.Interval = 20;
+            rendererHandoffTimer.Tick += delegate
+            {
+                if (cancellationRequested != null && cancellationRequested())
+                {
+                    CancelRendererHandoff();
+                    return;
+                }
+                double elapsedMilliseconds =
+                    (DateTime.UtcNow - rendererHandoffStartedUtc)
+                        .TotalMilliseconds;
+                double progress = Math.Min(
+                    1.0, elapsedMilliseconds / 180.0);
+                Opacity = Math.Max(0.05, 1.0 - progress);
+                if (progress < 1.0)
+                    return;
+
+                Timer timer = rendererHandoffTimer;
+                rendererHandoffTimer = null;
+                timer.Stop();
+                timer.Dispose();
+                if (completed != null && !IsDisposed)
+                    completed();
+            };
+            rendererHandoffTimer.Start();
+            return true;
+        }
+
+        private void CancelRendererHandoff()
+        {
+            Timer timer = rendererHandoffTimer;
+            rendererHandoffTimer = null;
+            if (timer != null)
+            {
+                timer.Stop();
+                timer.Dispose();
+            }
+            if (!IsDisposed)
+                Opacity = 1.0;
         }
 
         private static Bitmap CreateSoftenedSnapshot(Bitmap source)

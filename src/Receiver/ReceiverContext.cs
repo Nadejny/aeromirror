@@ -104,8 +104,14 @@ namespace AirPlayReceiverMvp
         private int exactVideoSizeFitGeneration = -1;
         private int appliedVideoOrientation;
         private readonly NativeMethods.WinEventProc rendererMoveSizeEventProc;
+        private readonly NativeMethods.WinEventProc rendererWindowShowEventProc;
         private IntPtr rendererMoveSizeHook = IntPtr.Zero;
+        private IntPtr rendererWindowShowHook = IntPtr.Zero;
         private int rendererMoveSizeHookPid;
+        private IntPtr rendererPolicyWindow = IntPtr.Zero;
+        private bool rendererPolicyApplied;
+        private bool rendererPolicyAlwaysOnTop;
+        private bool rendererPolicyShowInTaskbar;
         private IntPtr rendererMoveSizeWindow = IntPtr.Zero;
         private Size rendererMoveSizeStartClientSize = Size.Empty;
         private IntPtr pendingManualFitWindow = IntPtr.Zero;
@@ -119,6 +125,11 @@ namespace AirPlayReceiverMvp
         private int lostConnectionRecoveryPending;
         private int lostConnectionRecoveryPid;
         private long lostConnectionRecoveryDueTicks;
+        private int feedbackGapEpisodeActive;
+        private int feedbackGapEpisodeCount;
+        private int feedbackGapLongestSeconds;
+        private int feedbackGapPlaceholderActive;
+        private int feedbackHealthMarkersReady;
         private bool startAfterNetworkCheck;
         private int discoveryRefreshAfterNetworkCheck;
         private bool resumeAfterSafeNetwork;
@@ -128,6 +139,7 @@ namespace AirPlayReceiverMvp
         {
             this.showEvent = showEvent;
             rendererMoveSizeEventProc = OnRendererMoveSizeEvent;
+            rendererWindowShowEventProc = OnRendererWindowShowEvent;
             bool show = false;
             bool startup = false;
             foreach (string arg in args)

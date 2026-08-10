@@ -59,15 +59,23 @@ Assert-True ($source.Contains("Discovery registration: DNS-SD=")) `
     "support diagnostics expose native discovery registration"
 Assert-True (-not $source.Contains("post-session discovery renewal")) `
     "a completed session does not force an unconditional core restart"
-Assert-True ($source.Contains('parts.Add("-reset 6")')) `
-    "UxPlay receives the six-second lost-client reset bound"
-$systemResetIndex = $source.IndexOf('parts.Add("-reset 6")')
+Assert-True ($source.Contains('parts.Add("-reset 15")')) `
+    "UxPlay receives its upstream fifteen-second lost-client reset bound"
+$systemResetIndex = $source.IndexOf('parts.Add("-reset 15")')
 $advancedArgumentsIndex = $source.IndexOf(
     'parts.Add(settings.AdvancedArguments.Trim())')
 Assert-True ($systemResetIndex -lt $advancedArgumentsIndex) `
     "advanced UxPlay arguments can override the system reset bound"
 Assert-True (-not $source.Contains('parts.Add("-nohold")')) `
     "the receiver does not allow a new client to preempt an active session"
+Assert-True ($source.Contains('parts.Add("-vsync no")') -and
+    -not $source.Contains('parts.Add("-al 0.05")')) `
+    "the interactive profile disables timestamp scheduling without the old aggressive audio buffer"
+Assert-True ($source.Contains('parts.Add("-vd d3d11h264dec")') -and
+    $source.Contains('parts.Add("-vs d3d11videosink")') -and
+    $source.Contains('parts.Add("-vd d3d12h264dec")') -and
+    $source.Contains('parts.Add("-vs d3d12videosink")')) `
+    "an explicit Direct3D choice pins both decoder and sink for a valid compatibility test"
 $sharedBudgetCallCount = [regex]::Matches(
     $source, 'ConsumeSharedAutomaticRecoveryBudget\s*\(').Count
 Assert-True ($sharedBudgetCallCount -ge 3) `
@@ -104,19 +112,21 @@ Assert-True ($source.Contains("e.Graphics.DpiX / 96F") -and
     "the help circle and question glyph use DPI-aware anti-aliased centering"
 Assert-True ($source.Contains("EVENT_SYSTEM_MOVESIZESTART") -and
     $source.Contains("EVENT_SYSTEM_MOVESIZEEND") -and
+    $source.Contains("EVENT_OBJECT_SHOW") -and
     $source.Contains("SetWinEventHook") -and
     $source.Contains("UnhookWinEvent")) `
-    "manual renderer resize completion uses a bounded WinEvent hook lifecycle"
+    "renderer placement and resize completion use bounded WinEvent hook lifecycles"
 Assert-True ($source.Contains("processId != rendererMoveSizeHookPid") -and
     $source.Contains("windowProcessId != (uint)processId")) `
     "renderer move/size events are restricted to the active native core"
 Assert-True ($source.Contains("NativeMethods.IsIconic(window)") -and
     $source.Contains("NativeMethods.IsZoomed(window)")) `
     "automatic aspect fitting does not fight minimized or maximized state"
-Assert-True ($source.Contains("DateTime.UtcNow.AddMilliseconds(150)") -and
+Assert-True ($source.Contains("pendingManualFitDueTicks") -and
+    $source.Contains("DateTime.UtcNow.Ticks") -and
     [regex]::Matches(
         $source, 'ApplyPendingManualRendererFit\s*\(').Count -eq 2) `
-    "manual renderer fitting is queued briefly and consumed by supervision"
+    "manual renderer fitting is queued for the next supervision pass"
 Assert-True ($source.Contains("autoFit = MakeCheckBox(") -and
     $source.Contains("FitStreamWindow(true)")) `
     "automatic aspect fitting retains a settings control and manual tray fallback"
@@ -127,9 +137,14 @@ Assert-True ($source.Contains("internal sealed class LostConnectionForm") -and
     "fatal connection loss has a focused user-visible placeholder"
 Assert-True ($source.Contains("CopyFromScreen(") -and
     -not $source.Contains("PrintWindow(")) `
-    "the placeholder uses only a non-blocking foreground screen snapshot"
-Assert-True ($source.Contains("GetForegroundWindow() == rendererWindow")) `
-    "desktop capture cannot include a foreground window covering the renderer"
+    "the placeholder uses only a non-blocking desktop screen snapshot"
+Assert-True ($source.Contains("IsRendererWindowUnoccluded(") -and
+    $source.Contains("NativeMethods.GW_HWNDPREV") -and
+    $source.Contains("Rectangle.Intersect(")) `
+    "desktop capture is rejected when any visible higher z-order window overlaps the renderer"
+Assert-True ($source.Contains("TryGetRendererClientScreenBounds(") -and
+    $source.Contains("NativeMethods.ClientToScreen(")) `
+    "the continuity frame captures renderer client pixels rather than duplicating native chrome"
 Assert-True ($lostConnectionUiSource.Contains("source.Width / 12") -and
     $lostConnectionUiSource.Contains("source.Height / 12") -and
     $lostConnectionUiSource.Contains(
@@ -165,6 +180,53 @@ $sessionResetSource = $source.Substring(
 Assert-True (-not $sessionResetSource.Contains(
         "LostConnectionPlaceholder")) `
     "a native core restart does not automatically dismiss the placeholder"
+$mirroringStartStart = $source.IndexOf(
+    "private bool HandleMirroringStartedMaintenance")
+$mirroringStartEnd = $source.IndexOf(
+    "private void ResolveCoreReadinessFromClientActivityLocked",
+    $mirroringStartStart)
+Assert-True ($mirroringStartStart -ge 0 -and
+    $mirroringStartEnd -gt $mirroringStartStart) `
+    "mirroring-start maintenance has a focused implementation boundary"
+$mirroringStartSource = $source.Substring(
+    $mirroringStartStart, $mirroringStartEnd - $mirroringStartStart)
+Assert-True (-not $mirroringStartSource.Contains(
+        "QueueLostConnectionPlaceholderClose")) `
+    "a protocol start marker does not dismiss continuity before a renderer exists"
+Assert-True ($source.Contains(
+        "CompleteLostConnectionRendererHandoff();") -and
+    $source.Contains("lostConnectionRendererHandoffPending") -and
+    $source.Contains(
+        "Mirroring renderer is visible and positioned; beginning") -and
+    $source.Contains("Renderer handoff fade completed; closing")) `
+    "continuity is dismissed only after supervision has positioned a visible renderer"
+Assert-True ($lostConnectionUiSource.Contains(
+        "Action completed, Func<bool> cancellationRequested") -and
+    $lostConnectionUiSource.Contains("rendererHandoffTimer.Interval = 20") -and
+    $lostConnectionUiSource.Contains("elapsedMilliseconds / 180.0") -and
+    $lostConnectionUiSource.Contains("CancelRendererHandoff();") -and
+    $source.Contains("lostConnectionPlaceholderShowPending, 0, 0") -and
+    $lostConnectionUiSource.Contains("NativeMethods.SWP_NOACTIVATE") -and
+    -not $lostConnectionUiSource.Contains("Thread.Sleep")) `
+    "successful renderer handoff uses a short non-blocking opacity fade"
+Assert-True ($lostConnectionUiSource.Contains(
+        "protected override bool ShowWithoutActivation")) `
+    "the continuity placeholder does not steal focus when it first appears"
+$showCallbackStart = $source.IndexOf(
+    "private void OnRendererWindowShowEvent")
+$showCallbackEnd = $source.IndexOf(
+    "private void OnRendererMoveSizeEvent", $showCallbackStart)
+Assert-True ($showCallbackStart -ge 0 -and
+    $showCallbackEnd -gt $showCallbackStart) `
+    "renderer-show callback has a focused implementation boundary"
+$showCallbackSource = $source.Substring(
+    $showCallbackStart, $showCallbackEnd - $showCallbackStart)
+Assert-True ($showCallbackSource.Contains(
+        "TryApplySavedStreamWindowPlacement") -and
+    -not $showCallbackSource.Contains("settings.Save") -and
+    -not $showCallbackSource.Contains("FitRendererWindow") -and
+    -not $showCallbackSource.Contains("Log(")) `
+    "renderer show pre-positions from loaded settings without IO, activation, or aspect fitting"
 $moveSizeCallbackStart = $source.IndexOf(
     "private void OnRendererMoveSizeEvent")
 $moveSizeCallbackEnd = $source.IndexOf(
@@ -276,6 +338,38 @@ Assert-True (-not [bool]$shouldQueueManualFit.Invoke(
         $null, [object[]]@($false, $startClientSize,
             [Drawing.Size]::new(700, 1000)))) `
     "an explicit disabled automatic-fit setting remains authoritative"
+
+$shouldApplyRendererPolicy = $contextType.GetMethod(
+    "ShouldApplyRendererWindowPolicy", $staticFlags)
+Assert-True ($null -ne $shouldApplyRendererPolicy) `
+    "foreign renderer policy caching is independently testable"
+$rendererOne = [IntPtr]::new(101)
+$rendererTwo = [IntPtr]::new(202)
+Assert-True ([bool]$shouldApplyRendererPolicy.Invoke(
+        $null, [object[]]@(
+            $rendererOne, [IntPtr]::Zero, $false,
+            $false, $false, $true, $true))) `
+    "a newly observed renderer receives window policy once"
+Assert-True (-not [bool]$shouldApplyRendererPolicy.Invoke(
+        $null, [object[]]@(
+            $rendererOne, $rendererOne, $true,
+            $false, $false, $true, $true))) `
+    "an unchanged supervision tick does not mutate the foreign renderer"
+Assert-True ([bool]$shouldApplyRendererPolicy.Invoke(
+        $null, [object[]]@(
+            $rendererOne, $rendererOne, $true,
+            $true, $false, $true, $true))) `
+    "an always-on-top settings change reapplies renderer policy"
+Assert-True ([bool]$shouldApplyRendererPolicy.Invoke(
+        $null, [object[]]@(
+            $rendererOne, $rendererOne, $true,
+            $false, $false, $false, $true))) `
+    "a taskbar settings change reapplies renderer policy"
+Assert-True ([bool]$shouldApplyRendererPolicy.Invoke(
+        $null, [object[]]@(
+            $rendererTwo, $rendererOne, $true,
+            $false, $false, $true, $true))) `
+    "a replacement renderer receives policy even when settings are unchanged"
 
 $clampSavedStreamWindowBounds = $contextType.GetMethod(
     "ClampSavedStreamWindowBounds", $staticFlags)
@@ -539,6 +633,12 @@ $discoveryRecoveryPid = Field "coreDiscoveryRecoveryPid"
 $discoveryRecoveryDue = Field "coreDiscoveryRecoveryDueTicks"
 $placeholderShowPending = Field "lostConnectionPlaceholderShowPending"
 $placeholderClosePending = Field "lostConnectionPlaceholderClosePending"
+$rendererHandoffPending = Field "lostConnectionRendererHandoffPending"
+$feedbackEpisodeActive = Field "feedbackGapEpisodeActive"
+$feedbackEpisodeCount = Field "feedbackGapEpisodeCount"
+$feedbackLongest = Field "feedbackGapLongestSeconds"
+$feedbackPlaceholderActive = Field "feedbackGapPlaceholderActive"
+$feedbackMarkersReady = Field "feedbackHealthMarkersReady"
 
 $maintenanceSync.SetValue($context, (New-Object object))
 $videoSizeSync.SetValue($context, (New-Object object))
@@ -926,8 +1026,24 @@ Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
 $recoveryPending.SetValue($context, 0)
 $placeholderShowPending.SetValue($context, 0)
 $placeholderClosePending.SetValue($context, 0)
+$rendererHandoffPending.SetValue($context, 0)
 $restartPending.SetValue($context, $false)
 $mirrorActive.SetValue($context, 1)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "*** ERROR:   5 seconds since last client feedback request (expected every two seconds); client may be offline")) |
+    Out-Null
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0) `
+    "a legacy core without recovered markers cannot open a pre-fatal placeholder that it cannot dismiss"
+$feedbackEpisodeActive.SetValue($context, 0)
+$feedbackEpisodeCount.SetValue($context, 0)
+$feedbackLongest.SetValue($context, 0)
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "AEROMIRROR_FEEDBACK_HEALTH_READY")) | Out-Null
+Assert-True ([int]$feedbackMarkersReady.GetValue($context) -eq 1) `
+    "the patched native feedback-health capability is detected"
 $observe.Invoke(
     $context,
     [object[]]@(42,
@@ -939,6 +1055,35 @@ Assert-True (-not [bool]$restartPending.GetValue($context)) `
     "a client-feedback delay warning does not schedule a core restart"
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0) `
     "a client-feedback delay warning does not show a lost-frame placeholder"
+Assert-True ([int]$feedbackEpisodeActive.GetValue($context) -eq 1 -and
+    [int]$feedbackEpisodeCount.GetValue($context) -eq 1 -and
+    [int]$feedbackLongest.GetValue($context) -eq 3) `
+    "a short feedback gap is counted without disrupting the active stream"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "*** ERROR:   5 seconds since last client feedback request (expected every two seconds); client may be offline")) |
+    Out-Null
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 0 -and
+    -not [bool]$restartPending.GetValue($context)) `
+    "a five-second feedback gap still does not arm destructive recovery"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 1 -and
+    [int]$feedbackLongest.GetValue($context) -eq 5) `
+    "a five-second feedback gap queues visual continuity while preserving the session"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=5")) |
+    Out-Null
+Assert-True ([int]$feedbackEpisodeActive.GetValue($context) -eq 0 -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 0 -and
+    [int]$placeholderShowPending.GetValue($context) -eq 1 -and
+    [int]$placeholderClosePending.GetValue($context) -eq 0 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 1) `
+    "a native feedback-recovered marker queues a smooth renderer handoff"
 
 $observe.Invoke(
     $context,
@@ -959,12 +1104,23 @@ $observe.Invoke(
 $armedDue = [long]$recoveryDue.GetValue($context)
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 1) `
     "fatal mirror recv error arms recovery"
-Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1) `
-    "fatal mirror recv error queues the lost-frame placeholder"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    "fatal mirror recv error queues continuity and cancels any smooth handoff"
 Assert-True ($armedDue -ge $before + [TimeSpan]::FromSeconds(2).Ticks) `
     "recovery grace is not shorter than two seconds"
 Assert-True ($armedDue -le [DateTime]::UtcNow.AddSeconds(4).Ticks) `
     "recovery grace is bounded"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=6")) |
+    Out-Null
+Assert-True ([int]$recoveryPending.GetValue($context) -eq 1 -and
+    [int]$placeholderShowPending.GetValue($context) -eq 1 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    "a late recovered marker cannot dismiss an already-fatal loss episode"
 
 $observe.Invoke(
     $context,
@@ -1010,10 +1166,10 @@ $clientGraceDue.SetValue($context, [long]0)
 $recoveryPending.SetValue($context, 1)
 $recoveryPid.SetValue($context, 42)
 $recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
-$renewAction = $consumeLostRecovery.Invoke(
+$preserveAction = $consumeLostRecovery.Invoke(
     $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
-Assert-True ($renewAction -eq "RenewDiscovery") `
-    "an ended abnormal session selects one discovery renewal"
+Assert-True ($preserveAction -eq "PreserveNativeRecovery") `
+    "an ended abnormal session preserves UxPlay's same-process recovery"
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 0 -and
     [int]$recoveryPid.GetValue($context) -eq 0 -and
     [long]$recoveryDue.GetValue($context) -eq 0) `
@@ -1212,9 +1368,10 @@ $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
 $observe.Invoke(
     $context,
     [object[]]@(42, "raop_rtp_mirror starting mirroring")) | Out-Null
-Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0 -and
-    [int]$placeholderClosePending.GetValue($context) -eq 1) `
-    "a new mirroring start dismisses the lost-frame placeholder"
+Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
+    [int]$placeholderClosePending.GetValue($context) -eq 0 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 1) `
+    "a new mirroring start keeps continuity until the renderer actually exists"
 Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq

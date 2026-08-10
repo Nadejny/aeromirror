@@ -28,6 +28,7 @@ namespace AirPlayReceiverMvp
         internal static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         internal const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;
         internal const uint EVENT_SYSTEM_MOVESIZEEND = 0x000B;
+        internal const uint EVENT_OBJECT_SHOW = 0x8002;
         internal const uint WINEVENT_OUTOFCONTEXT = 0x0000;
         internal const int OBJID_WINDOW = 0;
         internal const uint SWP_NOSIZE = 0x0001;
@@ -35,6 +36,7 @@ namespace AirPlayReceiverMvp
         internal const uint SWP_NOZORDER = 0x0004;
         internal const uint SWP_NOACTIVATE = 0x0010;
         internal const uint SWP_FRAMECHANGED = 0x0020;
+        internal const uint GW_HWNDPREV = 3;
         private const int GWL_EXSTYLE = -20;
         private const long WS_EX_TOOLWINDOW = 0x00000080L;
         private const long WS_EX_APPWINDOW = 0x00040000L;
@@ -49,6 +51,13 @@ namespace AirPlayReceiverMvp
             internal int Top;
             internal int Right;
             internal int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct POINT
+        {
+            internal int X;
+            internal int Y;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -106,7 +115,7 @@ namespace AirPlayReceiverMvp
         internal static extern bool IsZoomed(IntPtr window);
 
         [DllImport("user32.dll")]
-        internal static extern IntPtr GetForegroundWindow();
+        internal static extern IntPtr GetWindow(IntPtr window, uint command);
 
         [DllImport("user32.dll")]
         internal static extern IntPtr SetWinEventHook(
@@ -265,6 +274,10 @@ namespace AirPlayReceiverMvp
 
         [DllImport("user32.dll")]
         internal static extern bool GetClientRect(IntPtr window, out RECT rectangle);
+
+        [DllImport("user32.dll")]
+        internal static extern bool ClientToScreen(
+            IntPtr window, ref POINT point);
 
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr window);

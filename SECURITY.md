@@ -30,3 +30,11 @@ a real PIN.
 AeroMirror is a local-network receiver built on UxPlay. Reports about UxPlay,
 GStreamer, Qt, Bonjour/mDNS, or bundled codec libraries may need coordinated
 disclosure to their upstream maintainers as well.
+
+The connection-loss continuity view may copy unobscured renderer client pixels
+from the Windows desktop into process memory. It rejects capture when another
+visible higher window overlaps the renderer and never intentionally writes the
+bitmap to settings, logs, diagnostics, or temporary files. Treat capture of an
+unrelated window, persistence of a mirrored frame, or inclusion of frame pixels
+in a diagnostic package as a privacy vulnerability and use the private report
+path above.

@@ -115,3 +115,21 @@ The active `SettingsForm` stays in one file during this pass because splitting
 its tightly coupled WinForms construction and navigation at the same time would
 add review risk without changing product behavior. Further service extraction
 or UI decomposition requires a separate design, tests, and migration plan.
+
+## D-010 — Keep file transfer separate from the AirPlay receiver boundary
+
+**Status:** accepted
+
+Appearing as an AirPlay/Apple TV receiver does not make AeroMirror an AirDrop
+target. Genuine AirDrop interoperability requires a separate Bluetooth/AWDL,
+identity, trust, and encrypted-transfer implementation with independent
+hardware, driver, license, privacy, and security review. It must not be added
+to the UxPlay receiver process or its firewall surface merely because AirPlay
+discovery already works.
+
+The lower-risk staged alternative is a separately named **AeroDrop** product
+path using an iOS Share Extension or companion and an authenticated local
+transfer. It still requires explicit acceptance, safe destination and filename
+rules, transfer limits, quarantine policy, and physical-device tests. This
+decision defines the architecture boundary; it does not commit 0.12.4 or 1.0
+to either transfer implementation.

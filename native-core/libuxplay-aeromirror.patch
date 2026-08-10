@@ -1,8 +1,129 @@
+diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
+index 2bb4f5f..55340ef 100644
+--- a/lib/raop_rtp_mirror.c
++++ b/lib/raop_rtp_mirror.c
+@@ -22,6 +22,7 @@
+ #include <string.h>
+ #include <assert.h>
+ #include <errno.h>
++#include <math.h>
+ #include <stdbool.h>
+ #ifdef _WIN32
+ #include <winsock2.h>
+@@ -54,6 +55,13 @@
+ #define SECOND_IN_NSECS 1000000000UL
+ #define SEC SECOND_IN_NSECS
+ 
++static unsigned int aeromirror_geometry_value(float value) {
++    if (!isfinite(value) || value < 0.0f || value > 65535.0f) {
++        return 0;
++    }
++    return (unsigned int) value;
++}
++
+ /* for MacOS, where SOL_TCP and TCP_KEEPIDLE are not defined */
+ #if !defined(SOL_TCP) && defined(IPPROTO_TCP)
+ #define SOL_TCP IPPROTO_TCP
+@@ -602,6 +610,17 @@ raop_rtp_mirror_thread(void *arg)
+                 float width = byteutils_get_float(packet, 56);
+                 float height = byteutils_get_float(packet, 60);
+ 
++                logger_log(raop_rtp_mirror->logger, LOGGER_INFO,
++                           "AEROMIRROR_VIDEO_GEOMETRY width0=%u height0=%u source=%ux%u aux=%ux%u encoded=%ux%u",
++                           aeromirror_geometry_value(width_0),
++                           aeromirror_geometry_value(height_0),
++                           aeromirror_geometry_value(width_source),
++                           aeromirror_geometry_value(height_source),
++                           aeromirror_geometry_value(unknown_w),
++                           aeromirror_geometry_value(unknown_h),
++                           aeromirror_geometry_value(width),
++                           aeromirror_geometry_value(height));
++
+                 if (width != width_0 || height != height_0) {
+                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror: Unexpected : data  %f,"
+                            " %f != width_source = %f, height_source = %f", width_0, height_0, width_source, height_source);
 diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
-index ea1c450..a04bdff 100644
+index ea1c450..b3c4b2f 100644
 --- a/renderers/video_renderer.c
 +++ b/renderers/video_renderer.c
-@@ -177,6 +177,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
+@@ -81,6 +81,7 @@ struct video_renderer_s {
+     GstBus *bus;
+     const char *codec;
+     bool autovideo;
++    bool aeromirror_selection_logged;
+     int id;
+     char *uri;
+     gboolean eos;
+@@ -101,6 +102,68 @@ static char h265[] = "h265";
+ static char hls[]  = "hls";
+ static char jpeg[] = "jpeg";
+ 
++static void aeromirror_log_pipeline_selection(video_renderer_t *selected) {
++    if (!selected || selected->aeromirror_selection_logged || hls_video ||
++        !strcmp(selected->codec, jpeg)) {
++        return;
++    }
++
++    char decoder_name[64] = { 0 };
++    char videosink_name[64] = { 0 };
++    GstIterator *iterator = gst_bin_iterate_recurse(GST_BIN(selected->pipeline));
++    GValue item = G_VALUE_INIT;
++    gboolean done = FALSE;
++
++    while (!done) {
++        switch (gst_iterator_next(iterator, &item)) {
++        case GST_ITERATOR_OK: {
++            GstElement *element = GST_ELEMENT(g_value_get_object(&item));
++            GstElementFactory *factory = gst_element_get_factory(element);
++            if (factory) {
++                const gchar *factory_name = gst_plugin_feature_get_name(
++                    GST_PLUGIN_FEATURE(factory));
++                const gchar *klass = gst_element_factory_get_metadata(
++                    factory, GST_ELEMENT_METADATA_KLASS);
++                if (factory_name && klass) {
++                    if (!decoder_name[0] && strstr(klass, "Decoder") &&
++                        strstr(klass, "Video") &&
++                        strcmp(factory_name, "decodebin")) {
++                        g_strlcpy(decoder_name, factory_name, sizeof(decoder_name));
++                    }
++                    if (!videosink_name[0] && strstr(klass, "Sink") &&
++                        strstr(klass, "Video") &&
++                        strcmp(factory_name, "autovideosink")) {
++                        g_strlcpy(videosink_name, factory_name, sizeof(videosink_name));
++                    }
++                }
++            }
++            g_value_reset(&item);
++            break;
++        }
++        case GST_ITERATOR_RESYNC:
++            gst_iterator_resync(iterator);
++            decoder_name[0] = '\0';
++            videosink_name[0] = '\0';
++            break;
++        case GST_ITERATOR_ERROR:
++        case GST_ITERATOR_DONE:
++            done = TRUE;
++            break;
++        }
++    }
++    if (G_VALUE_TYPE(&item)) {
++        g_value_unset(&item);
++    }
++    gst_iterator_free(iterator);
++
++    if (decoder_name[0] && videosink_name[0]) {
++        logger_log(logger, LOGGER_INFO,
++                   "AEROMIRROR_GSTREAMER_SELECTED codec=%s decoder=%s videosink=%s",
++                   selected->codec, decoder_name, videosink_name);
++        selected->aeromirror_selection_logged = true;
++    }
++}
++
+ static void append_videoflip (GString *launch, const videoflip_t *flip, const videoflip_t *rot) {
+     /* videoflip image transform */
+     switch (*flip) {
+@@ -177,6 +240,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
      height_source = (unsigned short) *f_height_source;
      width = (unsigned short) *f_width;
      height = (unsigned short) *f_height;
@@ -12,11 +133,50 @@ index ea1c450..a04bdff 100644
      logger_log(logger, LOGGER_DEBUG, "begin video stream wxh = %dx%d; source %dx%d", width, height, width_source, height_source);
  }
  
+@@ -812,7 +878,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+         return TRUE;
+     }
+ 
++    video_renderer_t *active_renderer = renderer;
+     video_renderer_t *renderer = renderer_type[type];
++    bool aeromirror_selected_renderer = (renderer == active_renderer);
+ 
+     gint64 pos = -1;
+     if (hls_video) {
+@@ -1009,6 +1077,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+       /* unhandled message */
+         break;
+     }
++    if (aeromirror_selected_renderer) {
++        aeromirror_log_pipeline_selection(renderer);
++    }
+     return TRUE;
+ }
+ 
 diff --git a/uxplay.cpp b/uxplay.cpp
-index d10edd4..2b27bff 100644
+index d10edd4..1d8f7bf 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
-@@ -1919,6 +1919,8 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
+@@ -190,6 +190,7 @@ static guint gst_hls_position_id = 0;
+ static bool preserve_connections = false;
+ static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
+ static guint missed_feedback = 0;
++static bool feedback_health_ready_logged = false;
+ static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
+ static bool reset_httpd = false;
+ static bool monitor_progress = false;
+@@ -723,6 +724,10 @@ static void main_loop()  {
+ 
+     missed_feedback = 0;
+     guint feedback_watch_id = g_timeout_add_seconds(1, (GSourceFunc) feedback_callback, (gpointer) loop);
++    if (feedback_watch_id && !feedback_health_ready_logged) {
++        LOGI("AEROMIRROR_FEEDBACK_HEALTH_READY");
++        feedback_health_ready_logged = true;
++    }
+     guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
+ 
+ #ifdef _WIN32
+@@ -1919,6 +1924,8 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
  static int register_dnssd() {
      int dnssd_error;
      uint64_t features;
@@ -25,7 +185,7 @@ index d10edd4..2b27bff 100644
      
      dnssd_error = dnssd_register_raop(dnssd, raop_port);
      if (dnssd_error) {
-@@ -1935,10 +1937,13 @@ static int register_dnssd() {
+@@ -1935,10 +1942,13 @@ static int register_dnssd() {
                       "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
                       "(see Apple's dns_sd.h)", dnssd_error);
              }
@@ -39,7 +199,7 @@ index d10edd4..2b27bff 100644
      }
  
      dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
-@@ -1947,12 +1952,19 @@ static int register_dnssd() {
+@@ -1947,12 +1957,19 @@ static int register_dnssd() {
              LOGE("dnssd_register_airplay failed with error code %d\n"
                   "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
                   "(see Apple's dns_sd.h)", dnssd_error);
@@ -59,3 +219,14 @@ index d10edd4..2b27bff 100644
      LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
           dnssd_get_airplay_features(dnssd));
      return 0;
+@@ -2254,6 +2271,10 @@ extern "C" void conn_destroy (void *cls) {
+ 
+ extern "C" void conn_feedback (void *cls) {
+     /* received client heartbeat signal: connection still exists */
++    if (missed_feedback > 2) {
++        guint gap_seconds = std::min(missed_feedback, (guint) 86400);
++        LOGI("AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=%u", gap_seconds);
++    }
+     missed_feedback = 0;
+ }
+ 
