@@ -2,9 +2,12 @@
 
 This file documents the patched native executable originally shipped by
 AeroMirror 0.11.1. The current executable keeps the same pinned upstream and
-runtime inputs while adding diagnostic-only stream geometry, feedback-recovery,
-and selected GStreamer pipeline markers. The source bundle contains the
-complete upstream trees and both patches separately and applied in place.
+runtime inputs and the reviewed stream-geometry, feedback, discovery, and
+selected GStreamer pipeline diagnostics. AeroMirror 0.12.6 additionally
+corrects native HTTP listener reset validation, RTSP TEARDOWN disconnect, and
+unsupported photo-presentation feature declarations. The source bundle
+contains the complete upstream trees and both patches separately and applied
+in place.
 
 ## Exact inputs
 
@@ -16,6 +19,7 @@ complete upstream trees and both patches separately and applied in place.
   `libuxplay-aeromirror.patch`
 - Patched files: `src/airplayworker.cpp`, `src/main.cpp`,
   `src/mainwindow.cpp`, `src/mainwindow.h`,
+  `libuxplay/lib/http_handlers.h`, `libuxplay/lib/raop_handlers.h`,
   `libuxplay/lib/raop_rtp_mirror.c`,
   `libuxplay/renderers/video_renderer.c`, and `libuxplay/uxplay.cpp`
 - Architecture: x64, MSYS2 UCRT64
@@ -31,7 +35,7 @@ complete upstream trees and both patches separately and applied in place.
   `5F944B027F7FE2091985AA2EFA11531AA0AA7F57`
 - GStreamer: 1.28.5
 - Resulting patched executable SHA-256:
-  `F6F1FD80FBA69595BF9A82D5DC9CEFBE9DC97BC272F8A1B30A9132C253D65533`
+  `9F1FB168C882B1531400D2EDBB4ABD1277803C1971A20E9D5C4D7EFF3E8498FC`
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.
@@ -44,6 +48,11 @@ The AeroMirror patches add the headless launcher integration,
 `--loader-test`, stable video-size and codec-header geometry markers, a
 feedback-health capability and one-shot recovery markers, a one-shot selected
 GStreamer decoder/videosink marker, and stable DNS-SD readiness markers. The
+native HTTP listener now reports initial/reset readiness with its actual port,
+checks same-port reset binding, exits for full shell recovery when a reset
+cannot restore the advertised port, and closes the RTSP connection after
+TEARDOWN. Unsupported photo, slideshow, and photo-preload feature bits are no
+longer advertised by this screen-mirroring-focused receiver. The
 shell uses the backward-compatible video-size marker to adapt the renderer
 window when the iPhone changes orientation. `--beacon-ipv4` binds BLE
 discovery to the physical Wi-Fi/Ethernet IPv4 selected by the shell instead of

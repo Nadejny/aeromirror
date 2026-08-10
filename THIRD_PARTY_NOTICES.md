@@ -9,7 +9,10 @@ changes. The reviewed 0.12.4 libuxplay patch additionally logs the complete raw
 AirPlay geometry header, selected GStreamer decoder/video sink, and compact
 feedback-health capability/recovery markers. The raw auxiliary geometry pair
 is diagnostic only and is not represented as a validated crop, pixel-aspect
-ratio, or rotation signal.
+ratio, or rotation signal. The AeroMirror 0.12.6 patch extension adds explicit
+native HTTP listener lifecycle markers, checked same-port listener reset, RTSP
+TEARDOWN disconnect handling, and honest removal of unsupported photo
+presentation feature declarations.
 
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
@@ -23,8 +26,8 @@ asset directly from GitHub and verifies it before extraction:
   `https://github.com/leapbtw/uxplay-windows/tree/8cf3424b438424bc99a89155bd29a789f48a43c0`
 
 The exact AeroMirror and patched native corresponding source are attached
-beside Setup as `AeroMirror-source-0.12.5.zip` and
-`AeroMirror-native-source-0.12.5.zip`. The native archive is a prepared source
+beside Setup as `AeroMirror-source-0.12.6.zip` and
+`AeroMirror-native-source-0.12.6.zip`. The native archive is a prepared source
 tree with both AeroMirror patches included separately and already applied.
 Its `source-provenance.json` records the reviewed patch, modified-source,
 Bonjour-header, `dnssd.def`, and resulting-core hashes. The included build

@@ -478,9 +478,7 @@ namespace AirPlayReceiverMvp
             advancedPage.Controls.Add(MakeLabel("Видеорендер", 24, 122));
             renderer = MakeCombo(24, 145, 552);
             renderer.Items.Add(new NamedValue(
-                "Автоматический выбор GStreamer — рекомендуется", "auto"));
-            renderer.Items.Add(new NamedValue(
-                "Direct3D 11 — совместимый декодер и вывод", "d3d11"));
+                "Direct3D 11 — рекомендуется для стабильной работы", "d3d11"));
             renderer.Items.Add(new NamedValue(
                 "Direct3D 12 — экспериментальный декодер и вывод", "d3d12"));
             advancedPage.Controls.Add(renderer);

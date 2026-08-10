@@ -24,6 +24,7 @@ namespace AirPlayReceiverMvp
         internal delegate void WinEventProc(
             IntPtr hook, uint eventType, IntPtr window,
             int objectId, int childId, uint eventThread, uint eventTime);
+        internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
         internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         internal static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         internal const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;

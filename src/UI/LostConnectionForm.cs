@@ -119,21 +119,48 @@ namespace AirPlayReceiverMvp
             base.Dispose(disposing);
         }
 
+        internal bool BringAboveRendererWithoutActivation(
+            IntPtr rendererWindow)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return false;
+
+            uint flags = NativeMethods.SWP_NOMOVE |
+                NativeMethods.SWP_NOSIZE |
+                NativeMethods.SWP_NOACTIVATE;
+            IntPtr insertAfter = TopMost
+                ? NativeMethods.HWND_TOPMOST
+                : NativeMethods.HWND_TOP;
+            if (!TopMost && rendererWindow != IntPtr.Zero &&
+                NativeMethods.IsWindow(rendererWindow))
+            {
+                IntPtr aboveRenderer = NativeMethods.GetWindow(
+                    rendererWindow, NativeMethods.GW_HWNDPREV);
+                if (aboveRenderer == Handle)
+                    return true;
+                if (aboveRenderer != IntPtr.Zero)
+                    insertAfter = aboveRenderer;
+            }
+
+            if (NativeMethods.SetWindowPos(
+                    Handle, insertAfter, 0, 0, 0, 0, flags))
+                return true;
+
+            IntPtr fallback = TopMost
+                ? NativeMethods.HWND_TOPMOST
+                : NativeMethods.HWND_TOP;
+            return insertAfter != fallback && NativeMethods.SetWindowPos(
+                Handle, fallback, 0, 0, 0, 0, flags);
+        }
+
         internal bool BeginRendererHandoff(
-            Action completed, Func<bool> cancellationRequested)
+            IntPtr rendererWindow, Action completed,
+            Func<bool> cancellationRequested)
         {
             if (IsDisposed || rendererHandoffTimer != null)
                 return false;
 
-            if (IsHandleCreated)
-            {
-                NativeMethods.SetWindowPos(
-                    Handle, NativeMethods.HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    NativeMethods.SWP_NOMOVE |
-                    NativeMethods.SWP_NOSIZE |
-                    NativeMethods.SWP_NOACTIVATE);
-            }
+            BringAboveRendererWithoutActivation(rendererWindow);
             rendererHandoffStartedUtc = DateTime.UtcNow;
             rendererHandoffTimer = new Timer();
             rendererHandoffTimer.Interval = 20;
@@ -176,8 +203,21 @@ namespace AirPlayReceiverMvp
         {
             if (IsDisposed)
                 return;
+            CancelRendererHandoff();
             titleLabel.Text = "Связь потеряна";
             detailLabel.Text = "Ожидаем повторного подключения…";
+        }
+
+        internal void ShowReconnectHint(string receiverName)
+        {
+            if (IsDisposed)
+                return;
+            CancelRendererHandoff();
+            titleLabel.Text = "Связь потеряна";
+            detailLabel.Text =
+                "Если изображение не вернулось,\r\n" +
+                "снова выберите «" + receiverName +
+                "» в «Повторе экрана» на iPhone.";
         }
 
         private void CancelRendererHandoff()
@@ -252,11 +292,11 @@ namespace AirPlayReceiverMvp
         {
             int contentWidth = Math.Max(1, ClientSize.Width - 32);
             int centerY = ClientSize.Height / 2;
-            titleLabel.SetBounds(16, centerY - 80, contentWidth, 42);
-            detailLabel.SetBounds(16, centerY - 34, contentWidth, 28);
+            titleLabel.SetBounds(16, centerY - 92, contentWidth, 42);
+            detailLabel.SetBounds(16, centerY - 42, contentWidth, 60);
             closeButton.Location = new Point(
                 Math.Max(0, (ClientSize.Width - closeButton.Width) / 2),
-                centerY + 18);
+                centerY + 34);
         }
     }
 }

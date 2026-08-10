@@ -30,6 +30,11 @@ $source = [string]::Join(
     }))
 $lostConnectionUiSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "UI\LostConnectionForm.cs"))
+$nativePatchPath = Join-Path $projectRoot `
+    "native-core\libuxplay-aeromirror.patch"
+Assert-True (Test-Path -LiteralPath $nativePatchPath) `
+    "pinned libuxplay patch exists"
+$nativePatchSource = [IO.File]::ReadAllText($nativePatchPath)
 Assert-True (-not $source.Contains("GetOrCreateReceiverDeviceId")) `
     "an upgrade must not invent a replacement AirPlay device ID"
 Assert-True ($source.Contains("GetSavedReceiverDeviceId")) `
@@ -68,6 +73,30 @@ Assert-True ($systemResetIndex -lt $advancedArgumentsIndex) `
     "advanced UxPlay arguments can override the system reset bound"
 Assert-True (-not $source.Contains('parts.Add("-nohold")')) `
     "the receiver does not allow a new client to preempt an active session"
+Assert-True (-not $source.Contains('parts.Add("-p ') -and
+    $source.Contains("AEROMIRROR_HTTP_READY") -and
+    $source.Contains("AEROMIRROR_HTTP_FAILED")) `
+    "the managed receiver verifies native HTTP lifecycle markers without pinning a speculative fixed port"
+Assert-True ($nativePatchSource.Contains(
+        'AEROMIRROR_HTTP_READY stage=initial port=%u') -and
+    $nativePatchSource.Contains(
+        'AEROMIRROR_HTTP_READY stage=reset port=%u') -and
+    $nativePatchSource.Contains(
+        'AEROMIRROR_HTTP_FAILED stage=reset expected_port=%u') -and
+    $nativePatchSource.Contains(
+        'http_response_set_disconnect(response, 1);')) `
+    "the pinned native patch checks initial/reset HTTP binding and disconnects after TEARDOWN"
+Assert-True ($nativePatchSource.Contains(
+        'AEROMIRROR_MIRROR_ONLY_FEATURES_READY') -and
+    $nativePatchSource.Contains(
+        'dnssd_set_airplay_features(dnssd,  1, 0)') -and
+    $nativePatchSource.Contains(
+        'dnssd_set_airplay_features(dnssd,  5, 0)') -and
+    $nativePatchSource.Contains(
+        'dnssd_set_airplay_features(dnssd, 13, 0)') -and
+    $nativePatchSource.Contains(
+        'plist_new_uint(0x25D)')) `
+    "the native receiver advertises only implemented mirroring capabilities instead of photo presentation handlers"
 Assert-True ($source.Contains('parts.Add("-vsync no")') -and
     -not $source.Contains('parts.Add("-al 0.05")')) `
     "the interactive profile disables timestamp scheduling without the old aggressive audio buffer"
@@ -76,6 +105,27 @@ Assert-True ($source.Contains('parts.Add("-vd d3d11h264dec")') -and
     $source.Contains('parts.Add("-vd d3d12h264dec")') -and
     $source.Contains('parts.Add("-vs d3d12videosink")')) `
     "an explicit Direct3D choice pins both decoder and sink for a valid compatibility test"
+$d3d11DecoderIndex = $source.IndexOf(
+    'parts.Add("-vd d3d11h264dec")')
+$d3d11SinkIndex = $source.IndexOf(
+    'parts.Add("-vs d3d11videosink")')
+$d3d12DecoderIndex = $source.IndexOf(
+    'parts.Add("-vd d3d12h264dec")')
+$d3d12SinkIndex = $source.IndexOf(
+    'parts.Add("-vs d3d12videosink")')
+Assert-True ($d3d11DecoderIndex -lt $advancedArgumentsIndex -and
+    $d3d11SinkIndex -lt $advancedArgumentsIndex -and
+    $d3d12DecoderIndex -lt $advancedArgumentsIndex -and
+    $d3d12SinkIndex -lt $advancedArgumentsIndex) `
+    "advanced UxPlay arguments can override the managed renderer compatibility choice"
+$automaticRendererOptionCount = [regex]::Matches(
+    $source, 'NamedValue\(\s*"[^"]*"\s*,\s*"auto"\s*\)').Count
+$recommendedD3D11OptionCount = [regex]::Matches(
+    $source,
+    'NamedValue\(\s*"Direct3D 11[^"]*"\s*,\s*"d3d11"\s*\)').Count
+Assert-True ($automaticRendererOptionCount -eq 0 -and
+    $recommendedD3D11OptionCount -eq 1) `
+    "the settings UI recommends the pinned Direct3D 11 pipeline instead of automatic D3D12 selection"
 $sharedBudgetCallCount = [regex]::Matches(
     $source, 'ConsumeSharedAutomaticRecoveryBudget\s*\(').Count
 Assert-True ($sharedBudgetCallCount -ge 3) `
@@ -201,14 +251,15 @@ Assert-True ($source.Contains(
     $source.Contains("Renderer handoff fade completed; closing")) `
     "continuity is dismissed only after supervision has positioned a visible renderer"
 Assert-True ($source.Contains("ShowConnectionRecovered()") -and
+    $source.Contains("ShowReconnectHint(settings.ReceiverName)") -and
     $source.Contains("ShowConnectionLost()") -and
     [regex]::Matches(
         $lostConnectionUiSource, 'titleLabel\.Text\s*=').Count -ge 2 -and
     [regex]::Matches(
         $lostConnectionUiSource, 'detailLabel\.Text\s*=').Count -ge 2) `
-    "a recovered connection is distinguished from a renderer that has not produced an image yet"
+    "loss, manual reconnect guidance, and recovered waiting states remain distinct"
 Assert-True ($lostConnectionUiSource.Contains(
-        "Action completed, Func<bool> cancellationRequested") -and
+        "IntPtr rendererWindow, Action completed") -and
     $lostConnectionUiSource.Contains("rendererHandoffTimer.Interval = 20") -and
     $lostConnectionUiSource.Contains("elapsedMilliseconds / 180.0") -and
     $lostConnectionUiSource.Contains("CancelRendererHandoff();") -and
@@ -219,6 +270,75 @@ Assert-True ($lostConnectionUiSource.Contains(
 Assert-True ($lostConnectionUiSource.Contains(
         "protected override bool ShowWithoutActivation")) `
     "the continuity placeholder does not steal focus when it first appears"
+Assert-True ($lostConnectionUiSource.Contains(
+        "BringAboveRendererWithoutActivation(") -and
+    $lostConnectionUiSource.Contains("NativeMethods.HWND_TOP") -and
+    $lostConnectionUiSource.Contains(
+        "NativeMethods.GetWindow(") -and
+    $source.Contains(
+        "placeholder.BringAboveRendererWithoutActivation(") -and
+    -not $lostConnectionUiSource.Contains("Activate()") -and
+    -not $lostConnectionUiSource.Contains("SetForegroundWindow")) `
+    "continuity is raised above the foreign renderer without activation or a permanent topmost policy"
+$bringContinuityStart = $lostConnectionUiSource.IndexOf(
+    "internal bool BringAboveRendererWithoutActivation")
+$bringContinuityEnd = $lostConnectionUiSource.IndexOf(
+    "internal bool BeginRendererHandoff", $bringContinuityStart)
+Assert-True ($bringContinuityStart -ge 0 -and
+    $bringContinuityEnd -gt $bringContinuityStart) `
+    "continuity z-order has a focused implementation boundary"
+$bringContinuitySource = $lostConnectionUiSource.Substring(
+    $bringContinuityStart,
+    $bringContinuityEnd - $bringContinuityStart)
+Assert-True ($bringContinuitySource.Contains(
+        "IntPtr insertAfter = TopMost") -and
+    $bringContinuitySource.Contains("NativeMethods.HWND_TOPMOST") -and
+    $bringContinuitySource.Contains("NativeMethods.HWND_TOP") -and
+    $bringContinuitySource.Contains("NativeMethods.SWP_NOACTIVATE") -and
+    $bringContinuitySource.Contains("aboveRenderer == Handle")) `
+    "always-on-top is preserved only when requested and ordinary continuity is inserted immediately above the renderer"
+$handoffUiStart = $bringContinuityEnd
+$handoffUiEnd = $lostConnectionUiSource.IndexOf(
+    "internal void ShowConnectionRecovered", $handoffUiStart)
+Assert-True ($handoffUiEnd -gt $handoffUiStart) `
+    "continuity handoff has a focused UI implementation boundary"
+$handoffUiSource = $lostConnectionUiSource.Substring(
+    $handoffUiStart, $handoffUiEnd - $handoffUiStart)
+Assert-True ($handoffUiSource.Contains(
+        "BringAboveRendererWithoutActivation(rendererWindow)") -and
+    -not $handoffUiSource.Contains("NativeMethods.HWND_TOPMOST") -and
+    -not $handoffUiSource.Contains("SetWindowPos(")) `
+    "renderer handoff reuses the same non-activating z-order policy"
+$renewedLossStateStart = $lostConnectionUiSource.IndexOf(
+    "internal void ShowConnectionLost")
+$renewedLossStateEnd = $lostConnectionUiSource.IndexOf(
+    "private void CancelRendererHandoff", $renewedLossStateStart)
+Assert-True ($renewedLossStateStart -ge 0 -and
+    $renewedLossStateEnd -gt $renewedLossStateStart) `
+    "renewed-loss presentation has a focused implementation boundary"
+$renewedLossStateSource = $lostConnectionUiSource.Substring(
+    $renewedLossStateStart,
+    $renewedLossStateEnd - $renewedLossStateStart)
+Assert-True ([regex]::Matches(
+        $renewedLossStateSource,
+        'CancelRendererHandoff\(\);').Count -eq 2) `
+    "a renewed or fatal loss cancels an in-progress renderer handoff fade"
+$mirroringEndStart = $source.IndexOf(
+    "private void HandleMirroringEndedMaintenance")
+$mirroringEndEnd = $source.IndexOf(
+    "private void ObserveClientFeedbackHealth", $mirroringEndStart)
+Assert-True ($mirroringEndStart -ge 0 -and
+    $mirroringEndEnd -gt $mirroringEndStart) `
+    "mirroring-end maintenance has a focused implementation boundary"
+$mirroringEndSource = $source.Substring(
+    $mirroringEndStart, $mirroringEndEnd - $mirroringEndStart)
+Assert-True ($mirroringEndSource.Contains(
+        "if (showReconnectHint)") -and
+    $mirroringEndSource.Contains(
+        "QueueLostConnectionReconnectHint();") -and
+    $mirroringEndSource.Contains(
+        "if (closeTransientFeedbackPlaceholder)")) `
+    "only abnormal cleanup queues reconnect guidance while a clean stop still closes transient continuity"
 $showCallbackStart = $source.IndexOf(
     "private void OnRendererWindowShowEvent")
 $showCallbackEnd = $source.IndexOf(
@@ -325,6 +445,24 @@ Assert-True ($decideLostPlaceholder.Invoke(
 Assert-True ($decideLostPlaceholder.Invoke(
         $null, [object[]]@($true, $true, $false)).ToString() -eq "Close") `
     "a reconnect or shutdown close request wins over a stale show request"
+$decideLostPresentation = $contextType.GetMethod(
+    "DecideLostConnectionPresentationState", $staticFlags)
+Assert-True ($null -ne $decideLostPresentation) `
+    "lost-frame copy exposes deterministic presentation states"
+Assert-True ($decideLostPresentation.Invoke(
+        $null, [object[]]@($true, $false, $false)).ToString() -eq "Lost") `
+    "a transient feedback gap starts with ordinary waiting guidance"
+Assert-True ($decideLostPresentation.Invoke(
+        $null, [object[]]@($true, $true, $false)).ToString() -eq
+        "ReconnectHint") `
+    "abnormal native cleanup replaces generic waiting with explicit iPhone reconnect guidance"
+Assert-True ($decideLostPresentation.Invoke(
+        $null, [object[]]@($false, $false, $true)).ToString() -eq
+        "Recovered") `
+    "only explicit recovery evidence selects the recovered waiting-for-image state"
+Assert-True ($decideLostPresentation.Invoke(
+        $null, [object[]]@($false, $false, $false)).ToString() -eq "None") `
+    "an unrelated supervision tick does not rewrite continuity text"
 $clampLostPlaceholderBounds = $contextType.GetMethod(
     "ClampLostConnectionPlaceholderBounds", $staticFlags)
 Assert-True ($null -ne $clampLostPlaceholderBounds) `
@@ -486,9 +624,30 @@ $normalizeSettings = $settingsType.GetMethod(
     "NormalizePersistedValues", $instanceFlags)
 Assert-True ($null -ne $normalizeSettings) `
     "persisted settings normalization exists"
+$migrateRendererDefault = $settingsType.GetMethod(
+    "MigrateRendererStabilityDefault", $staticFlags)
+Assert-True ($null -ne $migrateRendererDefault) `
+    "the renderer stability migration is independently testable"
+$legacyAutomaticSettings = [Activator]::CreateInstance($settingsType, $true)
+$legacyAutomaticSettings.SettingsVersion = 10
+$legacyAutomaticSettings.Renderer = "auto"
+$migrateRendererDefault.Invoke(
+    $null, [object[]]@($legacyAutomaticSettings)) | Out-Null
+Assert-True ($legacyAutomaticSettings.SettingsVersion -eq 11 -and
+    $legacyAutomaticSettings.Renderer -eq "d3d11") `
+    "a legacy automatic renderer profile migrates to pinned Direct3D 11"
+$explicitD3D12Settings = [Activator]::CreateInstance($settingsType, $true)
+$explicitD3D12Settings.SettingsVersion = 10
+$explicitD3D12Settings.Renderer = "d3d12"
+$migrateRendererDefault.Invoke(
+    $null, [object[]]@($explicitD3D12Settings)) | Out-Null
+Assert-True ($explicitD3D12Settings.SettingsVersion -eq 11 -and
+    $explicitD3D12Settings.Renderer -eq "d3d12") `
+    "the stability migration preserves an explicit Direct3D 12 choice"
 $settingsProbe = [Activator]::CreateInstance($settingsType, $true)
-Assert-True ([int]$settingsProbe.SettingsVersion -eq 10) `
-    "new settings profiles use the renderer-placement schema"
+Assert-True ([int]$settingsProbe.SettingsVersion -eq 11 -and
+    $settingsProbe.Renderer -eq "d3d11") `
+    "new settings profiles use the pinned Direct3D 11 stability default"
 Assert-True ([bool]$settingsProbe.AutoFitWindow) `
     "automatic renderer aspect fitting is enabled for a new settings profile"
 $settingsProbe.AutoFitWindow = $false
@@ -532,8 +691,8 @@ Assert-True ($settingsProbe.FixedPin -eq "") `
     "an invalid pairing mode does not retain a misleading PIN"
 Assert-True ($settingsProbe.QualityPreset -eq "1080p60") `
     "an unknown quality preset receives the stable default"
-Assert-True ($settingsProbe.Renderer -eq "auto") `
-    "an unknown renderer receives the automatic default"
+Assert-True ($settingsProbe.Renderer -eq "d3d11") `
+    "an unknown renderer receives the pinned Direct3D 11 default"
 Assert-True ($settingsProbe.LatencyProfile -eq "balanced") `
     "an unknown latency profile receives the balanced default"
 Assert-True ($settingsProbe.AudioOutput -eq "default") `
@@ -569,14 +728,14 @@ try {
     [IO.Directory]::CreateDirectory($atomicRoot) | Out-Null
     [IO.File]::WriteAllText($atomicPath, "old=value")
     $atomicLines = [Array]::CreateInstance([string], 2)
-    $atomicLines.SetValue("SettingsVersion=10", 0)
+    $atomicLines.SetValue("SettingsVersion=11", 0)
     $atomicLines.SetValue("PairingMode=none", 1)
     $atomicArguments = [Array]::CreateInstance([object], 2)
     $atomicArguments.SetValue([string]$atomicPath, 0)
     $atomicArguments.SetValue($atomicLines, 1)
     $atomicWriter.Invoke($null, $atomicArguments) | Out-Null
     $atomicText = [IO.File]::ReadAllText($atomicPath)
-    Assert-True ($atomicText.Contains("SettingsVersion=10") -and
+    Assert-True ($atomicText.Contains("SettingsVersion=11") -and
         $atomicText.Contains("PairingMode=none")) `
         "atomic settings replacement publishes the complete new file"
     Assert-True (([IO.Directory]::GetFiles(
@@ -662,6 +821,10 @@ $refreshAfterNetwork = Field "discoveryRefreshAfterNetworkCheck"
 $networkRefreshPending = Field "networkRefreshPending"
 $networkRefreshDue = Field "networkRefreshDueTicks"
 $socketsReady = Field "coreSocketsReady"
+$httpMarkersReady = Field "coreHttpMarkersReady"
+$httpPort = Field "coreHttpPort"
+$httpResetStatus = Field "lostConnectionHttpResetStatus"
+$httpResetPort = Field "lostConnectionHttpResetPort"
 $dnsSdStatus = Field "coreDnsSdStatus"
 $bleStatus = Field "coreBleStatus"
 $discoveryRecoveryPending = Field "coreDiscoveryRecoveryPending"
@@ -865,6 +1028,104 @@ $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 
 $observe = $contextType.GetMethod("ObserveCoreOutput", $instanceFlags)
 Assert-True ($null -ne $observe) "core-output observer exists"
+$observeSocketReady = $contextType.GetMethod(
+    "ObserveCoreSocketReady", $instanceFlags)
+Assert-True ($null -ne $observeSocketReady) `
+    "generic native socket readiness has a process-scoped observer"
+
+$httpMarkersReady.SetValue($context, 0)
+$httpPort.SetValue($context, 0)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 0)
+$recoveryPending.SetValue($context, 0)
+$recoveryPid.SetValue($context, 0)
+$observe.Invoke(
+    $context,
+    [object[]]@(41,
+        "AEROMIRROR_HTTP_READY stage=initial port=53999")) | Out-Null
+Assert-True ([int]$httpMarkersReady.GetValue($context) -eq 0 -and
+    [int]$httpPort.GetValue($context) -eq 0) `
+    "an HTTP-ready marker from a stale native PID is ignored"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_READY stage=initial port=53999")) | Out-Null
+Assert-True ([int]$httpMarkersReady.GetValue($context) -eq 1 -and
+    [int]$httpPort.GetValue($context) -eq 53999 -and
+    [int]$socketsReady.GetValue($context) -eq 1) `
+    "the initial marker establishes native capability and advertised AirPlay port"
+
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 0)
+$observe.Invoke(
+    $context,
+    [object[]]@(41,
+        "AEROMIRROR_HTTP_READY stage=reset port=53999")) | Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq 0 -and
+    [int]$socketsReady.GetValue($context) -eq 0) `
+    "a reset marker from a stale native PID cannot satisfy recovery"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_READY stage=reset port=54000")) | Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq -1 -and
+    [int]$httpResetPort.GetValue($context) -eq 54000 -and
+    [int]$socketsReady.GetValue($context) -eq 0) `
+    "a reset marker for a different port is rejected"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_READY stage=reset port=53999")) | Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq 1 -and
+    [int]$httpResetPort.GetValue($context) -eq 53999 -and
+    [int]$socketsReady.GetValue($context) -eq 1) `
+    "a matching reset marker explicitly confirms same-process recovery"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_FAILED stage=reset expected_port=53999 port=0 code=-1")) |
+    Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq -1 -and
+    [int]$socketsReady.GetValue($context) -eq 0) `
+    "a native reset-bind failure clears readiness while full-process recovery begins"
+
+$recoveryPending.SetValue($context, 0)
+$recoveryPid.SetValue($context, 0)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 1)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_FAILED stage=reset expected_port=53999 port=0 code=-1")) |
+    Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq 0 -and
+    [int]$socketsReady.GetValue($context) -eq 1) `
+    "an out-of-sequence reset failure marker cannot overwrite healthy listener state"
+
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$httpMarkersReady.SetValue($context, 0)
+$httpPort.SetValue($context, 0)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 0)
+$observeSocketReady.Invoke($context, [object[]]@(42)) | Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq 2 -and
+    [int]$socketsReady.GetValue($context) -eq 1) `
+    "a legacy core can use only the bounded post-fatal generic listener fallback"
+$recoveryPending.SetValue($context, 0)
+$recoveryPid.SetValue($context, 0)
+$recoveryDue.SetValue($context, [long]0)
+$httpMarkersReady.SetValue($context, 0)
+$httpPort.SetValue($context, 0)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 0)
 $getStableVideoSize = $contextType.GetMethod(
     "GetStableVideoSize", $instanceFlags)
 Assert-True ($null -ne $getStableVideoSize) `
@@ -1323,6 +1584,10 @@ Assert-True (-not [bool]$restartPending.GetValue($context)) `
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 0) `
     "a clean mirror shutdown does not show a lost-frame placeholder"
 
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_READY stage=initial port=53999")) | Out-Null
 $mirrorActive.SetValue($context, 1)
 
 $before = [DateTime]::UtcNow.Ticks
@@ -1332,6 +1597,10 @@ $observe.Invoke(
 $armedDue = [long]$recoveryDue.GetValue($context)
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 1) `
     "fatal mirror recv error arms recovery"
+Assert-True ([int]$socketsReady.GetValue($context) -eq 0 -and
+    [int]$httpResetStatus.GetValue($context) -eq 0 -and
+    [int]$httpResetPort.GetValue($context) -eq 0) `
+    "fatal loss clears listener readiness until the native reset is explicitly confirmed"
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
     [int]$rendererHandoffPending.GetValue($context) -eq 0 -and
     [int]$lostStatePending.GetValue($context) -eq 1 -and
@@ -1382,6 +1651,14 @@ Assert-True ($idleDue -le [DateTime]::UtcNow.AddMinutes(11).Ticks) `
 
 $observe.Invoke(
     $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_READY stage=reset port=53999")) | Out-Null
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq 1 -and
+    [int]$httpResetPort.GetValue($context) -eq 53999 -and
+    [int]$socketsReady.GetValue($context) -eq 1) `
+    "matching native reset readiness is retained through abnormal mirror cleanup"
+$observe.Invoke(
+    $context,
     [object[]]@(42, "connection request from reconnecting iPhone")) | Out-Null
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 0) `
     "a reconnect request cancels abnormal-loss discovery renewal"
@@ -1389,26 +1666,63 @@ Assert-True ([int]$recoveryPid.GetValue($context) -eq 0) `
     "a reconnect request clears the abnormal-loss owner"
 Assert-True ([long]$recoveryDue.GetValue($context) -eq 0) `
     "a reconnect request clears the abnormal-loss deadline"
+Assert-True ([int]$httpResetStatus.GetValue($context) -eq 0 -and
+    [int]$httpResetPort.GetValue($context) -eq 0) `
+    "a reconnect request clears one-shot HTTP reset evidence"
 Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
     [int]$placeholderClosePending.GetValue($context) -eq 0) `
     "a reconnect handshake keeps the placeholder until mirroring really starts"
 
 $clientGraceDue.SetValue($context, [long]0)
+$mirrorActive.SetValue($context, 0)
+$httpMarkersReady.SetValue($context, 1)
+$httpPort.SetValue($context, 53999)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 0)
 $recoveryPending.SetValue($context, 1)
 $recoveryPid.SetValue($context, 42)
 $recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$missingConfirmationAction = $consumeLostRecovery.Invoke(
+    $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
+Assert-True ($missingConfirmationAction -eq "RestartStalledSession") `
+    "a marker-capable core cannot preserve same-process recovery without matching reset readiness"
+
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_HTTP_READY stage=reset port=53999")) | Out-Null
 $preserveAction = $consumeLostRecovery.Invoke(
     $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
 Assert-True ($preserveAction -eq "PreserveNativeRecovery") `
-    "an ended abnormal session preserves UxPlay's same-process recovery"
+    "an ended abnormal session preserves only an explicitly confirmed same-port native reset"
 Assert-True ([int]$recoveryPending.GetValue($context) -eq 0 -and
     [int]$recoveryPid.GetValue($context) -eq 0 -and
-    [long]$recoveryDue.GetValue($context) -eq 0) `
+    [long]$recoveryDue.GetValue($context) -eq 0 -and
+    [int]$httpResetStatus.GetValue($context) -eq 0 -and
+    [int]$httpResetPort.GetValue($context) -eq 0) `
     "consuming discovery renewal clears all one-shot recovery state"
 $secondRenewAction = $consumeLostRecovery.Invoke(
     $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
 Assert-True ($secondRenewAction -eq "None") `
     "the same abnormal loss cannot renew discovery twice"
+
+$httpMarkersReady.SetValue($context, 0)
+$httpPort.SetValue($context, 0)
+$httpResetStatus.SetValue($context, 0)
+$httpResetPort.SetValue($context, 0)
+$socketsReady.SetValue($context, 0)
+$recoveryPending.SetValue($context, 1)
+$recoveryPid.SetValue($context, 42)
+$recoveryDue.SetValue($context, [DateTime]::UtcNow.AddSeconds(-1).Ticks)
+$observeSocketReady.Invoke($context, [object[]]@(42)) | Out-Null
+$legacyPreserveAction = $consumeLostRecovery.Invoke(
+    $context, [object[]]@([DateTime]::UtcNow, $true, $false)).ToString()
+Assert-True ($legacyPreserveAction -eq "PreserveLegacyRecovery") `
+    "a legacy core keeps a bounded generic listener fallback without claiming port identity"
 
 $mirrorActive.SetValue($context, 1)
 $recoveryPending.SetValue($context, 1)
@@ -1768,6 +2082,10 @@ $rawGeometryIsAmbiguous.SetValue($context, $true)
 $earlyDeviceFrameVideoSize.SetValue($context, $portraitFrame)
 $deviceFrameVideoSize.SetValue($context, $landscapeFrame)
 $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
+$httpMarkersReady.SetValue($context, 1)
+$httpPort.SetValue($context, 53999)
+$httpResetStatus.SetValue($context, 1)
+$httpResetPort.SetValue($context, 53999)
 $resetCoreSession.Invoke($context, [object[]]@($false)) | Out-Null
 Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
@@ -1779,7 +2097,11 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     -not [bool]$currentVideoSizeIsAmbiguous.GetValue($context) -and
     [Drawing.Size]$rawGeometryVideoSize.GetValue($context) -eq
         [Drawing.Size]::Empty -and
-    -not [bool]$rawGeometryIsAmbiguous.GetValue($context)) `
-    "core reset clears learned device orientation and media-canvas state"
+    -not [bool]$rawGeometryIsAmbiguous.GetValue($context) -and
+    [int]$httpMarkersReady.GetValue($context) -eq 0 -and
+    [int]$httpPort.GetValue($context) -eq 0 -and
+    [int]$httpResetStatus.GetValue($context) -eq 0 -and
+    [int]$httpResetPort.GetValue($context) -eq 0) `
+    "core reset clears learned device orientation, media-canvas, and native HTTP lifecycle state"
 
 Write-Host "Receiver resilience checks passed."

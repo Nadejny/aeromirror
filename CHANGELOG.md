@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.12.6 — D3D11 stability and clearer reconnect guidance
+
+### Changed
+
+- New settings profiles now use an explicitly pinned Direct3D 11 decoder and
+  video sink. Existing profiles that still used the legacy automatic renderer
+  choice migrate to Direct3D 11; an explicit Direct3D 12 choice remains
+  available as an experimental opt-in.
+- The Advanced settings page now recommends Direct3D 11 instead of offering
+  GStreamer's automatic selection. Advanced UxPlay arguments remain later on
+  the command line and can still override the managed compatibility choice.
+- The native receiver no longer advertises the unimplemented photo, slideshow,
+  and photo-preload capabilities: exact feature bits 1, 5, and 13 are cleared.
+  Supported audio, authentication, and metadata capabilities remain. This is
+  a controlled Photos negotiation experiment whose physical effect remains
+  pending, not a claim that inner Photos sizing is fixed.
+
+### Fixed
+
+- The connection-loss view is raised immediately above the external renderer
+  without activating itself or making an ordinary stream permanently topmost.
+  After fatal native cleanup it gives an explicit instruction to reconnect to
+  the named receiver from iPhone Screen Mirroring instead of continuing to
+  imply that recovery is automatic.
+- A renewed or fatal loss during the 180 ms renderer handoff cancels that
+  fade, restores full opacity, and leaves continuity visible.
+- Native HTTP startup and fatal reset now emit explicit ready or failed
+  markers. The shell preserves a recovered native process only after an exact
+  same-port reset acknowledgement from the current process; a bind failure or
+  port mismatch cleans up and exits for full-process recovery. AirPlay
+  `TEARDOWN` now explicitly closes the connection so cleanup cannot remain in
+  an ambiguous half-open state.
+
+### Compatibility and verification status
+
+- Direct3D 11 is a conservative stability candidate for streams that change
+  resolution, including the observed Photos transition. Physical iPhone A/B
+  evidence is still pending; this patch does not claim to crop or zoom the
+  small photo and black bars already encoded inside the Photos canvas.
+- The managed build and resilience checks pass for the current working-tree
+  candidate. The native core rebuild is reproducible, its patch/provenance and
+  staged-dependency audits pass, and the prepared native-source archive
+  validates. Installer, package, exact-tag, public-release, and physical
+  Windows 10/11 plus iPhone gates remain pending.
+- Receiver discovery and automatic reconnect are not claimed as fixed. A
+  stale iOS browse result or a connection attempt that never reaches Windows
+  remains an explicit physical test failure.
+- `v0.12.5` and its assets remain immutable. Version 0.12.6 is not tagged or
+  published until all release gates pass and publication is explicitly
+  authorized.
+
 ## 0.12.5 — safer Photos startup and recovery feedback
 
 ### Fixed

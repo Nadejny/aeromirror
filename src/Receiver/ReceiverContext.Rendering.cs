@@ -384,7 +384,7 @@ namespace AirPlayReceiverMvp
             settings.StreamWindowWidth = bounds.Width;
             settings.StreamWindowHeight = bounds.Height;
             settings.StreamWindowDpi = dpi;
-            settings.SettingsVersion = 10;
+            settings.SettingsVersion = AppSettings.CurrentSettingsVersion;
             try
             {
                 settings.Save();

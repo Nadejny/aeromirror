@@ -1,3 +1,43 @@
+diff --git a/lib/http_handlers.h b/lib/http_handlers.h
+index 7984be8..866bfc1 100644
+--- a/lib/http_handlers.h
++++ b/lib/http_handlers.h
+@@ -53,18 +53,18 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
+ 
+     plist_t r_node = plist_new_dict();
+ 
+-    /* first 12 AirPlay features bits (R to L): 0x27F = 0010 0111 1111
+-     * Only bits 0-6 and bit 9  are set:
++    /* first 12 AirPlay features bits (R to L): 0x25D = 0010 0101 1101
++     * Only bits 0, 2-4, 6 and bit 9 are set:
+      * 0. video supported
+-     * 1. photo supported
++     * 1. photo not supported
+      * 2. video protected wirh FairPlay DRM
+      * 3. volume control supported for video
+      * 4. HLS supported
+-     * 5. slideshow supported
++     * 5. slideshow not supported
+      * 6. (unknown)
+      * 9. audio supported.
+      */
+-    plist_t features_node = plist_new_uint(0x27F); 
++    plist_t features_node = plist_new_uint(0x25D);
+     plist_dict_set_item(r_node, "features", features_node);
+ 
+     plist_t mac_address_node = plist_new_string(hw_addr);
+diff --git a/lib/raop_handlers.h b/lib/raop_handlers.h
+index 1aeba28..3dd716e 100644
+--- a/lib/raop_handlers.h
++++ b/lib/raop_handlers.h
+@@ -1267,6 +1267,7 @@ raop_handler_teardown(raop_conn_t *conn,
+     logger_log(raop->logger, LOGGER_DEBUG, "TEARDOWN request,  96=%d, 110=%d", teardown_96, teardown_110);
+   
+     http_response_add_header(response, "Connection", "close");
++    http_response_set_disconnect(response, 1);
+   
+     if (teardown_96) {
+         if (conn->raop_rtp) {
 diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
 index 2bb4f5f..55340ef 100644
 --- a/lib/raop_rtp_mirror.c
@@ -154,7 +194,7 @@ index ea1c450..b3c4b2f 100644
  }
  
 diff --git a/uxplay.cpp b/uxplay.cpp
-index d10edd4..1d8f7bf 100644
+index d10edd4..af7c50a 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
 @@ -190,6 +190,7 @@ static guint gst_hls_position_id = 0;
@@ -219,7 +259,40 @@ index d10edd4..1d8f7bf 100644
      LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
           dnssd_get_airplay_features(dnssd));
      return 0;
-@@ -2254,6 +2271,10 @@ extern "C" void conn_destroy (void *cls) {
+@@ -1998,12 +2015,12 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+      * default: FEATURES_1 = 0x5A7FFEE6, FEATURES_2 = 0 */
+ 
+     dnssd_set_airplay_features(dnssd,  0, 0); // AirPlay video supported 
+-    dnssd_set_airplay_features(dnssd,  1, 1); // photo supported 
++    dnssd_set_airplay_features(dnssd,  1, 0); // photo delivery is not implemented
+     dnssd_set_airplay_features(dnssd,  2, 1); // video protected with FairPlay DRM 
+     dnssd_set_airplay_features(dnssd,  3, 0); // volume control supported for videos
+ 
+     dnssd_set_airplay_features(dnssd,  4, 0); // http live streaming (HLS) supported
+-    dnssd_set_airplay_features(dnssd,  5, 1); // slideshow supported 
++    dnssd_set_airplay_features(dnssd,  5, 0); // slideshow is not implemented
+     dnssd_set_airplay_features(dnssd,  6, 1); // 
+     dnssd_set_airplay_features(dnssd,  7, 1); // mirroring supported
+ 
+@@ -2013,7 +2030,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+     dnssd_set_airplay_features(dnssd, 11, 1); // audio packet redundancy supported
+ 
+     dnssd_set_airplay_features(dnssd, 12, 1); // FaiPlay secure auth supported 
+-    dnssd_set_airplay_features(dnssd, 13, 1); // photo preloading  supported 
++    dnssd_set_airplay_features(dnssd, 13, 0); // photo preloading is not implemented
+     dnssd_set_airplay_features(dnssd, 14, 1); // Authentication bit 4:  FairPlay authentication
+     dnssd_set_airplay_features(dnssd, 15, 1); // Metadata bit 1 support:   Artwork 
+ 
+@@ -2089,6 +2106,8 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+ 
+     /* bit 27 of Features determines whether the AirPlay2 client-pairing protocol will be used (1) or not (0) */
+     dnssd_set_airplay_features(dnssd, 27, (int) setup_legacy_pairing);
++    LOGI("AEROMIRROR_MIRROR_ONLY_FEATURES_READY features=0x%llX",
++         dnssd_get_airplay_features(dnssd));
+     return 0;
+ }
+ 
+@@ -2254,6 +2273,10 @@ extern "C" void conn_destroy (void *cls) {
  
  extern "C" void conn_feedback (void *cls) {
      /* received client heartbeat signal: connection still exists */
@@ -230,3 +303,58 @@ index d10edd4..1d8f7bf 100644
      missed_feedback = 0;
  }
  
+@@ -2759,8 +2782,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+     raop_set_udp_ports(raop, udp);
+ 
+     raop_port = raop_get_port(raop);
+-    raop_start_httpd(raop, &raop_port);
++    int httpd_status = raop_start_httpd(raop, &raop_port);
++    if (httpd_status <= 0) {
++        LOGE("AEROMIRROR_HTTP_FAILED stage=initial port=%u code=%d",
++             raop_port, httpd_status);
++        return -3;
++    }
+     raop_set_port(raop, raop_port);
++    LOGI("AEROMIRROR_HTTP_READY stage=initial port=%u", raop_port);
+ 
+     /* use raop_port for airplay_port (instead of tcp[2]) */
+     airplay_port = raop_port;
+@@ -3208,6 +3237,7 @@ int start_uxplay (int argc, char *argv[]) {
+     if (start_raop_server(display, tcp, udp, debug_log)) {
+         stop_dnssd();
+         cleanup();
++        return 1;
+     }
+ 
+     if (lang.length() > 1) {
+@@ -3266,9 +3296,20 @@ int start_uxplay (int argc, char *argv[]) {
+             video_renderer_start();
+         }
+         if (reset_httpd) {
+-            unsigned short port = raop_get_port(raop);
+-            raop_start_httpd(raop, &port);
++            unsigned short expected_port = raop_get_port(raop);
++            unsigned short port = expected_port;
++            int httpd_status = raop_start_httpd(raop, &port);
++            if (httpd_status <= 0 || port != expected_port) {
++                LOGE("AEROMIRROR_HTTP_FAILED stage=reset expected_port=%u "
++                     "port=%u code=%d",
++                     expected_port, port, httpd_status);
++                stop_raop_server();
++                stop_dnssd();
++                cleanup();
++                return 1;
++            }
+             raop_set_port(raop, port);
++            LOGI("AEROMIRROR_HTTP_READY stage=reset port=%u", port);
+         }
+         if (mux_to_file) {
+             mux_renderer_stop();
+@@ -3280,6 +3321,7 @@ int start_uxplay (int argc, char *argv[]) {
+         stop_dnssd();
+     }
+     cleanup();
++    return 0;
+ }
+ 
+ void stop_uxplay() {

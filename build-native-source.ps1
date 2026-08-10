@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.5"
+    [string]$Version = "0.12.6"
 )
 
 $ErrorActionPreference = "Stop"
@@ -161,6 +161,8 @@ $libModified = @(
         status --short --untracked-files=no
 )
 $expectedLibModified = @(
+    " M lib/http_handlers.h",
+    " M lib/raop_handlers.h",
     " M lib/raop_rtp_mirror.c",
     " M renderers/video_renderer.c",
     " M uxplay.cpp"
@@ -212,6 +214,8 @@ try {
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
         diff --binary --no-ext-diff `
         ("--output=" + $actualLibPatch) -- `
+        "lib/http_handlers.h" `
+        "lib/raop_handlers.h" `
         "lib/raop_rtp_mirror.c" `
         "renderers/video_renderer.c" `
         "uxplay.cpp"
@@ -280,6 +284,8 @@ try {
             -Destination (Join-Path $sourceRoot $relative) -Force
     }
     foreach ($relative in @(
+        "lib\http_handlers.h",
+        "lib\raop_handlers.h",
         "lib\raop_rtp_mirror.c",
         "renderers\video_renderer.c",
         "uxplay.cpp"

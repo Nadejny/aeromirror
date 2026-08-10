@@ -38,7 +38,8 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   presets in the normal settings;
 - offers Windows Mobile Hotspot only as an optional advanced action while a
   Public physical network is active;
-- selects automatic, Direct3D 11, or Direct3D 12 rendering;
+- defaults to a pinned Direct3D 11 decoder and video sink for stability, while
+  retaining Direct3D 12 as an experimental opt-in;
 - can use the default Windows audio output or mute receiver audio;
 - keeps latency and audio controls in the normal settings, with Balanced
   latency selected by default; renderer selection and raw UxPlay arguments
@@ -69,7 +70,9 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   running; after a capable native three-second warning, the shell can show
   continuity at a deterministic four-second local deadline, cancel it on
   earlier recovery, and show connection-restored/waiting-for-image while the
-  real renderer handoff is pending; confirmed loss keeps a
+  real renderer handoff is pending; the view stays immediately above the
+  renderer without taking focus, and fatal cleanup gives an explicit manual
+  Screen Mirroring reconnect instruction; confirmed loss keeps a
   softened in-memory view of unobscured renderer client pixels, or a dark
   fallback otherwise, until a positioned renderer is ready for a short fade
   handoff or the user closes it;
@@ -85,7 +88,9 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   passwords, MAC addresses, user-profile paths, and labelled cryptographic
   material; the current review line records feedback-gap totals, the full raw AirPlay
   geometry header, and the selected GStreamer decoder/sink without treating
-  the raw auxiliary geometry pair as crop, PAR, or rotation metadata;
+  the raw auxiliary geometry pair as crop, PAR, or rotation metadata; the
+  0.12.6 candidate also logs explicit native HTTP reset readiness/failure and
+  a mirror-only capability marker;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
 
@@ -124,6 +129,10 @@ The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.5 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
 `releases/latest` API and Setup download to the canonical repository, and both
 redirect paths were verified after publication.
+
+Version 0.12.6 is currently a source-tree review candidate, not a public
+download. Its Direct3D 11 and reconnect changes remain subject to the
+versioned automated and physical test plan before any tag or Release.
 
 The installer:
 
@@ -248,31 +257,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.5 `
+  -Version 0.12.6 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.5 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.5.zip
+  -Version 0.12.6 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.6.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.5.exe
+artifacts\installer\AeroMirror-Setup-0.12.6.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.5`.
+Public release names use three-part semantic versions such as `0.12.6`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.5.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.5`.
+show `0.12.6.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.6`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.5 `
+  -Version 0.12.6 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -285,7 +294,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.5.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.6.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -294,7 +303,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.5\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.6\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -326,6 +335,7 @@ src/
   Receiver/
     ReceiverContext.cs       tray application context and shared state
     ReceiverContext.Core.cs  native lifecycle and discovery/recovery policy
+    ReceiverContext.HttpReset.cs native HTTP reset marker state
     ReceiverContext.Rendering.cs renderer-window sizing and Win32 policy
     ReceiverContext.LostConnection.cs fatal-loss placeholder lifecycle
     ReceiverContext.Diagnostics.cs logging and problem-report workflow
@@ -382,6 +392,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.6/
+      RELEASE_NOTES.md       candidate GitHub Release text
+      TEST_PLAN.md           renderer, Photos, and reconnect acceptance
     0.12.5/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           Photos-first and recovery acceptance matrix
@@ -449,6 +462,13 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   stale row tapped on iOS may still fail before any request reaches Windows,
   and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
   re-publication with an acknowledged ready state remains future work.
+- The 0.12.6 candidate accepts same-process HTTP recovery only after an
+  explicit current-PID marker confirms the original AirPlay port; bind failure
+  or mismatch exits for full-process recovery. This still does not prove
+  DNS-SD/BLE re-publication or force iOS browse-cache refresh.
+- The same candidate clears unimplemented AirPlay photo, slideshow, and
+  photo-preload advertisement bits as a mirror-only experiment. Physical
+  direct-in-Photos behavior remains pending, and this is not a crop/zoom fix.
 - The continuity placeholder keeps only a softened renderer-client screenshot
   in process memory, writes no mirrored frame to disk, and uses a dark fallback
   whenever another visible window overlaps the renderer. With the patched
@@ -525,11 +545,13 @@ original preset disables Save again.
   audio/video synchronization can be less exact.
 - **Stable** reports a 350 ms audio buffer and adds visible delay.
 
-The receiver defaults to GStreamer's automatic sink and decoder selection.
-Earlier builds forced the newer D3D12 H.264 decoder, which can stutter on
-some GPU/driver combinations. The explicit D3D11 and D3D12 overrides now pin
-both the matching Direct3D decoder family and video sink for a consistent
-comparison; UxPlay selects the codec-matched decoder at pipeline creation.
+The receiver now defaults to an explicitly pinned Direct3D 11 decoder family
+and video sink. Existing profiles that still used automatic GStreamer
+selection migrate to Direct3D 11; an explicit Direct3D 12 choice remains
+available as an experimental comparison. Advanced UxPlay arguments remain
+after the managed choice and can override it for diagnostics. UxPlay selects
+the codec-matched decoder at pipeline creation. Physical Direct3D 11 versus
+Direct3D 12 Photos and resolution-change testing is still pending.
 
 AirPlay itself and the iPhone encoder still add latency. Best results require
 the PC on Ethernet, the iPhone on strong 5/6 GHz Wi-Fi, no VPN in the local
@@ -552,9 +574,9 @@ The current license inventory is an engineering review, not legal advice.
 For the 0.12 review, share the GitHub Release page or its network Setup—not a
 loose `AeroMirror.exe`. The Release must keep these assets together:
 
-- `AeroMirror-Setup-0.12.5.exe`;
-- `AeroMirror-source-0.12.5.zip`;
-- `AeroMirror-native-source-0.12.5.zip`;
+- `AeroMirror-Setup-0.12.6.exe`;
+- `AeroMirror-source-0.12.6.zip`;
+- `AeroMirror-native-source-0.12.6.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

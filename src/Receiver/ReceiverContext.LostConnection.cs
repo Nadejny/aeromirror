@@ -14,10 +14,19 @@ namespace AirPlayReceiverMvp
             Close
         }
 
+        private enum LostConnectionPresentationState
+        {
+            None,
+            Lost,
+            ReconnectHint,
+            Recovered
+        }
+
         private int lostConnectionPlaceholderShowPending;
         private int lostConnectionPlaceholderClosePending;
         private int lostConnectionRendererHandoffPending;
         private int lostConnectionLostStatePending;
+        private int lostConnectionReconnectHintPending;
         private int lostConnectionRecoveredStatePending;
         private long feedbackGapPlaceholderDueTicks;
         private Rectangle lastRendererBounds = Rectangle.Empty;
@@ -27,6 +36,7 @@ namespace AirPlayReceiverMvp
         {
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 1);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
             Interlocked.Exchange(
                 ref lostConnectionRecoveredStatePending, 0);
             Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
@@ -38,6 +48,7 @@ namespace AirPlayReceiverMvp
         {
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
             Interlocked.Exchange(
                 ref lostConnectionRecoveredStatePending, 0);
             Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
@@ -49,9 +60,18 @@ namespace AirPlayReceiverMvp
         {
             Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 1);
             Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 1);
+        }
+
+        private void QueueLostConnectionReconnectHint()
+        {
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(
+                ref lostConnectionRecoveredStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 1);
         }
 
         private void RememberRendererBounds(IntPtr window)
@@ -73,6 +93,8 @@ namespace AirPlayReceiverMvp
         {
             bool lostStateRequested = Interlocked.Exchange(
                 ref lostConnectionLostStatePending, 0) == 1;
+            bool reconnectHintRequested = Interlocked.Exchange(
+                ref lostConnectionReconnectHintPending, 0) == 1;
             bool recoveredStateRequested = Interlocked.Exchange(
                 ref lostConnectionRecoveredStatePending, 0) == 1;
             bool closeRequested = Interlocked.Exchange(
@@ -85,14 +107,11 @@ namespace AirPlayReceiverMvp
 
             bool visible = lostConnectionForm != null &&
                 !lostConnectionForm.IsDisposed;
-            if (recoveredStateRequested && visible)
-            {
-                lostConnectionForm.ShowConnectionRecovered();
-                Log("AirPlay connection recovered; continuity remains visible " +
-                    "until the renderer produces an image.");
-            }
-            else if (lostStateRequested && visible)
-                lostConnectionForm.ShowConnectionLost();
+            LostConnectionPresentationState presentationState =
+                DecideLostConnectionPresentationState(
+                    lostStateRequested,
+                    reconnectHintRequested,
+                    recoveredStateRequested);
             LostConnectionPlaceholderAction action =
                 DecideLostConnectionPlaceholderAction(
                     showRequested, closeRequested, visible);
@@ -100,6 +119,23 @@ namespace AirPlayReceiverMvp
             {
                 CloseLostConnectionPlaceholder();
                 return;
+            }
+            if (visible)
+            {
+                ApplyLostConnectionPresentation(
+                    lostConnectionForm, presentationState);
+                if (presentationState ==
+                    LostConnectionPresentationState.Recovered)
+                {
+                    Log("AirPlay connection recovered; continuity remains " +
+                        "visible until the renderer produces an image.");
+                }
+                else if (presentationState ==
+                    LostConnectionPresentationState.ReconnectHint)
+                {
+                    Log("The lost AirPlay session finished; continuity now " +
+                        "explains how to reconnect from the iPhone.");
+                }
             }
             if (action != LostConnectionPlaceholderAction.Show || quitting)
                 return;
@@ -133,12 +169,26 @@ namespace AirPlayReceiverMvp
                     }
                 };
                 lostConnectionForm = placeholder;
+                ApplyLostConnectionPresentation(
+                    placeholder, presentationState);
                 placeholder.Show();
-                if (recoveredStateRequested)
+                if (!placeholder.BringAboveRendererWithoutActivation(
+                        rendererWindow))
                 {
-                    placeholder.ShowConnectionRecovered();
+                    Log("Lost-connection placeholder could not be moved above " +
+                        "the renderer without activation.");
+                }
+                if (presentationState ==
+                    LostConnectionPresentationState.Recovered)
+                {
                     Log("AirPlay connection recovered before continuity was " +
                         "displayed; waiting for the renderer image.");
+                }
+                else if (presentationState ==
+                    LostConnectionPresentationState.ReconnectHint)
+                {
+                    Log("The lost AirPlay session finished before continuity " +
+                        "was displayed; reconnect guidance is visible.");
                 }
                 Log("Lost-connection placeholder opened at the last renderer " +
                     "bounds; waiting for a new mirroring start.");
@@ -159,6 +209,43 @@ namespace AirPlayReceiverMvp
             if (showRequested && !visible)
                 return LostConnectionPlaceholderAction.Show;
             return LostConnectionPlaceholderAction.None;
+        }
+
+        private static LostConnectionPresentationState
+            DecideLostConnectionPresentationState(
+                bool lostRequested, bool reconnectHintRequested,
+                bool recoveredRequested)
+        {
+            if (recoveredRequested)
+                return LostConnectionPresentationState.Recovered;
+            if (reconnectHintRequested)
+                return LostConnectionPresentationState.ReconnectHint;
+            if (lostRequested)
+                return LostConnectionPresentationState.Lost;
+            return LostConnectionPresentationState.None;
+        }
+
+        private void ApplyLostConnectionPresentation(
+            LostConnectionForm placeholder,
+            LostConnectionPresentationState presentationState)
+        {
+            if (placeholder == null || placeholder.IsDisposed)
+                return;
+            if (presentationState ==
+                LostConnectionPresentationState.Recovered)
+            {
+                placeholder.ShowConnectionRecovered();
+            }
+            else if (presentationState ==
+                LostConnectionPresentationState.ReconnectHint)
+            {
+                placeholder.ShowReconnectHint(settings.ReceiverName);
+            }
+            else if (presentationState ==
+                LostConnectionPresentationState.Lost)
+            {
+                placeholder.ShowConnectionLost();
+            }
         }
 
         private static Rectangle ResolveLostConnectionPlaceholderBounds(
@@ -346,10 +433,14 @@ namespace AirPlayReceiverMvp
             LostConnectionForm placeholder = lostConnectionForm;
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
             Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
+            IntPtr rendererWindow;
+            TryGetRendererWindow(out rendererWindow);
             if (!placeholder.BeginRendererHandoff(
+                rendererWindow,
                 delegate
                 {
                     if (!ReferenceEquals(lostConnectionForm, placeholder))
@@ -373,6 +464,7 @@ namespace AirPlayReceiverMvp
         {
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
             Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
             Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
             Interlocked.Exchange(ref lostConnectionPlaceholderShowPending, 0);

@@ -20,12 +20,14 @@ namespace AirPlayReceiverMvp
 {
     internal sealed class AppSettings
     {
-        public int SettingsVersion = 10;
+        internal const int CurrentSettingsVersion = 11;
+
+        public int SettingsVersion = CurrentSettingsVersion;
         public string ReceiverName = Environment.MachineName;
         public string PairingMode = "none";
         public string FixedPin = "";
         public string QualityPreset = "1080p60";
-        public string Renderer = "auto";
+        public string Renderer = "d3d11";
         public string LatencyProfile = "balanced";
         public string AudioOutput = "default";
         public string ThemeMode = "system";
@@ -315,8 +317,26 @@ namespace AirPlayReceiverMvp
                 settings.SettingsVersion = 10;
                 settings.ClearStreamWindowPlacement();
             }
+            MigrateRendererStabilityDefault(settings);
             settings.NormalizePersistedValues();
             return settings;
+        }
+
+        internal static void MigrateRendererStabilityDefault(
+            AppSettings settings)
+        {
+            if (settings == null ||
+                settings.SettingsVersion >= CurrentSettingsVersion)
+                return;
+
+            if (string.Equals(
+                    (settings.Renderer ?? "").Trim(),
+                    "auto",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                settings.Renderer = "d3d11";
+            }
+            settings.SettingsVersion = CurrentSettingsVersion;
         }
 
         public void Save()
@@ -376,7 +396,7 @@ namespace AirPlayReceiverMvp
                 QualityPreset, "1080p60",
                 "720p30", "1080p30", "1080p60", "4k60");
             Renderer = NormalizeChoice(
-                Renderer, "auto", "auto", "d3d11", "d3d12");
+                Renderer, "d3d11", "d3d11", "d3d12");
             LatencyProfile = NormalizeChoice(
                 LatencyProfile, "balanced", "balanced", "low", "stable");
             AudioOutput = NormalizeChoice(

@@ -307,7 +307,7 @@ namespace AirPlayReceiverMvp
             string previousArguments = BuildUxPlayArguments();
             bool wasRunning = IsCoreRunning;
             settings = updated;
-            settings.SettingsVersion = 10;
+            settings.SettingsVersion = AppSettings.CurrentSettingsVersion;
             settings.Save();
             ApplyAutostart(settings.AutoStartWindows);
             autoStartItem.Checked = IsAutostartEnabled();

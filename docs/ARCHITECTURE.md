@@ -92,6 +92,20 @@ The current shell depends on these native integration behaviors:
    Recovery before the deadline cancels it; acknowledged later recovery queues
    the existing renderer handoff without ending the active session. A legacy
    core is excluded because it cannot provide the recovery acknowledgement.
+9. Native HTTP startup emits `AEROMIRROR_HTTP_READY stage=initial port=<n>` or
+   an explicit failed marker. Fatal internal reset emits reset readiness only
+   after binding the exact original advertised port. The shell accepts markers
+   only from the current PID, clears readiness at fatal loss, and preserves the
+   native process only after matching same-port evidence. Failure or mismatch
+   cleans up and exits for bounded full-process recovery; legacy generic
+   readiness remains bounded and cannot claim port identity. AirPlay
+   `TEARDOWN` explicitly requests client disconnect.
+10. The 0.12.6 native candidate clears photo, slideshow, and photo-preload
+    feature bits 1, 5, and 13 and emits
+    `AEROMIRROR_MIRROR_ONLY_FEATURES_READY`. Supported audio, authentication,
+    and metadata capabilities remain advertised. This is an experiment whose
+    effect on Photos presentation-canvas negotiation remains a physical gate,
+    not a validated crop or content-layout signal.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -170,6 +184,21 @@ that inner content without a native content rectangle or validated pixel
 analysis. A future versioned IPC contract should replace stdout parsing and
 expose explicit stream, orientation, and content-layout events.
 
+## Renderer pipeline selection
+
+Settings schema 11 makes Direct3D 11 the managed stability default. Loading a
+legacy profile migrates only `Renderer=auto` to `d3d11`; an explicit `d3d12`
+choice is retained. Unknown renderer values normalize to D3D11. The shell pins
+both the codec-family decoder and matching video sink for Direct3D 11 or 12,
+and raw advanced UxPlay arguments remain later on the command line so an
+experienced tester can make an explicit diagnostic override.
+
+This is a conservative response to the observed automatic D3D12 selection and
+upstream resolution-change risk. It does not change AirPlay negotiation,
+decode pixels in the managed shell, or prove that Photos' inner presentation
+canvas is fixed. Direct3D 12 remains an experimental A/B option until physical
+Windows/iPhone evidence supports a broader conclusion.
+
 ## Fatal-loss presentation continuity
 
 The native renderer remains an external window owned by the core process.
@@ -190,11 +219,19 @@ the existing renderer handoff without restarting the active session.
 A confirmed fatal loss retains continuity through cleanup and a reconnect
 handshake. A protocol-start marker alone is insufficient to close it: the
 placeholder stays until a real renderer exists and has been positioned, then
-hands off with a short nonblocking opacity fade. Explicit user close, manual
+hands off with a short nonblocking opacity fade. While visible, it is inserted
+immediately above the external renderer without activation or an implicit
+permanent topmost policy. After fatal cleanup it replaces generic waiting text
+with an explicit instruction to select the named receiver again in iPhone
+Screen Mirroring. Explicit user close, manual
 receiver stop, settings-driven shutdown, and application exit close it
 immediately. Its taskbar and always-on-top policy follow the stream-window
 settings. A clean disconnect does not open it. Discovery speed and stale iOS
 browse rows remain properties of the native/network path.
+
+Explicit HTTP reset readiness proves only that the native HTTP listener
+rebound the expected AirPlay port. It does not prove that DNS-SD/BLE was
+re-published or that iOS discarded a stale browse-cache entry.
 
 ## Native build provenance
 

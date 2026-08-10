@@ -28,6 +28,47 @@ The immutable 0.12.4, 0.12.3, 0.12.2, 0.12.1, 0.12.0, and 0.11 releases and
 their verification remain under `docs/releases/` or the historical 0.11
 report paths.
 
+## Current 0.12.6 candidate
+
+- Status: working-tree review candidate; not committed, tagged, or published.
+- Candidate app/Setup version: `0.12.6`; Windows PE/file version:
+  `0.12.6.0`. The five release-script defaults and Setup's internal comparison
+  version target 0.12.6.
+- New profiles default to an explicitly pinned Direct3D 11 decoder and sink.
+  Settings schema 11 migrates only the legacy automatic renderer choice to
+  Direct3D 11, preserves an explicit Direct3D 12 opt-in, and normalizes an
+  unknown renderer to Direct3D 11. The Advanced UI recommends Direct3D 11 and
+  no longer offers automatic GStreamer selection.
+- The continuity view is inserted immediately above the external renderer
+  without activation. Fatal native cleanup changes its guidance to a manual
+  Screen Mirroring reconnect instruction; it does not claim that discovery or
+  reconnect completed automatically.
+- The native candidate emits explicit HTTP ready/failed markers for initial
+  bind and fatal reset. The shell accepts them only from the current PID and
+  preserves same-process recovery only after a matching reset on the original
+  AirPlay port; failure or mismatch exits into full-process recovery. AirPlay
+  `TEARDOWN` explicitly requests disconnect.
+- AirPlay photo, slideshow, and preload feature bits are cleared and a
+  mirror-only capability marker is logged. This is an isolated negotiation
+  experiment. Its effect on direct-in-Photos startup and the inner encoded
+  canvas remains a pending physical A/B gate.
+- The current managed build, settings-migration/renderer arguments coverage,
+  combined resilience suite, shell and Setup `0.12.6.0` x64 PE checks, exact
+  13-entry review payload, Setup embedded-payload SHA-256 comparison,
+  shortcut/update lifecycle self-checks, version/link audits, and
+  `git diff --check` pass. The native core rebuild is reproducible at
+  SHA-256 `9f1fb168c882b1531400d2edbb4abd1277803c1971a20e9d5c4d7eff3e8498fc`;
+  patch/provenance, dependency, loader, reverse-apply, archive-content, and
+  prepared native-source checks pass.
+  Exact-tag, public-asset, installed-update, and physical Windows/iPhone gates
+  remain pending.
+
+Direct3D 11 is a review candidate for the observed resolution-change freeze,
+not a physically accepted Photos fix. The small photo and black bars may still
+be encoded inside iOS's `3840x2160` presentation canvas; this candidate does
+not crop, zoom, or reconstruct those pixels. It also does not claim to make a
+stale iOS browse result, receiver discovery, or automatic reconnect reliable.
+
 ## What 0.12.5 changes
 
 - Status: published normal updater-visible review Release.
@@ -157,12 +198,15 @@ evidence is in `docs/releases/0.12.5/BUILD_REPORT.md`.
 
 ## Immediate next steps
 
-1. Install public 0.12.4 and use its in-app updater to discover, download, and
-   install public 0.12.5; record persistence, Setup, and rollback evidence.
-2. Run the physical Windows 11 and Windows 10/iPhone matrix in
-   `docs/releases/0.12.5/TEST_PLAN.md`, preserving redacted log intervals,
+1. Stabilize and review the complete 0.12.6 managed/native working tree, then
+   run its build, resilience, native-source, Setup/lifecycle, payload, version,
+   link, and diff gates.
+2. Run the physical Direct3D 11 versus Direct3D 12, Photos, interruption,
+   reconnect, delayed-discovery, and Windows 10/11 matrix in
+   `docs/releases/0.12.6/TEST_PLAN.md`, preserving redacted log intervals,
    screenshots, and recordings.
-3. Correct any defect in 0.12.6 or later; never modify the immutable 0.12.5
+3. Only after those gates pass, request explicit authorization for a clean
+   `v0.12.6` tag and normal review Release. Never modify the immutable 0.12.5
    tag or assets, and do not use a 1.0 designation until D-008 physical
    acceptance is complete.
 

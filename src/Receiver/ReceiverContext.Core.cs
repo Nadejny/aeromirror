@@ -26,7 +26,8 @@ namespace AirPlayReceiverMvp
         {
             None,
             RestartStalledSession,
-            PreserveNativeRecovery
+            PreserveNativeRecovery,
+            PreserveLegacyRecovery
         }
 
         public void StartCore()
@@ -168,15 +169,8 @@ namespace AirPlayReceiverMvp
                     {
                         if (e.Data.IndexOf(
                                 "Initialized server socket",
-                                StringComparison.OrdinalIgnoreCase) >= 0 &&
-                            Interlocked.CompareExchange(
-                                ref activeCorePid, 0, 0) == processId)
-                        {
-                            Interlocked.Exchange(ref coreSocketsReady, 1);
-                            Interlocked.Exchange(
-                                ref coreSocketsReadyDueTicks,
-                                DateTime.UtcNow.AddMilliseconds(1500).Ticks);
-                        }
+                                StringComparison.OrdinalIgnoreCase) >= 0)
+                            ObserveCoreSocketReady(processId);
                         ObserveCoreOutput(processId, e.Data);
                         Log("core[" + processId + "]/stdout: " +
                             RedactSensitiveText(e.Data, processPinSnapshot));
@@ -407,6 +401,8 @@ namespace AirPlayReceiverMvp
                     ref activeCorePid, 0, 0) != processId)
                 return;
 
+            ObserveCoreHttpLifecycle(processId, line);
+
             if (IsIncomingAirPlayConnectionRequestMarker(line))
                 HandleIncomingAirPlayClientActivity(
                     processId, ConnectionRequestGraceSeconds,
@@ -615,6 +611,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                ResetLostConnectionHttpResetAttempt();
 
                 Interlocked.Exchange(
                     ref clientActivityGraceDueTicks,
@@ -668,6 +665,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                ResetLostConnectionHttpResetAttempt();
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
@@ -708,6 +706,7 @@ namespace AirPlayReceiverMvp
         {
             string message = "";
             bool closeTransientFeedbackPlaceholder = false;
+            bool showReconnectHint = false;
             lock (postSessionMaintenanceSync)
             {
                 if (Interlocked.CompareExchange(
@@ -724,6 +723,7 @@ namespace AirPlayReceiverMvp
                         ref lostConnectionRecoveryPending, 0);
                     Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                     Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                    ResetLostConnectionHttpResetAttempt();
                 }
                 if (Interlocked.Exchange(ref mirrorSessionActive, 0) != 1)
                     return;
@@ -736,6 +736,10 @@ namespace AirPlayReceiverMvp
                         Interlocked.CompareExchange(
                             ref lostConnectionRendererHandoffPending,
                             0, 0) == 1;
+                }
+                else
+                {
+                    showReconnectHint = true;
                 }
 
                 DateTime now = DateTime.UtcNow;
@@ -781,6 +785,8 @@ namespace AirPlayReceiverMvp
                 }
             }
             Log(message);
+            if (showReconnectHint)
+                QueueLostConnectionReconnectHint();
             if (closeTransientFeedbackPlaceholder)
                 QueueLostConnectionPlaceholderClose();
         }
@@ -1120,6 +1126,12 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(
                     ref lostConnectionRecoveryDueTicks,
                     DateTime.UtcNow.AddSeconds(3).Ticks);
+                Interlocked.Exchange(ref coreSocketsReady, 0);
+                Interlocked.Exchange(ref coreSocketsReadyDueTicks, 0);
+                Interlocked.Exchange(
+                    ref lostConnectionHttpResetStatus, 0);
+                Interlocked.Exchange(
+                    ref lostConnectionHttpResetPort, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 1);
                 QueueLostConnectionPlaceholder();
                 Log("UxPlay reported a " + marker + "; waiting three seconds " +
@@ -1139,6 +1151,7 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+                ResetCoreHttpLifecycleTracking();
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
@@ -1346,9 +1359,20 @@ namespace AirPlayReceiverMvp
                     LostConnectionRecoveryAction.PreserveNativeRecovery)
                 {
                     Log("UxPlay completed its lost-client cleanup and " +
-                        "reinitialized its listening socket; preserving the " +
-                        "same receiver process and AirPlay port for a faster " +
-                        "reconnect.");
+                        "explicitly confirmed its listening socket on " +
+                        "AirPlay port " +
+                        Interlocked.CompareExchange(
+                            ref coreHttpPort, 0, 0) +
+                        "; preserving the same receiver process for a " +
+                        "faster reconnect.");
+                }
+                else if (action ==
+                    LostConnectionRecoveryAction.PreserveLegacyRecovery)
+                {
+                    Log("A legacy UxPlay core emitted a generic listener-ready " +
+                        "line after lost-client cleanup. Preserving it for " +
+                        "bounded compatibility; the AirPlay port identity " +
+                        "was not explicitly confirmed.");
                 }
             }
         }
@@ -1372,16 +1396,37 @@ namespace AirPlayReceiverMvp
                 Interlocked.CompareExchange(ref activeCorePid, 0, 0) ==
                     recoveryPid;
             bool mirrorActive = IsMirrorSessionActive;
+            bool socketsReady = Interlocked.CompareExchange(
+                ref coreSocketsReady, 0, 0) == 1;
+            int markerSupport = Interlocked.CompareExchange(
+                ref coreHttpMarkersReady, 0, 0);
+            int advertisedPort = Interlocked.CompareExchange(
+                ref coreHttpPort, 0, 0);
+            int resetStatus = Interlocked.CompareExchange(
+                ref lostConnectionHttpResetStatus, 0, 0);
+            int resetPort = Interlocked.CompareExchange(
+                ref lostConnectionHttpResetPort, 0, 0);
+            bool explicitResetReady = markerSupport == 1 &&
+                resetStatus == 1 && advertisedPort > 0 &&
+                resetPort == advertisedPort && socketsReady;
+            bool legacyResetReady = markerSupport == 0 &&
+                resetStatus == 2 && socketsReady;
 
             Interlocked.Exchange(ref lostConnectionRecoveryPending, 0);
             Interlocked.Exchange(ref lostConnectionRecoveryPid, 0);
             Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
+            Interlocked.Exchange(ref lostConnectionHttpResetStatus, 0);
+            Interlocked.Exchange(ref lostConnectionHttpResetPort, 0);
 
             if (!sameRunningCore || restartBusy)
                 return LostConnectionRecoveryAction.None;
-            return mirrorActive
-                ? LostConnectionRecoveryAction.RestartStalledSession
-                : LostConnectionRecoveryAction.PreserveNativeRecovery;
+            if (mirrorActive)
+                return LostConnectionRecoveryAction.RestartStalledSession;
+            if (explicitResetReady)
+                return LostConnectionRecoveryAction.PreserveNativeRecovery;
+            if (legacyResetReady)
+                return LostConnectionRecoveryAction.PreserveLegacyRecovery;
+            return LostConnectionRecoveryAction.RestartStalledSession;
         }
 
         private void HandleCoreDiscoveryRecovery()
@@ -1711,6 +1756,17 @@ namespace AirPlayReceiverMvp
                 "; lostRecovery=" +
                 (Interlocked.CompareExchange(
                     ref lostConnectionRecoveryPending, 0, 0) == 1) +
+                "; httpMarkers=" +
+                (Interlocked.CompareExchange(
+                    ref coreHttpMarkersReady, 0, 0) == 1) +
+                "; httpPort=" +
+                Interlocked.CompareExchange(ref coreHttpPort, 0, 0) +
+                "; httpResetStatus=" +
+                Interlocked.CompareExchange(
+                    ref lostConnectionHttpResetStatus, 0, 0) +
+                "; httpResetPort=" +
+                Interlocked.CompareExchange(
+                    ref lostConnectionHttpResetPort, 0, 0) +
                 "; restartPending=" + restartPending +
                 "; stopPending=" +
                 (Interlocked.CompareExchange(

@@ -79,6 +79,9 @@ versions.
 - [ ] Add an isolated temporary-profile integration test that exercises the
   complete `AppSettings.Load()` and `Save()` wiring, including first save and
   an injected replacement failure, without touching a user's real settings.
+- [ ] Make native-source ZIP metadata and entry ordering deterministic so
+  identical validated content produces a stable archive SHA-256. Until then,
+  pin only the final generated release asset through `SHA256SUMS.txt`.
 - [ ] Add a Windows CI workflow for network-free build and test gates; keep
   native/runtime download and public release jobs pinned and separately
   authorized.
@@ -131,6 +134,18 @@ changes the placeholder to connection-restored/waiting-for-image while the
 existing renderer-gated handoff waits for visible video. This does not add a
 native ready acknowledgement, re-publish discovery in place, or force an
 iPhone to refresh a stale browse result.
+
+Version 0.12.6 keeps the continuity view immediately above the external
+renderer without activating it, and fatal cleanup replaces generic waiting
+with explicit manual Screen Mirroring reconnect guidance. This improves the
+truthfulness and visibility of a failed session; it does not claim that iOS
+discovery or automatic reconnect has completed.
+
+The same candidate adds explicit native HTTP initial/reset ready and failed
+markers. Same-process recovery is preserved only after current-PID, same-port
+reset evidence; failure exits into bounded full-process recovery, and
+`TEARDOWN` explicitly disconnects. This improves lifecycle truthfulness but
+does not complete the unchecked DNS-SD/BLE re-publication work below.
 
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
@@ -228,6 +243,11 @@ establish portrait in the same session. This is a narrow replay-backed rule,
 not a generic interpretation of the auxiliary pair, and it does not crop the
 small photo and black bars already encoded inside the canvas.
 
+Version 0.12.6 clears the unimplemented photo, slideshow, and photo-preload
+AirPlay feature bits as a mirror-only negotiation experiment. Its effect on
+direct-in-Photos startup and inner canvas sizing is physically pending. It
+does not provide a content rectangle or justify crop/zoom heuristics.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
@@ -264,6 +284,12 @@ latency now applies only `-vsync no`, and explicit Direct3D choices pin matching
 decoders and sinks. It also caches unchanged foreign-window policy and applies
 saved placement from the early show event. These changes do not turn the
 external GStreamer HWND into an AeroMirror-owned viewer.
+
+Version 0.12.6 makes the pinned Direct3D 11 decoder and sink the stability
+default. Settings schema 11 migrates legacy automatic selection while
+preserving explicit Direct3D 12 as an experimental opt-in. The change is
+covered by managed migration and argument tests, but physical Direct3D 11
+versus Direct3D 12 Photos and resolution-change evidence remains required.
 
 - [x] Remove the aggressive 50 ms audio-buffer request from the Interactive
   profile while keeping Balanced as the default.
