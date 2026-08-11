@@ -75,10 +75,12 @@ PASS.
 
 The same smoke retained important limitations: one first direct-Photos
 connection tap failed before the second succeeded; inner gallery photo/video
-content remained small; an approximately ten-second Wi-Fi interruption
-recovered automatically; and an approximately 15-second interruption followed
-by reconnect cleared the placeholder but left video frozen. Closing AeroMirror
-briefly exposed the latest frame.
+content remained small; a reporter-estimated wall-clock Wi-Fi interruption of
+about ten seconds recovered automatically, with a five-second feedback gap in
+the exact log interval; and a reporter-estimated wall-clock interruption of
+about 15 seconds, with an 11-second feedback gap in the exact log interval, was
+followed by reconnect that cleared the placeholder but left video frozen.
+Closing AeroMirror briefly exposed the latest frame.
 
 This report does not infer the exact installed 0.12.6-to-0.12.7 updater path
 from that run. The complete repeated Photos/video plan, the remaining

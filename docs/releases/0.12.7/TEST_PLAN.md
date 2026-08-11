@@ -96,7 +96,7 @@ The source/binary gates must also confirm:
 - the external-argument pass-through executes before any legacy renderer or
   fullscreen rewriting.
 
-Retained pre-tag status:
+Retained verification status:
 
 | Gate | Status |
 |---|---|
@@ -138,9 +138,12 @@ The same smoke does not complete this plan:
 
 - one first direct-Photos connection tap failed, while the second succeeded;
 - inner gallery photo/video content still rendered small;
-- an approximately ten-second Wi-Fi interruption recovered automatically;
-- after an approximately 15-second interruption and reconnect, the continuity
-  placeholder cleared but video remained frozen. Closing AeroMirror briefly
+- a reporter-estimated wall-clock Wi-Fi interruption of about ten seconds
+  recovered automatically; the exact log interval records a five-second
+  feedback gap;
+- after a reporter-estimated wall-clock interruption of about 15 seconds, whose
+  exact log interval records an 11-second feedback gap, reconnect cleared the
+  continuity placeholder but video remained frozen. Closing AeroMirror briefly
   exposed the latest frame.
 
 No retained evidence establishes the exact installed 0.12.6-to-0.12.7 updater

@@ -479,11 +479,13 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   stale row tapped on iOS may still fail before any request reaches Windows,
   and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
   re-publication with an acknowledged ready state remains future work.
-- In the first public 0.12.7 physical smoke, an approximately ten-second Wi-Fi
-  interruption recovered automatically. After an approximately 15-second
-  interruption and reconnect, the continuity placeholder cleared but video
-  remained frozen; closing AeroMirror briefly exposed the latest frame. That
-  longer reconnect/handoff path remains unresolved.
+- In the first public 0.12.7 physical smoke, a reporter-estimated wall-clock
+  Wi-Fi interruption of about ten seconds recovered automatically; the exact
+  log interval records a five-second feedback gap. After a reporter-estimated
+  wall-clock interruption of about 15 seconds, whose exact log interval records
+  an 11-second feedback gap, reconnect cleared the continuity placeholder but
+  video remained frozen; closing AeroMirror briefly exposed the latest frame.
+  That longer reconnect/handoff path remains unresolved.
 - The 0.12.6 release accepts same-process HTTP recovery only after an
   explicit current-PID marker confirms the original AirPlay port; bind failure
   or mismatch exits for full-process recovery. This still does not prove
@@ -497,9 +499,10 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   1.28.1 runtime's `wasapi2sink continue-on-error=true` behavior for documented
   endpoint open, I/O, and removal failures. Other native audio/decoder/video
   bus errors are not claimed to be isolated from the session.
-- The same release clears unimplemented AirPlay photo, slideshow, and
-  photo-preload advertisement bits as a mirror-only experiment. Physical
-  direct-in-Photos behavior remains pending, and this is not a crop/zoom fix.
+- AeroMirror continues the 0.12.6 mirror-only experiment of omitting
+  unimplemented AirPlay photo, slideshow, and photo-preload advertisement bits;
+  0.12.7 inherits this behavior. Physical direct-in-Photos behavior remains
+  pending, and this is not a crop/zoom fix.
 - The continuity placeholder keeps only a softened renderer-client screenshot
   in process memory, writes no mirrored frame to disk, and uses a dark fallback
   whenever another visible window overlaps the renderer. With the patched

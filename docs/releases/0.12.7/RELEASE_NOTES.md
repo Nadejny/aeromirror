@@ -99,10 +99,11 @@ fullscreen policy to reach UxPlay unchanged.
   reported that corrected path working ideally.
 - This is scoped evidence, not full physical acceptance. One first
   direct-Photos connection tap failed before the second succeeded; inner photo
-  and video content remains small; and an approximately 15-second interruption
-  and reconnect cleared the placeholder but left video frozen. The installed
-  update from public 0.12.6, Windows 10, and the complete repeated/interrupt
-  matrix remain pending.
+  and video content remains small; and reconnect after a reporter-estimated
+  wall-clock interruption of about 15 seconds cleared the placeholder but left
+  video frozen. The exact log interval records an 11-second feedback gap. The
+  installed update from public 0.12.6, Windows 10, and the complete
+  repeated/interrupt matrix remain pending.
 
 The acceptance procedure and evidence requirements are in
 [`TEST_PLAN.md`](TEST_PLAN.md). Exact tag, asset, hash, API-digest, and public
@@ -119,11 +120,13 @@ re-download evidence is in [`BUILD_REPORT.md`](BUILD_REPORT.md).
 - Delayed receiver discovery, stale iOS browse rows, and automatic Wi-Fi
   reconnection are not fixed. Manual discovery refresh or a new selection in
   Screen Mirroring may still be required.
-- The first public physical smoke recovered automatically after an
-  approximately ten-second Wi-Fi interruption. After an approximately
-  15-second interruption and reconnect, the placeholder cleared but video
-  remained frozen; closing AeroMirror briefly exposed the latest frame. That
-  longer reconnect/handoff path remains unresolved.
+- The first public physical smoke recovered automatically after a
+  reporter-estimated wall-clock Wi-Fi interruption of about ten seconds; the
+  exact log interval records a five-second feedback gap. After a
+  reporter-estimated wall-clock interruption of about 15 seconds, whose exact
+  log interval records an 11-second feedback gap, reconnect cleared the
+  placeholder but video remained frozen; closing AeroMirror briefly exposed
+  the latest frame. That longer reconnect/handoff path remains unresolved.
 - The connection-loss view is not guaranteed to appear immediately for every
   short interruption, and recovery is not considered complete until real
   image frames return.

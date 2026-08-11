@@ -94,9 +94,12 @@ paths.
   described that corrected path as ideal. This does not accept the full
   physical matrix. One first direct-Photos connection tap failed before the
   second succeeded, inner photo/video content remains small, and an
-  approximately 15-second interruption/reconnect cleared the placeholder but
-  left video frozen; closing AeroMirror briefly exposed the latest frame. An
-  approximately ten-second Wi-Fi interruption recovered automatically.
+  reporter-estimated wall-clock interruption of about 15 seconds cleared the
+  placeholder after reconnect but left video frozen; its exact log interval
+  records an 11-second feedback gap, and closing AeroMirror briefly exposed the
+  latest frame. A reporter-estimated wall-clock Wi-Fi interruption of about ten
+  seconds recovered automatically; its exact log interval records a five-second
+  feedback gap.
 
 The urgent physical Windows 11/iPhone session-drop target has a scoped PASS,
 but the complete repeated sequence, Windows 10, installed-update, and
@@ -263,9 +266,11 @@ evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
   5–8 second, and longer-than-15-second Wi-Fi interruptions; native in-place
   recovery; fatal recovery; normal disconnect; immediate and repeated
   reconnect; delayed Wi-Fi join; idle discovery; and VPN-over-Private-LAN;
-- public 0.12.7 already recovered automatically from one approximately
-  ten-second Wi-Fi interruption, but one approximately 15-second reconnect
-  cleared the placeholder while video stayed frozen; closing AeroMirror
+- public 0.12.7 already recovered automatically from one reporter-estimated
+  wall-clock Wi-Fi interruption of about ten seconds (five-second feedback gap
+  in the exact log interval), but reconnect after one reporter-estimated
+  wall-clock interruption of about 15 seconds (11-second exact-log feedback
+  gap) cleared the placeholder while video stayed frozen; closing AeroMirror
   briefly exposed the latest frame. This observed longer-handoff failure must
   be reproduced and corrected;
 - saved placement at first show, handoff fade and renewed-loss cancellation,

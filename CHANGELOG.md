@@ -47,9 +47,10 @@
   and a normal gallery/video session work without the former drop. This is a
   scoped result, not full physical acceptance. One first direct-Photos
   connection tap failed before the second succeeded, inner Photos media remains
-  small, and an approximately 15-second interruption/reconnect cleared the
-  placeholder but left video frozen. The installed update from public 0.12.6,
-  Windows 10, and the complete repeated/interrupt matrix remain pending.
+  small, and a reporter-estimated wall-clock interruption of about 15 seconds
+  cleared the placeholder after reconnect but left video frozen; the exact log
+  interval records an 11-second feedback gap. The installed update from public
+  0.12.6, Windows 10, and the complete repeated/interrupt matrix remain pending.
 - This hotfix does not claim to crop or enlarge Photos content, repair
   discovery, or make reconnect automatic. Audio failures outside the documented
   `wasapi2sink continue-on-error` scope are not claimed to be isolated from the
