@@ -8,11 +8,12 @@ next step changes.
 
 ## Latest public release
 
-- Version: `v0.12.6`
-- Tag commit: `c860909ad9b6a1098d524142b111857e522a7104`
-- Release URL: https://github.com/pyram1da/aeromirror/releases/tag/v0.12.6
-- GitHub Release ID: `367881011`
-- Published: `2026-08-10T12:06:22Z`
+- Version: `v0.12.7`
+- Annotated tag object: `6154c7f3c3384dcd039b4e1e0c2feceb46b84fad`
+- Tag commit: `dd343a44b0c9b6904815cd78e54a841e9f5ef6be`
+- Release URL: https://github.com/pyram1da/aeromirror/releases/tag/v0.12.7
+- GitHub Release ID: `368571434`
+- Published: `2026-08-11T12:57:13Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
 - Updater status: current `releases/latest` public review Release
 - Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
@@ -21,21 +22,21 @@ next step changes.
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-AeroMirror project policy treats the published `v0.12.6` tag and its four
-assets as immutable, although GitHub does not enforce that state for this
-Release. Any correction must use 0.12.7 or later; never move the tag or replace
-a published file. Exact evidence is recorded in
-`docs/releases/0.12.6/BUILD_REPORT.md`.
+AeroMirror project policy treats the published `v0.12.7` tag and its four
+assets as immutable, although GitHub reports API `immutable=false`. Any
+correction must use 0.12.8 or later; never move the tag or replace a published
+file. Exact evidence is recorded in
+`docs/releases/0.12.7/BUILD_REPORT.md`.
 
-Project policy also treats the published 0.12.5, 0.12.4, 0.12.3, 0.12.2,
-0.12.1, 0.12.0, and 0.11 releases as immutable history. Their verification
-remains under `docs/releases/` or the historical 0.11 report paths.
+Project policy also treats the published 0.12.6, 0.12.5, 0.12.4, 0.12.3,
+0.12.2, 0.12.1, 0.12.0, and 0.11 releases as immutable history. Their
+verification remains under `docs/releases/` or the historical 0.11 report
+paths.
 
-## Current 0.12.7 candidate
+## What 0.12.7 changes
 
-- Status: pre-tag automated release gates pass; not published. Public
-  `v0.12.6` remains the normal updater-visible latest Release.
-- Candidate app/Setup version: `0.12.7`; Windows PE/file version:
+- Status: published normal updater-visible public review Release.
+- Public app/Setup version: `0.12.7`; Windows PE/file version:
   `0.12.7.0`. The five release-script defaults and Setup's internal comparison
   version target 0.12.7.
 - The affected physical 0.12.6 log shows that the managed shell and native core
@@ -77,18 +78,32 @@ remains under `docs/releases/` or the historical 0.11 report paths.
   defaults, Setup embedded-payload and `/verify-runtime` verification,
   shortcut/update lifecycle self-checks, native-source content/provenance
   checks, local links, and `git diff --check` pass. The final pre-tag payload
-  and Setup are regenerated after this evidence-only documentation update and
-  their embedded-payload, lifecycle, version, link, and diff checks pass again.
-  A clean exact tag, public packaging/upload/re-download verification, the
-  actual installed update from public 0.12.6, and physical Windows/iPhone
+  and Setup were regenerated after the evidence update, and their
+  embedded-payload, lifecycle, version, link, and diff checks passed again.
+- Annotated tag `v0.12.7` resolves to commit
+  `dd343a44b0c9b6904815cd78e54a841e9f5ef6be`. Exact-tag packaging, the normal
+  latest channel, exactly four public assets, the three-entry checksum file,
+  all API digests, and fresh public re-download size/SHA-256 verification pass.
+  Canonical and configured legacy latest routes return the same `v0.12.7`
+  Release ID `368571434`, and the legacy-route Setup hash matches. The actual
+  installed update from public 0.12.6 and full physical Windows/iPhone
   acceptance remain pending.
+- A public-build Windows 11/iPhone smoke on the reporter's system passes the
+  urgent involuntary Photos/video session-drop target: direct Photos launch
+  and a normal gallery/video session work without the prior drop, and the user
+  described that corrected path as ideal. This does not accept the full
+  physical matrix. One first direct-Photos connection tap failed before the
+  second succeeded, inner photo/video content remains small, and an
+  approximately 15-second interruption/reconnect cleared the placeholder but
+  left video frozen; closing AeroMirror briefly exposed the latest frame. An
+  approximately ten-second Wi-Fi interruption recovered automatically.
 
-The exact physical Windows/iPhone Photos and video sequence that exposed the
-session drop remains the priority acceptance gate in
-`docs/releases/0.12.7/TEST_PLAN.md`. This candidate does not crop or enlarge a
+The urgent physical Windows 11/iPhone session-drop target has a scoped PASS,
+but the complete repeated sequence, Windows 10, installed-update, and
+interruption matrix remain priority gates in
+`docs/releases/0.12.7/TEST_PLAN.md`. This release does not crop or enlarge a
 small image already encoded inside the Photos canvas, repair delayed discovery,
-or make Wi-Fi reconnection automatic. Those limitations remain open even if
-the session-continuity hotfix passes.
+or make reconnection reliable.
 
 ## What 0.12.6 changes
 
@@ -208,34 +223,38 @@ together.
 
 ## Release verification
 
-Passed against the exact source published as `v0.12.6`:
+Passed against the exact source published as `v0.12.7`:
 
 1. managed x64 shell build and combined receiver resilience suite;
-2. reproducible native core, 139-file prepared corresponding source,
-   provenance/reverse-apply/dependency/loader checks, and reviewed patch/source
-   hashes;
+2. reproducible native core SHA-256
+   `11b65324c83f23503f2d555d0064d1348c884407bf7f9b1c34d27b5d1c05fb9b`,
+   exact 143-file prepared corresponding source and extracted rebuild,
+   provenance/reverse-apply/dependency/loader checks, reviewed patch/source
+   hashes, and the runtime 1.28.1 versus build-toolchain 1.28.5 contract;
 3. exact 13-entry thin review payload, Setup build, embedded-payload SHA-256,
    and shortcut/update lifecycle verification;
-4. shell/Setup `0.12.6.0` PE, internal Setup version, five script defaults,
+4. shell/Setup `0.12.7.0` PE, internal Setup version, five script defaults,
    asset-name, documentation-version, local-link, changed-file, and
    `git diff --check` audits;
-5. clean exact-tag release packaging from commit
-   `c860909ad9b6a1098d524142b111857e522a7104`;
-6. normal latest GitHub channel with Release ID `367881011`, `draft=false`,
+5. clean exact-tag release packaging from annotated tag object
+   `6154c7f3c3384dcd039b4e1e0c2feceb46b84fad`, resolving to commit
+   `dd343a44b0c9b6904815cd78e54a841e9f5ef6be`;
+6. normal latest GitHub channel with Release ID `368571434`, `draft=false`,
    `prerelease=false`, and exactly four expected assets;
 7. all public re-download byte sizes and SHA-256 values match final local
    release files, and all four GitHub API digest fields match;
 8. canonical and configured legacy `releases/latest` API routes return the
-   same `v0.12.6` Release ID.
+   same `v0.12.7` Release ID, and the legacy-route Setup SHA-256 matches.
 
 No physical Windows/iPhone result is claimed by these gates. Exact asset
-evidence is in `docs/releases/0.12.6/BUILD_REPORT.md`.
+evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
-- the installed updater path from public 0.12.6 to candidate 0.12.7, including
+- the installed updater path from public 0.12.6 to public 0.12.7, including
   version detection, settings/trust-state preservation, runtime-cache reuse,
-  Setup launch, rollback, and the exact Photos/video session-drop reproducer;
+  Setup launch and rollback; the public-build smoke does not prove this updater
+  path;
 - the installed updater path from public 0.12.5 to public 0.12.6, including
   legacy automatic-to-D3D11 migration, explicit D3D12 preservation, settings,
   trust state, shortcuts, autostart, runtime-cache reuse, digest verification,
@@ -244,6 +263,11 @@ evidence is in `docs/releases/0.12.6/BUILD_REPORT.md`.
   5–8 second, and longer-than-15-second Wi-Fi interruptions; native in-place
   recovery; fatal recovery; normal disconnect; immediate and repeated
   reconnect; delayed Wi-Fi join; idle discovery; and VPN-over-Private-LAN;
+- public 0.12.7 already recovered automatically from one approximately
+  ten-second Wi-Fi interruption, but one approximately 15-second reconnect
+  cleared the placeholder while video stayed frozen; closing AeroMirror
+  briefly exposed the latest frame. This observed longer-handoff failure must
+  be reproduced and corrected;
 - saved placement at first show, handoff fade and renewed-loss cancellation,
   mixed-DPI/multi-monitor restore, taskbar/topmost settings, manual resize,
   safe snapshot, privacy fallback, and no focus theft or Z-order flicker;
@@ -264,20 +288,20 @@ evidence is in `docs/releases/0.12.6/BUILD_REPORT.md`.
   effect on direct-in-Photos startup has not been accepted;
 - genuine AirDrop interoperability remains separate Bluetooth/AWDL, identity,
   and encrypted-transfer research. A staged AeroDrop companion/share-extension
-  path is a separate future product decision, not part of 0.12.6;
+  path is a separate future product decision, not part of 0.12.7;
 - localization is not included. D-006 remains the planned resource-based
   system-language and manual override design.
 
 ## Immediate next steps
 
-1. Commit and push the reviewed source, create the exact `v0.12.7` tag, run
-   clean exact-tag packaging, and verify the four public assets before and
-   after upload. Never modify the immutable 0.12.6 tag or assets.
-2. Install the exact 0.12.7 candidate over public 0.12.6 and run the priority
-   Photos/photo/video sequence in `docs/releases/0.12.7/TEST_PLAN.md`, retaining
-   the redacted log interval and a screen recording. The session must remain
-   usable even though inner Photos sizing may still fail its separate backlog
-   target.
+1. Install exact public 0.12.7 over public 0.12.6 and retain updater discovery,
+   download, Setup launch, settings/trust-state, shortcut, runtime-cache, and
+   rollback evidence. Never modify the immutable 0.12.7 tag or assets; any
+   correction uses 0.12.8 or later.
+2. Repeat the priority Photos/photo/video sequence in
+   `docs/releases/0.12.7/TEST_PLAN.md` with retained logs and a screen recording
+   to extend the scoped urgent PASS. Include the first-tap direct-Photos case;
+   inner Photos sizing remains a separate failed backlog target.
 3. Run the remaining Windows 10/11, default-audio endpoint, D3D11 argument,
    interruption, reconnect, and discovery rows. Do not describe this review
    patch as physically accepted or 1.0 until D-008 acceptance is complete.

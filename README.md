@@ -95,7 +95,7 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   geometry header, and the selected GStreamer decoder/sink without treating
   the raw auxiliary geometry pair as crop, PAR, or rotation metadata; the
   0.12.6 release also logs explicit native HTTP reset readiness/failure and
-  a mirror-only capability marker; the 0.12.7 candidate adds typed-`TEARDOWN`
+  a mirror-only capability marker; the 0.12.7 release adds typed-`TEARDOWN`
   connection-ownership and external-argument-pass-through markers;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
@@ -124,28 +124,25 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.6.exe
+AeroMirror-Setup-0.12.7.exe
 ```
 
-`v0.12.6` is the normal latest updater-visible public review Release. Its
+`v0.12.7` is the normal latest updater-visible public review Release. Its
 managed build, resilience, native-source/provenance, Setup/lifecycle,
 exact-tag, checksum, API-digest, and public re-download gates pass. The
-installed 0.12.5-to-0.12.6 update and physical Windows 10/11 plus iPhone
-matrix remain pending and are not implied by those automated results.
+reporter's public-build Windows 11/iPhone smoke passes the urgent involuntary
+Photos/video session-drop target. The installed 0.12.6-to-0.12.7 update,
+Windows 10, and the complete repeated/interrupt physical matrix remain pending.
 Exact tag, asset-size, and SHA-256 evidence is in the
-[0.12.6 build report](docs/releases/0.12.6/BUILD_REPORT.md).
+[0.12.7 build report](docs/releases/0.12.7/BUILD_REPORT.md). Its scope and
+still-pending physical acceptance are in the
+[0.12.7 release notes](docs/releases/0.12.7/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.7/TEST_PLAN.md).
 
-Version 0.12.7 is currently an unpublished session-continuity hotfix
-candidate. Its versioned scope and still-pending physical acceptance are in
-the [0.12.7 release notes](docs/releases/0.12.7/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.7/TEST_PLAN.md). Until that Release is actually
-published and verified, the latest link above correctly continues to deliver
-0.12.6.
-
-The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.6 still
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.7 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
 `releases/latest` API to the canonical repository. Canonical and legacy API
-routes returned the same public `v0.12.6` Release ID after publication.
+routes returned the same public `v0.12.7` Release ID after publication.
 
 The installer:
 
@@ -410,6 +407,7 @@ docs/
     0.12.7/
       RELEASE_NOTES.md       media-session continuity hotfix summary
       TEST_PLAN.md           Photos/video session-continuity acceptance
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.6/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           renderer, Photos, and reconnect acceptance
@@ -481,11 +479,16 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   stale row tapped on iOS may still fail before any request reaches Windows,
   and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
   re-publication with an acknowledged ready state remains future work.
+- In the first public 0.12.7 physical smoke, an approximately ten-second Wi-Fi
+  interruption recovered automatically. After an approximately 15-second
+  interruption and reconnect, the continuity placeholder cleared but video
+  remained frozen; closing AeroMirror briefly exposed the latest frame. That
+  longer reconnect/handoff path remains unresolved.
 - The 0.12.6 release accepts same-process HTTP recovery only after an
   explicit current-PID marker confirms the original AirPlay port; bind failure
   or mismatch exits for full-process recovery. This still does not prove
   DNS-SD/BLE re-publication or force iOS browse-cache refresh.
-- The 0.12.7 candidate removes an immediate server-forced control-socket
+- The 0.12.7 release removes an immediate server-forced control-socket
   removal from the typed AirPlay `TEARDOWN` handler while retaining upstream's
   typed-stream behavior and `Connection: close` response header. The affected
   0.12.6 log proves a software-request disconnect, not which disconnect call
@@ -519,9 +522,9 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   it does not prove that an iPhone session is active.
 - The executables are not yet code-signed, so Windows SmartScreen may warn
   about an unknown publisher.
-- GitHub update checking in 0.12.6 uses the former `Nadejny/aeromirror` slug;
+- GitHub update checking in 0.12.7 uses the former `Nadejny/aeromirror` slug;
   GitHub redirects it to canonical `pyram1da/aeromirror`, and both latest API
-  routes returned the same public `v0.12.6` Release ID.
+  routes returned the same public `v0.12.7` Release ID.
 - Bonjour/mDNS and Windows Firewall configuration remain external system
   dependencies. Allow the receiver only on the network categories you intend
   to use. Some managed or guest Wi-Fi networks block device discovery.
@@ -578,7 +581,7 @@ and video sink. Existing profiles that still used automatic GStreamer
 selection migrate to Direct3D 11; an explicit Direct3D 12 choice remains
 available as an experimental comparison. Advanced UxPlay arguments remain
 after the managed choice and can override it for diagnostics. UxPlay selects
-the codec-matched decoder at pipeline creation. In the 0.12.7 candidate, the
+the codec-matched decoder at pipeline creation. In the 0.12.7 release, the
 headless wrapper also preserves external `-vs`/`-fs` arguments rather than
 replacing them with persisted Qt preferences. Physical Direct3D 11 versus
 Direct3D 12 Photos and resolution-change testing is still pending.
@@ -601,9 +604,9 @@ The current license inventory is an engineering review, not legal advice.
 
 ## Sharing a build
 
-For the 0.12.7 review candidate, share the GitHub Release page or its network
-Setup—not a loose `AeroMirror.exe`. Once published, that Release must keep
-these assets together:
+For the public 0.12.7 review Release, share the GitHub Release page or its
+network Setup—not a loose `AeroMirror.exe`. Project policy keeps these assets
+together and immutable:
 
 - `AeroMirror-Setup-0.12.7.exe`;
 - `AeroMirror-source-0.12.7.zip`;

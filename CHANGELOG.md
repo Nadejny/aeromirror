@@ -34,19 +34,29 @@
   embedded-payload and `/verify-runtime` verification, all five release-script
   defaults, local links, and `git diff --check` pass. An extracted rebuild from
   the prepared native source reproduces the same core. The final pre-tag
-  payload and Setup are regenerated after the evidence-only documentation
-  update and their embedded-payload, lifecycle, version, link, and diff gates
-  pass again.
-  The clean exact tag, public assets/channel verification, actual installed
-  update from public 0.12.6, and physical Windows/iPhone acceptance remain
-  pending.
-- The exact Windows/iPhone Photos and video reproducer remains a required
-  physical gate. This hotfix does not claim to crop or enlarge Photos content,
-  repair discovery, or make reconnect automatic. Audio failures outside the
-  documented `wasapi2sink continue-on-error` scope are not claimed to be
-  isolated from the media session.
-- AeroMirror project policy treats published `v0.12.6` as immutable. This
-  correction uses 0.12.7 and must not replace the earlier tag or assets.
+  payload and Setup were regenerated after the evidence update, and their
+  embedded-payload, lifecycle, version, link, and diff gates passed again.
+- Annotated tag `v0.12.7` resolves to commit
+  `dd343a44b0c9b6904815cd78e54a841e9f5ef6be`. Exact-tag packaging, the normal
+  latest channel, exactly four public assets, the three-entry checksum file,
+  GitHub API digests, and fresh public re-download size/SHA-256 checks pass.
+  Canonical and configured legacy latest routes both return Release ID
+  `368571434` and tag `v0.12.7`; the legacy-route Setup hash also matches.
+- A public-build Windows 11/iPhone smoke on the reporter's system passes the
+  urgent involuntary Photos/video session-drop target: direct Photos launch
+  and a normal gallery/video session work without the former drop. This is a
+  scoped result, not full physical acceptance. One first direct-Photos
+  connection tap failed before the second succeeded, inner Photos media remains
+  small, and an approximately 15-second interruption/reconnect cleared the
+  placeholder but left video frozen. The installed update from public 0.12.6,
+  Windows 10, and the complete repeated/interrupt matrix remain pending.
+- This hotfix does not claim to crop or enlarge Photos content, repair
+  discovery, or make reconnect automatic. Audio failures outside the documented
+  `wasapi2sink continue-on-error` scope are not claimed to be isolated from the
+  media session.
+- AeroMirror project policy treats published `v0.12.7` and its four assets as
+  immutable even though GitHub reports `immutable=false`. Any correction uses
+  0.12.8 or later rather than moving the tag or replacing an asset.
 
 ## 0.12.6 — D3D11 stability and clearer reconnect guidance
 

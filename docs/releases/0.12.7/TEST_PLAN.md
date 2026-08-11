@@ -12,10 +12,10 @@ identify which software-disconnect call site ran. The 0.12.7 typed-`TEARDOWN`
 marker is therefore required evidence; the rollback is a source-supported
 plausible-regression fix whose physical causality remains to be confirmed.
 
-Public `v0.12.6` remains the updater-visible latest Release until 0.12.7 is
-published and its assets are verified. The 0.12.7 candidate is not physically
-accepted merely because automated checks pass. Preserve the immutable 0.12.6
-tag and assets.
+Public `v0.12.7` is the normal updater-visible latest Release and its four
+assets have been verified. The release is not physically accepted merely
+because automated and publication checks pass. Project policy treats its tag
+and assets as immutable; any correction uses 0.12.8 or later.
 
 ## Required invariants
 
@@ -112,19 +112,44 @@ Retained pre-tag status:
 | Setup `/verify-runtime` against the exact public runtime | PASS |
 | Exact 143-file native-source content, provenance, and extracted rebuild | PASS |
 | Shell/Setup/internal/default versions, links, and diff audit | PASS |
-| Exact tag and public assets | PENDING |
+| Exact annotated tag and four public assets | PASS |
+| API digests, three-entry checksum file, and fresh public re-downloads | PASS |
+| Canonical and legacy latest routes at Release ID `368571434` / `v0.12.7` | PASS |
 | Installed update from public 0.12.6 | PENDING |
-| Physical affected Photos/video sequence | PENDING |
+| Urgent involuntary Photos/video session-drop recheck on reporter's public-build Windows 11/iPhone | PASS — scoped smoke |
+| Complete repeated Photos/video acceptance sequence | PENDING |
+| Remaining physical Windows 10/11 plus iPhone matrix | PENDING |
 
 Update this table only from retained evidence. Automated PASS does not replace
-a physical result. The payload and Setup used for these pre-tag gates are
-regenerated after the evidence-only documentation update and rechecked before
-the exact tag is created; their transient local hashes are intentionally not
-recorded here.
+a physical result. The payload and Setup used for these gates were regenerated
+after the evidence-only documentation update and rechecked before the exact tag
+was created. Exact published hashes are retained in
+[`BUILD_REPORT.md`](BUILD_REPORT.md).
+
+## Retained physical smoke evidence
+
+On 2026-08-11, the reporter tested public 0.12.7 on the affected Windows 11 PC
+and iPhone. Starting mirroring directly from Photos and using a normal
+gallery/video session no longer reproduced the prior involuntary session drop;
+the reporter described the corrected path as working ideally. This is a scoped
+PASS for the urgent hotfix target.
+
+The same smoke does not complete this plan:
+
+- one first direct-Photos connection tap failed, while the second succeeded;
+- inner gallery photo/video content still rendered small;
+- an approximately ten-second Wi-Fi interruption recovered automatically;
+- after an approximately 15-second interruption and reconnect, the continuity
+  placeholder cleared but video remained frozen. Closing AeroMirror briefly
+  exposed the latest frame.
+
+No retained evidence establishes the exact installed 0.12.6-to-0.12.7 updater
+path, a complete repeated run, the remaining interruption/handoff rows, or
+Windows 10. Those rows remain pending.
 
 ## Physical priority test: affected Photos/video sequence
 
-1. Install the exact 0.12.7 candidate over public 0.12.6. Confirm that
+1. Install exact public 0.12.7 over public 0.12.6. Confirm that
    settings, receiver identity, trusted-client state, shortcuts, autostart, and
    the runtime cache remain present.
 2. Select normal default audio, Balanced latency, Direct3D 11, and no advanced
@@ -200,7 +225,7 @@ separately with its first timestamp and teardown ordering.
 
 ## Failure conditions
 
-The 0.12.7 candidate fails this plan if any of the following occurs:
+The public 0.12.7 build fails this plan if any of the following occurs:
 
 - the affected Photos/video transition again ends the AirPlay session through
   an immediate server-forced control-socket removal;
@@ -224,13 +249,11 @@ termination.
 
 ## Acceptance and publication gate
 
-Before publishing a normal updater-visible review Release, all automated,
-native-source, runtime-contract, payload, Setup, version, link, and exact-tag
-gates above must pass. The release body must continue to label physical rows
-pending unless retained evidence exists.
-
-After publication, re-download all four public assets, compare byte sizes and
-SHA-256 values with the final local files and GitHub API digest fields, verify
-that `releases/latest` returns `v0.12.7`, and write
-`docs/releases/0.12.7/BUILD_REPORT.md`. Any later correction receives 0.12.8 or
-newer; never move the tag or replace a published 0.12.7 asset.
+All automated, native-source, runtime-contract, payload, Setup, version, link,
+exact-tag, channel, digest, checksum, and public re-download gates passed before
+or immediately after publication. Exact evidence is retained in
+[`BUILD_REPORT.md`](BUILD_REPORT.md). Physical rows remain pending unless a
+retained result is added here. The scoped smoke above is the only retained
+physical PASS; all remaining physical rows stay pending. Any later correction
+receives 0.12.8 or newer; never move the tag or replace a published 0.12.7
+asset.

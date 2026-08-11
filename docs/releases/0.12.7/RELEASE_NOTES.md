@@ -84,16 +84,29 @@ fullscreen policy to reach UxPlay unchanged.
   Setup's internal comparison version and shortcut/update lifecycle checks,
   embedded-payload and `/verify-runtime` verification, all five release-script
   defaults, local links, and `git diff --check` pass. The final pre-tag payload
-  and Setup are regenerated after this evidence-only documentation update and
-  the embedded-payload, lifecycle, version, link, and diff gates pass again.
-- The clean exact tag, public assets/channel and re-download verification, and
-  the actual installed update from public 0.12.6 remain pending.
-- The exact Windows/iPhone Photos and video reproducer remains physically
-  pending. Automated checks cannot establish iPhone interoperability.
+  and Setup were regenerated after the evidence update, and the
+  embedded-payload, lifecycle, version, link, and diff gates passed again.
+- Annotated tag `v0.12.7` resolves to commit
+  `dd343a44b0c9b6904815cd78e54a841e9f5ef6be`. GitHub Release `368571434` is
+  normal, updater-visible latest, `draft=false`, and `prerelease=false`.
+  Exactly four assets were published; every API digest, final local file, and
+  fresh public re-download matches. `SHA256SUMS.txt` contains exactly the three
+  non-checksum assets. Canonical and configured legacy latest routes return
+  the same Release ID and tag, and the legacy-route Setup hash matches.
+- A public-build Windows 11/iPhone smoke on the reporter's system passes the
+  urgent involuntary Photos/video session-drop target: direct Photos launch
+  and a normal gallery/video session work without the former drop. The tester
+  reported that corrected path working ideally.
+- This is scoped evidence, not full physical acceptance. One first
+  direct-Photos connection tap failed before the second succeeded; inner photo
+  and video content remains small; and an approximately 15-second interruption
+  and reconnect cleared the placeholder but left video frozen. The installed
+  update from public 0.12.6, Windows 10, and the complete repeated/interrupt
+  matrix remain pending.
 
 The acceptance procedure and evidence requirements are in
-[`TEST_PLAN.md`](TEST_PLAN.md). A post-publication build report will record the
-exact tag, source commit, assets, hashes, and public re-download results.
+[`TEST_PLAN.md`](TEST_PLAN.md). Exact tag, asset, hash, API-digest, and public
+re-download evidence is in [`BUILD_REPORT.md`](BUILD_REPORT.md).
 
 ## Known limitations
 
@@ -106,6 +119,11 @@ exact tag, source commit, assets, hashes, and public re-download results.
 - Delayed receiver discovery, stale iOS browse rows, and automatic Wi-Fi
   reconnection are not fixed. Manual discovery refresh or a new selection in
   Screen Mirroring may still be required.
+- The first public physical smoke recovered automatically after an
+  approximately ten-second Wi-Fi interruption. After an approximately
+  15-second interruption and reconnect, the placeholder cleared but video
+  remained frozen; closing AeroMirror briefly exposed the latest frame. That
+  longer reconnect/handoff path remains unresolved.
 - The connection-loss view is not guaranteed to appear immediately for every
   short interruption, and recovery is not considered complete until real
   image frames return.
@@ -117,5 +135,6 @@ exact tag, source commit, assets, hashes, and public re-download results.
 - Setup is unsigned, so Windows SmartScreen may warn about an unknown
   publisher.
 
-Published `v0.12.6` and its assets remain immutable. This correction is a new
-0.12.7 patch and must never replace a 0.12.6 file.
+Published `v0.12.7` and its four assets are immutable under AeroMirror project
+policy even though GitHub reports API `immutable=false`. Any correction uses
+0.12.8 or later; never move the tag or replace a published 0.12.7 asset.
