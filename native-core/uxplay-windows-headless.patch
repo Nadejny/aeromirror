@@ -108,7 +108,7 @@ index d659491..5d40497 100644
      return app.exec();
  }
 diff --git a/src/mainwindow.cpp b/src/mainwindow.cpp
-index aeb732d..c1f4814 100644
+index aeb732d..9d22acd 100644
 --- a/src/mainwindow.cpp
 +++ b/src/mainwindow.cpp
 @@ -1,6 +1,7 @@
@@ -154,7 +154,20 @@ index aeb732d..c1f4814 100644
      const QString userPath = userArgumentsPath();
      const QString machinePath = machineArgumentsPath();
      const QString selectedPath = activeArgumentsPath();
-@@ -432,7 +449,11 @@ void MainWindow::onAirplayStopped() {
+@@ -300,6 +317,12 @@ void MainWindow::onRendererChanged(int /*index*/) {
+ }
+ 
+ void MainWindow::applyRendererAndFullscreenArgs(QStringList &args) {
++    if (m_headless || !m_argumentOverride.isEmpty()) {
++        qInfo().noquote()
++            << "AEROMIRROR_ARGUMENTS_PASSTHROUGH mode=external";
++        return;
++    }
++
+     while (true) {
+         int idx = args.indexOf("-fs");
+         if (idx < 0) break;
+@@ -432,7 +455,11 @@ void MainWindow::onAirplayStopped() {
  }
  
  void MainWindow::onAirplayError(const QString &message) {
@@ -167,7 +180,7 @@ index aeb732d..c1f4814 100644
  }
  
  void MainWindow::toggleAutostart(bool checked) {
-@@ -469,13 +490,31 @@ void MainWindow::startBluetoothBeacon(const QString &path) {
+@@ -469,13 +496,31 @@ void MainWindow::startBluetoothBeacon(const QString &path) {
      m_beacon->setProcessChannelMode(QProcess::MergedChannels);
  
      connect(m_beacon, &QProcess::readyRead, this, [this]() {

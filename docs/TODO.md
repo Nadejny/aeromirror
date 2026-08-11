@@ -144,8 +144,17 @@ discovery or automatic reconnect has completed.
 The same candidate adds explicit native HTTP initial/reset ready and failed
 markers. Same-process recovery is preserved only after current-PID, same-port
 reset evidence; failure exits into bounded full-process recovery, and
-`TEARDOWN` explicitly disconnects. This improves lifecycle truthfulness but
-does not complete the unchecked DNS-SD/BLE re-publication work below.
+0.12.6 explicitly forced disconnect after a typed `TEARDOWN`. Source review
+shows that this could remove the whole control connection. The affected
+physical log proves that the shell/core processes stayed healthy while a
+software request removed the connection, but does not identify which native
+disconnect call site ran.
+
+Version 0.12.7 removes that unconditional server-side disconnect, retains the
+upstream typed-stream teardown behavior, and logs client-managed connection
+ownership. This is a focused correction to the typed-`TEARDOWN` path; it does
+not complete the unchecked DNS-SD/BLE re-publication work below or claim
+automatic reconnection.
 
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
@@ -214,6 +223,31 @@ already incoming encoded stream.
 
 Acceptance target: the UI reports the quality actually acknowledged by the
 sender, not merely the requested preset.
+
+### Audio endpoint resilience
+
+Version 0.12.7 makes the normal Windows audio path explicit:
+`wasapi2sink continue-on-error=true`. The pinned redistributed GStreamer 1.28.1
+runtime supports that property for its documented endpoint-open, device-I/O,
+and device-removal failures. Muted output remains separate, and advanced
+UxPlay arguments can still replace the managed sink deliberately. This does
+not isolate every possible GStreamer bus error or change the shared native
+media-pipeline boundary.
+
+- [x] Select the resilient `wasapi2sink` property for normal default audio
+  without changing mute or advanced-argument precedence.
+- [ ] Physically test playback while changing the Windows default output,
+  disabling/re-enabling the active endpoint, and removing a USB/Bluetooth
+  endpoint where available.
+- [ ] Define session-scoped handling for media errors outside the documented
+  `wasapi2sink` device-failure scope before treating every audio bus error as
+  nonfatal; do not use a process-lifetime failed latch that can mute later
+  sessions.
+- [ ] Retain timestamped native markers that distinguish the first media error
+  from later teardown side effects without logging audio content.
+
+Acceptance target: a supported Windows output-device failure may interrupt
+audio but does not unnecessarily end video or permanently mute later sessions.
 
 ### Orientation and photo/video sizing
 
@@ -290,6 +324,12 @@ default. Settings schema 11 migrates legacy automatic selection while
 preserving explicit Direct3D 12 as an experimental opt-in. The change is
 covered by managed migration and argument tests, but physical Direct3D 11
 versus Direct3D 12 Photos and resolution-change evidence remains required.
+
+Version 0.12.7 corrects the headless wrapper boundary so an external `--uxplay`
+launch preserves the shell's `-vs` and `-fs` values. This makes the existing
+D3D11 default reach UxPlay instead of being silently replaced by the wrapper's
+persisted Qt preference. Physical actual-sink and Photos transition evidence
+is still required.
 
 - [x] Remove the aggressive 50 ms audio-buffer request from the Interactive
   profile while keeping Balanced as the default.

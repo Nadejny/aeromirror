@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.6"
+    [string]$Version = "0.12.7"
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,7 +102,13 @@ if ($provenance.schemaVersion -ne 1 -or
     $provenance.libuxplayCommit -notmatch '^[0-9a-f]{40}$' -or
     $provenance.uxplayWindowsPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
     $provenance.libuxplayPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
-    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$') {
+    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeGStreamerVersion -notmatch '^\d+\.\d+\.\d+$' -or
+    $provenance.buildGStreamerVersion -notmatch '^\d+\.\d+\.\d+$' -or
+    $provenance.runtimeGStreamerCoreSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeWasapi2PluginSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.pinnedRuntimeArchiveSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeWasapi2RequiredProperty -ne 'continue-on-error') {
     throw "source-provenance.json is missing required pinned values."
 }
 $expectedUpstream = [string]$provenance.uxplayWindowsCommit
@@ -117,6 +123,20 @@ $requiredLockValues = @{
         [string]$provenance.libuxplayPatchSha256
     "aeromirror.headless-executable.sha256" =
         [string]$provenance.headlessExecutableSha256
+    "uxplay-windows.asset.sha256" =
+        [string]$provenance.pinnedRuntimeArchiveSha256
+    "runtime.gstreamer" = [string]$provenance.runtimeGStreamerVersion
+    "build.gstreamer" = [string]$provenance.buildGStreamerVersion
+    "runtime.gstreamer.core.path" =
+        [string]$provenance.runtimeGStreamerCorePath
+    "runtime.gstreamer.core.sha256" =
+        [string]$provenance.runtimeGStreamerCoreSha256
+    "runtime.gstreamer.wasapi2.path" =
+        [string]$provenance.runtimeWasapi2PluginPath
+    "runtime.gstreamer.wasapi2.sha256" =
+        [string]$provenance.runtimeWasapi2PluginSha256
+    "runtime.gstreamer.wasapi2.required-property" =
+        [string]$provenance.runtimeWasapi2RequiredProperty
 }
 foreach ($entry in $requiredLockValues.GetEnumerator()) {
     $actual = [string]$upstreamLock[$entry.Key]
@@ -209,6 +229,11 @@ $reviewedLibPatch = Join-Path (
 Assert-FileHash -Path $reviewedLibPatch `
     -Expected $provenance.libuxplayPatchSha256 `
     -Description "Reviewed libuxplay patch"
+$reviewedLibPatchText = Get-Content -LiteralPath $reviewedLibPatch `
+    -Raw -Encoding UTF8
+if ($reviewedLibPatchText -match '(?i)audio_renderer\.c') {
+    throw "The reviewed hotfix must not modify audio_renderer.c."
+}
 $actualLibPatch = [IO.Path]::GetTempFileName()
 try {
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
@@ -245,6 +270,16 @@ foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
     Assert-FileHash -Path $sourcePath `
         -Expected ([string]$sourceProperty.Value) `
         -Description ("Patched source " + $sourceProperty.Name)
+}
+foreach ($sourceProperty in $provenance.protectedSources.PSObject.Properties) {
+    $sourcePath = Join-Path $upstream (
+        $sourceProperty.Name.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Pinned protected source is missing: $sourcePath"
+    }
+    Assert-FileHash -Path $sourcePath `
+        -Expected ([string]$sourceProperty.Value) `
+        -Description ("Protected unmodified source " + $sourceProperty.Name)
 }
 
 $bonjourHeader = Join-Path $upstream "Bonjour SDK\Include\dns_sd.h"
@@ -325,6 +360,16 @@ try {
         Assert-FileHash -Path $stagedSourcePath `
             -Expected ([string]$sourceProperty.Value) `
             -Description ("Packaged patched source " + $sourceProperty.Name)
+    }
+    foreach ($sourceProperty in $provenance.protectedSources.PSObject.Properties) {
+        $stagedSourcePath = Join-Path $sourceRoot (
+            $sourceProperty.Name.Replace('/', '\'))
+        if (-not (Test-Path -LiteralPath $stagedSourcePath -PathType Leaf)) {
+            throw "Packaged protected source is missing: $stagedSourcePath"
+        }
+        Assert-FileHash -Path $stagedSourcePath `
+            -Expected ([string]$sourceProperty.Value) `
+            -Description ("Packaged protected source " + $sourceProperty.Name)
     }
 
     if (Test-Path -LiteralPath $output) {

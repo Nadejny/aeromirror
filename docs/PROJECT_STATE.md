@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
@@ -30,6 +30,65 @@ a published file. Exact evidence is recorded in
 Project policy also treats the published 0.12.5, 0.12.4, 0.12.3, 0.12.2,
 0.12.1, 0.12.0, and 0.11 releases as immutable history. Their verification
 remains under `docs/releases/` or the historical 0.11 report paths.
+
+## Current 0.12.7 candidate
+
+- Status: pre-tag automated release gates pass; not published. Public
+  `v0.12.6` remains the normal updater-visible latest Release.
+- Candidate app/Setup version: `0.12.7`; Windows PE/file version:
+  `0.12.7.0`. The five release-script defaults and Setup's internal comparison
+  version target 0.12.7.
+- The affected physical 0.12.6 log shows that the managed shell and native core
+  processes remained alive while the current AirPlay connection was removed.
+  It records `Disconnecting on software request`, but not the debug request
+  type, and the native server has more than one software-disconnect site.
+  Source review found that 0.12.6 newly forced a full disconnect from the typed
+  AirPlay `TEARDOWN` handler; the transition timing is consistent with that
+  plausible regression but does not prove it was the logged call site. One
+  captured transition also reported a `wasapi2` wrong-format error immediately
+  after the software disconnect; that ordering does not prove the audio error
+  initiated teardown.
+- The 0.12.7 native correction removes only that unconditional server-side
+  disconnect request. It retains upstream's `Connection: close` response
+  header, lets the client determine whether and when the socket closes, and
+  adds a compact typed-`TEARDOWN` diagnostic marker so the next physical run
+  can confirm the request type directly.
+- Default Windows audio now requests
+  `wasapi2sink continue-on-error=true`. The pinned redistributed GStreamer
+  1.28.1 runtime supports that property for its documented device-open, I/O,
+  and removal failures. Mute behavior is unchanged, and advanced UxPlay
+  arguments remain later on the command line for an explicit override. This is
+  not generic isolation for every GStreamer bus error.
+- The headless wrapper now preserves external `-vs` and `-fs` arguments. This
+  prevents hidden wrapper settings from replacing the shell's requested D3D11
+  sink or fullscreen policy before UxPlay parses them.
+- The isolated managed 0.12.7 build and resilience suite pass. Two clean
+  native builds reproduce SHA-256
+  `11b65324c83f23503f2d555d0064d1348c884407bf7f9b1c34d27b5d1c05fb9b`.
+  Native patch/current-source/protected-audio hashes, x64 PE/Qt import and
+  path/debug checks, exact 143-file prepared native-source content and
+  provenance, 199-binary dependency inspection, 148-DLL collection, and the
+  distinct redistributed GStreamer 1.28.1 versus build-toolchain 1.28.5
+  contracts pass. The exact public-runtime loader test and reverse-apply of
+  both patches also pass. A rebuild from the extracted prepared native source
+  reproduces the same core.
+- The exact 13-entry review payload, shell and Setup `0.12.7.0` PE/file
+  versions, Setup's internal comparison version, all five release-script
+  defaults, Setup embedded-payload and `/verify-runtime` verification,
+  shortcut/update lifecycle self-checks, native-source content/provenance
+  checks, local links, and `git diff --check` pass. The final pre-tag payload
+  and Setup are regenerated after this evidence-only documentation update and
+  their embedded-payload, lifecycle, version, link, and diff checks pass again.
+  A clean exact tag, public packaging/upload/re-download verification, the
+  actual installed update from public 0.12.6, and physical Windows/iPhone
+  acceptance remain pending.
+
+The exact physical Windows/iPhone Photos and video sequence that exposed the
+session drop remains the priority acceptance gate in
+`docs/releases/0.12.7/TEST_PLAN.md`. This candidate does not crop or enlarge a
+small image already encoded inside the Photos canvas, repair delayed discovery,
+or make Wi-Fi reconnection automatic. Those limitations remain open even if
+the session-continuity hotfix passes.
 
 ## What 0.12.6 changes
 
@@ -174,6 +233,9 @@ evidence is in `docs/releases/0.12.6/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
+- the installed updater path from public 0.12.6 to candidate 0.12.7, including
+  version detection, settings/trust-state preservation, runtime-cache reuse,
+  Setup launch, rollback, and the exact Photos/video session-drop reproducer;
 - the installed updater path from public 0.12.5 to public 0.12.6, including
   legacy automatic-to-D3D11 migration, explicit D3D12 preservation, settings,
   trust state, shortcuts, autostart, runtime-cache reuse, digest verification,
@@ -208,16 +270,17 @@ evidence is in `docs/releases/0.12.6/BUILD_REPORT.md`.
 
 ## Immediate next steps
 
-1. Install public 0.12.5 and use its in-app updater to discover, download, and
-   install public 0.12.6; retain migration, persistence, Setup, runtime-cache,
-   and rollback evidence.
-2. Run the physical Direct3D 11 versus Direct3D 12, Photos, interruption,
-   reconnect, delayed-discovery, and Windows 10/11 matrix in
-   `docs/releases/0.12.6/TEST_PLAN.md`, preserving redacted log intervals,
-   screenshots, and recordings.
-3. Correct any failed scenario in 0.12.7 or later. Never modify the immutable
-   0.12.6 tag or assets, and do not use a 1.0 designation until D-008 physical
-   acceptance is complete.
+1. Commit and push the reviewed source, create the exact `v0.12.7` tag, run
+   clean exact-tag packaging, and verify the four public assets before and
+   after upload. Never modify the immutable 0.12.6 tag or assets.
+2. Install the exact 0.12.7 candidate over public 0.12.6 and run the priority
+   Photos/photo/video sequence in `docs/releases/0.12.7/TEST_PLAN.md`, retaining
+   the redacted log interval and a screen recording. The session must remain
+   usable even though inner Photos sizing may still fail its separate backlog
+   target.
+3. Run the remaining Windows 10/11, default-audio endpoint, D3D11 argument,
+   interruption, reconnect, and discovery rows. Do not describe this review
+   patch as physically accepted or 1.0 until D-008 acceptance is complete.
 
 ## Where information belongs
 

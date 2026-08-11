@@ -35,6 +35,38 @@ $nativePatchPath = Join-Path $projectRoot `
 Assert-True (Test-Path -LiteralPath $nativePatchPath) `
     "pinned libuxplay patch exists"
 $nativePatchSource = [IO.File]::ReadAllText($nativePatchPath)
+$upstreamLockPath = Join-Path $projectRoot "UPSTREAM.lock"
+$nativeProvenancePath = Join-Path $projectRoot `
+    "native-core\source-provenance.json"
+$wrapperPatchPath = Join-Path $projectRoot `
+    "native-core\uxplay-windows-headless.patch"
+Assert-True (Test-Path -LiteralPath $upstreamLockPath) `
+    "the pinned runtime version contract exists"
+Assert-True (Test-Path -LiteralPath $nativeProvenancePath) `
+    "the native source provenance contract exists"
+Assert-True (Test-Path -LiteralPath $wrapperPatchPath) `
+    "the pinned wrapper patch exists"
+$upstreamLock = [IO.File]::ReadAllText($upstreamLockPath)
+$nativeProvenance = Get-Content -LiteralPath $nativeProvenancePath `
+    -Raw -Encoding UTF8 | ConvertFrom-Json
+$wrapperPatchSource = [IO.File]::ReadAllText($wrapperPatchPath)
+$runtimeGStreamerVersionMatch = [regex]::Match(
+    $upstreamLock, '(?m)^runtime\.gstreamer=([0-9]+\.[0-9]+\.[0-9]+)$')
+$buildGStreamerVersionMatch = [regex]::Match(
+    $upstreamLock, '(?m)^build\.gstreamer=([0-9]+\.[0-9]+\.[0-9]+)$')
+Assert-True ($runtimeGStreamerVersionMatch.Success -and
+    $buildGStreamerVersionMatch.Success -and
+    $runtimeGStreamerVersionMatch.Groups[1].Value -eq
+        [string]$nativeProvenance.runtimeGStreamerVersion -and
+    $buildGStreamerVersionMatch.Groups[1].Value -eq
+        [string]$nativeProvenance.buildGStreamerVersion -and
+    [version]$nativeProvenance.runtimeGStreamerVersion -ge
+        [version]"1.28.0" -and
+    $nativeProvenance.runtimeGStreamerCoreSha256 -match '^[0-9a-f]{64}$' -and
+    $nativeProvenance.runtimeWasapi2PluginSha256 -match '^[0-9a-f]{64}$' -and
+    $nativeProvenance.runtimeWasapi2RequiredProperty -eq
+        "continue-on-error") `
+    "redistributed and build-time GStreamer contracts are distinct and pinned"
 Assert-True (-not $source.Contains("GetOrCreateReceiverDeviceId")) `
     "an upgrade must not invent a replacement AirPlay device ID"
 Assert-True ($source.Contains("GetSavedReceiverDeviceId")) `
@@ -71,6 +103,11 @@ $advancedArgumentsIndex = $source.IndexOf(
     'parts.Add(settings.AdvancedArguments.Trim())')
 Assert-True ($systemResetIndex -lt $advancedArgumentsIndex) `
     "advanced UxPlay arguments can override the system reset bound"
+$managedAudioSinkIndex = $source.IndexOf(
+    '"wasapi2sink continue-on-error=true"')
+Assert-True ($managedAudioSinkIndex -ge 0 -and
+    $managedAudioSinkIndex -lt $advancedArgumentsIndex) `
+    "the resilient Windows audio sink is applied before advanced overrides"
 Assert-True (-not $source.Contains('parts.Add("-nohold")')) `
     "the receiver does not allow a new client to preempt an active session"
 Assert-True (-not $source.Contains('parts.Add("-p ') -and
@@ -82,10 +119,22 @@ Assert-True ($nativePatchSource.Contains(
     $nativePatchSource.Contains(
         'AEROMIRROR_HTTP_READY stage=reset port=%u') -and
     $nativePatchSource.Contains(
-        'AEROMIRROR_HTTP_FAILED stage=reset expected_port=%u') -and
-    $nativePatchSource.Contains(
+        'AEROMIRROR_HTTP_FAILED stage=reset expected_port=%u')) `
+    "the pinned native patch checks initial/reset HTTP binding"
+$teardownHunk = [regex]::Match(
+    $nativePatchSource,
+    '(?ms)^@@ -1265.*?(?=^diff --git |\z)')
+Assert-True ($teardownHunk.Success -and
+    $teardownHunk.Value.Contains(
+        'AEROMIRROR_TEARDOWN audio=%d video=%d disconnect=client-managed') -and
+    -not $teardownHunk.Value.Contains(
         'http_response_set_disconnect(response, 1);')) `
-    "the pinned native patch checks initial/reset HTTP binding and disconnects after TEARDOWN"
+    "type-specific TEARDOWN does not force an immediate server-side disconnect"
+Assert-True ($wrapperPatchSource.Contains(
+        'if (m_headless || !m_argumentOverride.isEmpty())') -and
+    $wrapperPatchSource.Contains(
+        'AEROMIRROR_ARGUMENTS_PASSTHROUGH mode=external')) `
+    "the headless wrapper preserves externally supplied renderer arguments"
 Assert-True ($nativePatchSource.Contains(
         'AEROMIRROR_MIRROR_ONLY_FEATURES_READY') -and
     $nativePatchSource.Contains(
@@ -96,7 +145,7 @@ Assert-True ($nativePatchSource.Contains(
         'dnssd_set_airplay_features(dnssd, 13, 0)') -and
     $nativePatchSource.Contains(
         'plist_new_uint(0x25D)')) `
-    "the native receiver advertises only implemented mirroring capabilities instead of photo presentation handlers"
+    "the native receiver clears only unsupported photo, slideshow, and photo-preload declarations"
 Assert-True ($source.Contains('parts.Add("-vsync no")') -and
     -not $source.Contains('parts.Add("-al 0.05")')) `
     "the interactive profile disables timestamp scheduling without the old aggressive audio buffer"
@@ -628,6 +677,17 @@ $migrateRendererDefault = $settingsType.GetMethod(
     "MigrateRendererStabilityDefault", $staticFlags)
 Assert-True ($null -ne $migrateRendererDefault) `
     "the renderer stability migration is independently testable"
+$contextSettingsField = $contextType.GetField("settings", $instanceFlags)
+$buildUxPlayArguments = $contextType.GetMethod(
+    "BuildUxPlayArguments", $instanceFlags)
+Assert-True ($null -ne $contextSettingsField -and
+    $null -ne $buildUxPlayArguments) `
+    "receiver arguments can be verified from normalized settings"
+function Invoke-UxPlayArguments($Settings) {
+    $contextSettingsField.SetValue($context, $Settings)
+    return [string]$buildUxPlayArguments.Invoke($context, [object[]]@())
+}
+$resilientAudioArgument = '-as "wasapi2sink continue-on-error=true"'
 $legacyAutomaticSettings = [Activator]::CreateInstance($settingsType, $true)
 $legacyAutomaticSettings.SettingsVersion = 10
 $legacyAutomaticSettings.Renderer = "auto"
@@ -636,6 +696,11 @@ $migrateRendererDefault.Invoke(
 Assert-True ($legacyAutomaticSettings.SettingsVersion -eq 11 -and
     $legacyAutomaticSettings.Renderer -eq "d3d11") `
     "a legacy automatic renderer profile migrates to pinned Direct3D 11"
+$legacyDefaultAudioArguments = Invoke-UxPlayArguments `
+    $legacyAutomaticSettings
+Assert-True ($legacyDefaultAudioArguments.Contains(
+        $resilientAudioArgument)) `
+    "an existing default-audio profile receives resilient WASAPI2 output without a settings migration"
 $explicitD3D12Settings = [Activator]::CreateInstance($settingsType, $true)
 $explicitD3D12Settings.SettingsVersion = 10
 $explicitD3D12Settings.Renderer = "d3d12"
@@ -648,6 +713,28 @@ $settingsProbe = [Activator]::CreateInstance($settingsType, $true)
 Assert-True ([int]$settingsProbe.SettingsVersion -eq 11 -and
     $settingsProbe.Renderer -eq "d3d11") `
     "new settings profiles use the pinned Direct3D 11 stability default"
+$defaultAudioArguments = Invoke-UxPlayArguments $settingsProbe
+Assert-True ([regex]::Matches(
+        $defaultAudioArguments,
+        [regex]::Escape($resilientAudioArgument)).Count -eq 1) `
+    "default audio emits exactly one resilient WASAPI2 sink argument"
+$mutedSettings = [Activator]::CreateInstance($settingsType, $true)
+$mutedSettings.AudioOutput = "mute"
+$mutedArguments = Invoke-UxPlayArguments $mutedSettings
+Assert-True (-not $mutedArguments.Contains($resilientAudioArgument) -and
+    [regex]::IsMatch($mutedArguments, '(?:^|\s)-a(?:\s|$)')) `
+    "mute disables audio without adding the managed WASAPI2 sink"
+$advancedAudioSettings = [Activator]::CreateInstance($settingsType, $true)
+$advancedAudioSettings.AdvancedArguments = '-as "fakesink sync=false"'
+$advancedAudioArguments = Invoke-UxPlayArguments $advancedAudioSettings
+Assert-True ($advancedAudioArguments.IndexOf(
+        $resilientAudioArgument, [StringComparison]::Ordinal) -ge 0 -and
+    $advancedAudioArguments.LastIndexOf(
+        $advancedAudioSettings.AdvancedArguments,
+        [StringComparison]::Ordinal) -gt
+    $advancedAudioArguments.IndexOf(
+        $resilientAudioArgument, [StringComparison]::Ordinal)) `
+    "advanced arguments remain later and can override the managed audio sink"
 Assert-True ([bool]$settingsProbe.AutoFitWindow) `
     "automatic renderer aspect fitting is enabled for a new settings profile"
 $settingsProbe.AutoFitWindow = $false
@@ -697,6 +784,9 @@ Assert-True ($settingsProbe.LatencyProfile -eq "balanced") `
     "an unknown latency profile receives the balanced default"
 Assert-True ($settingsProbe.AudioOutput -eq "default") `
     "an unknown audio output receives the system default"
+Assert-True ((Invoke-UxPlayArguments $settingsProbe).Contains(
+        $resilientAudioArgument)) `
+    "normalized unknown audio output receives resilient WASAPI2 output"
 Assert-True ($settingsProbe.ThemeMode -eq "system") `
     "an unknown theme follows Windows"
 

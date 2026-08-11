@@ -98,14 +98,30 @@ The current shell depends on these native integration behaviors:
    only from the current PID, clears readiness at fatal loss, and preserves the
    native process only after matching same-port evidence. Failure or mismatch
    cleans up and exits for bounded full-process recovery; legacy generic
-   readiness remains bounded and cannot claim port identity. AirPlay
-   `TEARDOWN` explicitly requests client disconnect.
+   readiness remains bounded and cannot claim port identity. For a typed
+   AirPlay `TEARDOWN`, the native handler retains upstream's typed-stream
+   teardown behavior and `Connection: close` response header, but it no longer
+   forces immediate server-side removal of the control socket.
+   The client therefore controls whether and when that socket closes. The
+   compact `AEROMIRROR_TEARDOWN audio=<0|1> video=<0|1>` marker with
+   `disconnect=client-managed` makes that decision observable.
 10. The 0.12.6 native candidate clears photo, slideshow, and photo-preload
     feature bits 1, 5, and 13 and emits
     `AEROMIRROR_MIRROR_ONLY_FEATURES_READY`. Supported audio, authentication,
     and metadata capabilities remain advertised. This is an experiment whose
     effect on Photos presentation-canvas negotiation remains a physical gate,
     not a validated crop or content-layout signal.
+11. In headless/external-argument mode, the uxplay-windows wrapper leaves the
+    shell-provided UxPlay argument vector unchanged and emits
+    `AEROMIRROR_ARGUMENTS_PASSTHROUGH mode=external`. Its legacy Qt renderer
+    and fullscreen preferences apply only to the wrapper's interactive UI, so
+    they cannot silently replace externally supplied `-vs` or `-fs` values.
+12. Default Windows audio is explicit rather than automatic: the shell supplies
+    `-as "wasapi2sink continue-on-error=true"`. The redistributed GStreamer
+    1.28.1 runtime supports that sink property for documented endpoint-open,
+    I/O, and device-removal failures. Mute supplies only `-a`; advanced UxPlay
+    arguments are appended later and can deliberately override the managed
+    sink. Errors outside that property remain native media-pipeline behavior.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -193,11 +209,33 @@ both the codec-family decoder and matching video sink for Direct3D 11 or 12,
 and raw advanced UxPlay arguments remain later on the command line so an
 experienced tester can make an explicit diagnostic override.
 
+The headless wrapper treats the `--uxplay` vector as authoritative. It does not
+strip `-vs` or `-fs` and does not inject its persisted Qt renderer/fullscreen
+preferences in that mode. Consequently the actual-selection marker can be
+compared directly with the shell launch arguments; a D3D11 request followed by
+an actual D3D12 sink is a failed integration check, not an allowed wrapper
+fallback.
+
 This is a conservative response to the observed automatic D3D12 selection and
 upstream resolution-change risk. It does not change AirPlay negotiation,
 decode pixels in the managed shell, or prove that Photos' inner presentation
 canvas is fixed. Direct3D 12 remains an experimental A/B option until physical
 Windows/iPhone evidence supports a broader conclusion.
+
+## Audio pipeline selection
+
+Normal default audio uses GStreamer's Windows `wasapi2sink` explicitly with
+`continue-on-error=true`. In the pinned 1.28.1 runtime, documented endpoint
+open, device I/O, and device-removal failures are downgraded to warnings while
+the sink continues consuming buffers. This prevents those device failures from
+ending the shared media loop merely because `autoaudiosink` selected the same
+backend without the resilience property.
+
+This is deliberately narrower than a process-wide audio-error latch. The
+renderer still owns the GStreamer pipeline, and unrelated decoder, video,
+protocol, or audio bus errors keep their existing native behavior. Muted mode
+does not instantiate this sink, and a tester-provided advanced `-as` remains
+authoritative because advanced arguments are appended last.
 
 ## Fatal-loss presentation continuity
 

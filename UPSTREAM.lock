@@ -11,12 +11,18 @@ uxplay.commit=21eef8df25d91e12635c36d8176ad192725baca2
 libuxplay.repository=https://github.com/leapbtw/libuxplay
 libuxplay.commit=437f37514257d9cb513ac7fbdee743b4da85852e
 
-aeromirror.uxplay-windows.patch.sha256=0A47A4E67D45F21583A027E2B07450D0333369DDC8D3C156185AEF29EE1145E5
-aeromirror.libuxplay.patch.sha256=FFDBE63F4944C10C26EA5C0E74FEA5B5E4071B287F4BBD9FC2FDCFEAFE2893DB
-aeromirror.headless-executable.sha256=9F1FB168C882B1531400D2EDBB4ABD1277803C1971A20E9D5C4D7EFF3E8498FC
+aeromirror.uxplay-windows.patch.sha256=A57FA119AA9630551DB9C42E99A1F15524482B472067E5FB13F3090E6E7F0902
+aeromirror.libuxplay.patch.sha256=2EABA74BFCCE989927A013088559F2AC174AFE9179AA360A6A7DB7098A12EBCC
+aeromirror.headless-executable.sha256=11B65324C83F23503F2D555D0064D1348C884407BF7F9B1C34D27B5D1C05FB9B
 
 runtime.msys2=20260611
-runtime.gstreamer=1.28.5
+runtime.gstreamer=1.28.1
+build.gstreamer=1.28.5
+runtime.gstreamer.core.path=libgstreamer-1.0-0.dll
+runtime.gstreamer.core.sha256=F2ED35F5089521F9C050530AB74B56C297CC48A190E6CDB80D5E370400ADFFA0
+runtime.gstreamer.wasapi2.path=lib/gstreamer-1.0/libgstwasapi2.dll
+runtime.gstreamer.wasapi2.sha256=EACD2DC97902D575298E65C4167F26C5809D82B26EF60B4E134F08DC08F35619
+runtime.gstreamer.wasapi2.required-property=continue-on-error
 runtime.qt=6.10.1
 runtime.qt.package=mingw-w64-ucrt-x86_64-qt6-base-6.10.1-1-any.pkg.tar.zst
 runtime.qt.package.url=https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-qt6-base-6.10.1-1-any.pkg.tar.zst

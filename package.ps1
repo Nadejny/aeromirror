@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$HeadlessCorePath,
 
-    [string]$Version = "0.12.6"
+    [string]$Version = "0.12.7"
 )
 
 $ErrorActionPreference = "Stop"
@@ -163,6 +163,22 @@ $manifestData = Get-Content -LiteralPath $runtimeManifest -Raw -Encoding UTF8 |
 if ($manifestData.shellMode -ne "headless" -or
     $manifestData.architecture -ne "x64" -or
     $manifestData.qtBuildVersion -ne $provenance.qtBuildVersion -or
+    $manifestData.runtimeGStreamerVersion -ne
+        $provenance.runtimeGStreamerVersion -or
+    $manifestData.buildGStreamerVersion -ne
+        $provenance.buildGStreamerVersion -or
+    $manifestData.runtimeGStreamerCorePath -ne
+        $provenance.runtimeGStreamerCorePath -or
+    $manifestData.runtimeGStreamerCoreSha256 -ne
+        $provenance.runtimeGStreamerCoreSha256 -or
+    $manifestData.runtimeWasapi2PluginPath -ne
+        $provenance.runtimeWasapi2PluginPath -or
+    $manifestData.runtimeWasapi2PluginSha256 -ne
+        $provenance.runtimeWasapi2PluginSha256 -or
+    $manifestData.runtimeWasapi2RequiredProperty -ne
+        $provenance.runtimeWasapi2RequiredProperty -or
+    $manifestData.pinnedRuntimeArchiveSha256 -ne
+        $provenance.pinnedRuntimeArchiveSha256 -or
     $manifestData.pinnedRuntimeRelease -ne $provenance.pinnedRuntimeRelease -or
     $manifestData.coreRuntimeCompatibility -ne
         $provenance.coreRuntimeCompatibility -or
@@ -182,6 +198,9 @@ if ($manifestData.shellMode -ne "headless" -or
 Assert-HashMapMatches -Actual $manifestData.patchedSources `
     -Expected $provenance.patchedSources `
     -Description "Patched source hashes"
+Assert-HashMapMatches -Actual $manifestData.protectedSources `
+    -Expected $provenance.protectedSources `
+    -Description "Protected source hashes"
 Assert-HashMapMatches -Actual $manifestData.buildInputs `
     -Expected $provenance.buildInputs `
     -Description "Native build-input hashes"

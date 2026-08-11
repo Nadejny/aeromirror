@@ -1580,7 +1580,14 @@ namespace AirPlayReceiverMvp
             }
 
             if (settings.AudioOutput == "mute")
+            {
                 parts.Add("-a");
+            }
+            else
+            {
+                parts.Add("-as " + QuoteArgument(
+                    "wasapi2sink continue-on-error=true"));
+            }
 
             parts.Add("-reset 15");
             if (!string.IsNullOrWhiteSpace(settings.AdvancedArguments))

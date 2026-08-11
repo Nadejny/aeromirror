@@ -39,8 +39,13 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
 - offers Windows Mobile Hotspot only as an optional advanced action while a
   Public physical network is active;
 - defaults to a pinned Direct3D 11 decoder and video sink for stability, while
-  retaining Direct3D 12 as an experimental opt-in;
-- can use the default Windows audio output or mute receiver audio;
+  retaining Direct3D 12 as an experimental opt-in; the 0.12.7 headless wrapper
+  preserves shell-provided sink/fullscreen arguments instead of replacing them
+  with hidden wrapper preferences;
+- can use the default Windows audio output through
+  `wasapi2sink continue-on-error=true`, or mute receiver audio; the resilience
+  property covers the sink's documented Windows endpoint failures and is not a
+  claim that every native media error is nonfatal;
 - keeps latency and audio controls in the normal settings, with Balanced
   latency selected by default; renderer selection and raw UxPlay arguments
   remain under Advanced settings;
@@ -90,7 +95,8 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   geometry header, and the selected GStreamer decoder/sink without treating
   the raw auxiliary geometry pair as crop, PAR, or rotation metadata; the
   0.12.6 release also logs explicit native HTTP reset readiness/failure and
-  a mirror-only capability marker;
+  a mirror-only capability marker; the 0.12.7 candidate adds typed-`TEARDOWN`
+  connection-ownership and external-argument-pass-through markers;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
 
@@ -104,8 +110,10 @@ and player window come from UxPlay/uxplay-windows.
 - local-network access allowed in Windows Firewall;
 - HEVC-capable decoding for the 4K/60 preset.
 
-The pinned runtime uses Qt 6.10.1, which officially supports Windows 10
-1809 x64 and newer. Windows 10 is outside Microsoft's normal consumer support lifecycle,
+The pinned redistributed runtime uses Qt 6.10.1 and GStreamer 1.28.1. The
+separate reproducible native build/staging prefix uses GStreamer 1.28.5; it is
+not the runtime downloaded by the public network installer. Qt 6.10.1
+officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microsoft's normal consumer support lifecycle,
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
 
@@ -126,6 +134,13 @@ installed 0.12.5-to-0.12.6 update and physical Windows 10/11 plus iPhone
 matrix remain pending and are not implied by those automated results.
 Exact tag, asset-size, and SHA-256 evidence is in the
 [0.12.6 build report](docs/releases/0.12.6/BUILD_REPORT.md).
+
+Version 0.12.7 is currently an unpublished session-continuity hotfix
+candidate. Its versioned scope and still-pending physical acceptance are in
+the [0.12.7 release notes](docs/releases/0.12.7/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.7/TEST_PLAN.md). Until that Release is actually
+published and verified, the latest link above correctly continues to deliver
+0.12.6.
 
 The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.6 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
@@ -255,31 +270,31 @@ from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.6 `
+  -Version 0.12.7 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.6 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.6.zip
+  -Version 0.12.7 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.7.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.6.exe
+artifacts\installer\AeroMirror-Setup-0.12.7.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.6`.
+Public release names use three-part semantic versions such as `0.12.7`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.6.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.6`.
+show `0.12.7.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.7`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.6 `
+  -Version 0.12.7 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -292,7 +307,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.6.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.7.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -301,7 +316,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.6\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.7\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -309,7 +324,9 @@ $source = Resolve-Path .\AeroMirror-native-source-0.12.6\uxplay-windows
 ```
 
 The script validates both reviewed patch files, every modified source file,
-the bundled Bonjour header and `dnssd.def` against
+the separately pinned unchanged native audio renderer, the distinct public
+GStreamer 1.28.1 and build-time GStreamer 1.28.5 contracts, the bundled
+Bonjour header and `dnssd.def` against
 `source-provenance.json`. It copies the verified header into the prepared
 Bonjour SDK layout, generates the x64 `dnssd.lib` import library with MSYS2
 `dlltool`, and rejects a resulting executable whose SHA-256 differs from the
@@ -390,6 +407,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.7/
+      RELEASE_NOTES.md       media-session continuity hotfix summary
+      TEST_PLAN.md           Photos/video session-continuity acceptance
     0.12.6/
       RELEASE_NOTES.md       curated GitHub Release text
       TEST_PLAN.md           renderer, Photos, and reconnect acceptance
@@ -465,6 +485,15 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   explicit current-PID marker confirms the original AirPlay port; bind failure
   or mismatch exits for full-process recovery. This still does not prove
   DNS-SD/BLE re-publication or force iOS browse-cache refresh.
+- The 0.12.7 candidate removes an immediate server-forced control-socket
+  removal from the typed AirPlay `TEARDOWN` handler while retaining upstream's
+  typed-stream behavior and `Connection: close` response header. The affected
+  0.12.6 log proves a software-request disconnect, not which disconnect call
+  site ran; the new marker makes that request type directly testable.
+- Normal audio in 0.12.7 explicitly selects the redistributed GStreamer
+  1.28.1 runtime's `wasapi2sink continue-on-error=true` behavior for documented
+  endpoint open, I/O, and removal failures. Other native audio/decoder/video
+  bus errors are not claimed to be isolated from the session.
 - The same release clears unimplemented AirPlay photo, slideshow, and
   photo-preload advertisement bits as a mirror-only experiment. Physical
   direct-in-Photos behavior remains pending, and this is not a crop/zoom fix.
@@ -549,7 +578,9 @@ and video sink. Existing profiles that still used automatic GStreamer
 selection migrate to Direct3D 11; an explicit Direct3D 12 choice remains
 available as an experimental comparison. Advanced UxPlay arguments remain
 after the managed choice and can override it for diagnostics. UxPlay selects
-the codec-matched decoder at pipeline creation. Physical Direct3D 11 versus
+the codec-matched decoder at pipeline creation. In the 0.12.7 candidate, the
+headless wrapper also preserves external `-vs`/`-fs` arguments rather than
+replacing them with persisted Qt preferences. Physical Direct3D 11 versus
 Direct3D 12 Photos and resolution-change testing is still pending.
 
 AirPlay itself and the iPhone encoder still add latency. Best results require
@@ -570,12 +601,13 @@ The current license inventory is an engineering review, not legal advice.
 
 ## Sharing a build
 
-For the 0.12 review, share the GitHub Release page or its network Setup—not a
-loose `AeroMirror.exe`. The Release must keep these assets together:
+For the 0.12.7 review candidate, share the GitHub Release page or its network
+Setup—not a loose `AeroMirror.exe`. Once published, that Release must keep
+these assets together:
 
-- `AeroMirror-Setup-0.12.6.exe`;
-- `AeroMirror-source-0.12.6.zip`;
-- `AeroMirror-native-source-0.12.6.zip`;
+- `AeroMirror-Setup-0.12.7.exe`;
+- `AeroMirror-source-0.12.7.zip`;
+- `AeroMirror-native-source-0.12.7.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

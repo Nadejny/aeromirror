@@ -27,17 +27,19 @@ index 7984be8..866bfc1 100644
  
      plist_t mac_address_node = plist_new_string(hw_addr);
 diff --git a/lib/raop_handlers.h b/lib/raop_handlers.h
-index 1aeba28..3dd716e 100644
+index 1aeba28..1cd698a 100644
 --- a/lib/raop_handlers.h
 +++ b/lib/raop_handlers.h
-@@ -1267,6 +1267,7 @@ raop_handler_teardown(raop_conn_t *conn,
+@@ -1265,6 +1265,9 @@ raop_handler_teardown(raop_conn_t *conn,
+     }
+     plist_free(req_root_node);
      logger_log(raop->logger, LOGGER_DEBUG, "TEARDOWN request,  96=%d, 110=%d", teardown_96, teardown_110);
++    logger_log(raop->logger, LOGGER_INFO,
++               "AEROMIRROR_TEARDOWN audio=%d video=%d disconnect=client-managed",
++               teardown_96, teardown_110);
    
      http_response_add_header(response, "Connection", "close");
-+    http_response_set_disconnect(response, 1);
    
-     if (teardown_96) {
-         if (conn->raop_rtp) {
 diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
 index 2bb4f5f..55340ef 100644
 --- a/lib/raop_rtp_mirror.c

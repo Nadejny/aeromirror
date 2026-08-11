@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.12.7 — media-session continuity hotfix
+
+### Fixed
+
+- Default Windows audio now selects GStreamer's `wasapi2sink` with
+  `continue-on-error=true`. With the pinned GStreamer 1.28.1 runtime,
+  supported endpoint open, I/O, and device-removal failures are reported as
+  warnings while the sink keeps consuming buffers instead of ending the
+  shared media pipeline. Muted output remains unchanged, and advanced UxPlay
+  arguments still follow the managed default so an experienced tester can
+  override it explicitly.
+- Type-specific AirPlay `TEARDOWN` is no longer forced into a server-side
+  disconnect of the whole control connection. The existing upstream
+  `Connection: close` response header remains, but the client controls whether
+  and when the socket closes while the requested media state is torn down.
+- The headless native wrapper preserves the shell-provided `-vs` and `-fs`
+  arguments instead of replacing them, so the requested Direct3D sink and
+  fullscreen behavior reach UxPlay.
+
+### Compatibility and verification status
+
+- The managed 0.12.7 build and resilience suite pass in an isolated output
+  directory. Two clean native rebuilds reproduce SHA-256
+  `11b65324c83f23503f2d555d0064d1348c884407bf7f9b1c34d27b5d1c05fb9b`;
+  patch/current-source/protected-audio hashes, the exact 143-file prepared
+  native-source content and provenance, dependency collection, and the
+  distinct redistributed GStreamer 1.28.1 versus build-toolchain 1.28.5
+  contracts pass. Exact public-runtime loader and both reverse-apply gates also
+  pass.
+- The exact 13-entry review payload, shell and Setup `0.12.7.0` versions,
+  Setup's internal comparison version and shortcut/update lifecycle checks,
+  embedded-payload and `/verify-runtime` verification, all five release-script
+  defaults, local links, and `git diff --check` pass. An extracted rebuild from
+  the prepared native source reproduces the same core. The final pre-tag
+  payload and Setup are regenerated after the evidence-only documentation
+  update and their embedded-payload, lifecycle, version, link, and diff gates
+  pass again.
+  The clean exact tag, public assets/channel verification, actual installed
+  update from public 0.12.6, and physical Windows/iPhone acceptance remain
+  pending.
+- The exact Windows/iPhone Photos and video reproducer remains a required
+  physical gate. This hotfix does not claim to crop or enlarge Photos content,
+  repair discovery, or make reconnect automatic. Audio failures outside the
+  documented `wasapi2sink continue-on-error` scope are not claimed to be
+  isolated from the media session.
+- AeroMirror project policy treats published `v0.12.6` as immutable. This
+  correction uses 0.12.7 and must not replace the earlier tag or assets.
+
 ## 0.12.6 — D3D11 stability and clearer reconnect guidance
 
 ### Changed

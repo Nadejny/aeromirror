@@ -1,6 +1,6 @@
 param(
     [string]$PortableZip = "",
-    [string]$Version = "0.12.6"
+    [string]$Version = "0.12.7"
 )
 
 $ErrorActionPreference = "Stop"
@@ -190,6 +190,22 @@ try {
     if ($payloadBuild.shellMode -ne "headless" -or
         $payloadBuild.architecture -ne "x64" -or
         $payloadBuild.qtBuildVersion -ne $provenance.qtBuildVersion -or
+        $payloadBuild.runtimeGStreamerVersion -ne
+            $provenance.runtimeGStreamerVersion -or
+        $payloadBuild.buildGStreamerVersion -ne
+            $provenance.buildGStreamerVersion -or
+        $payloadBuild.runtimeGStreamerCorePath -ne
+            $provenance.runtimeGStreamerCorePath -or
+        $payloadBuild.runtimeGStreamerCoreSha256 -ne
+            $provenance.runtimeGStreamerCoreSha256 -or
+        $payloadBuild.runtimeWasapi2PluginPath -ne
+            $provenance.runtimeWasapi2PluginPath -or
+        $payloadBuild.runtimeWasapi2PluginSha256 -ne
+            $provenance.runtimeWasapi2PluginSha256 -or
+        $payloadBuild.runtimeWasapi2RequiredProperty -ne
+            $provenance.runtimeWasapi2RequiredProperty -or
+        $payloadBuild.pinnedRuntimeArchiveSha256 -ne
+            $provenance.pinnedRuntimeArchiveSha256 -or
         $payloadBuild.pinnedRuntimeRelease -ne
             $provenance.pinnedRuntimeRelease -or
         $payloadBuild.coreRuntimeCompatibility -ne
@@ -212,6 +228,9 @@ try {
     Assert-HashMapMatches -Actual $payloadBuild.patchedSources `
         -Expected $provenance.patchedSources `
         -Description "Patched source hashes"
+    Assert-HashMapMatches -Actual $payloadBuild.protectedSources `
+        -Expected $provenance.protectedSources `
+        -Description "Protected source hashes"
     Assert-HashMapMatches -Actual $payloadBuild.buildInputs `
         -Expected $provenance.buildInputs `
         -Description "Native build-input hashes"

@@ -6,6 +6,9 @@ param(
     [string]$OriginalRuntime,
 
     [Parameter(Mandatory = $true)]
+    [string]$OriginalRuntimeArchive,
+
+    [Parameter(Mandatory = $true)]
     [string]$HeadlessExecutable,
 
     [string]$MsysRoot = "C:\msys64"
@@ -13,6 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $nativeRoot = $PSScriptRoot
 $projectRoot = Split-Path -Parent $nativeRoot
@@ -52,11 +56,47 @@ function Assert-FileHash(
     }
 }
 
+function Get-Sha256LowerFromBytes([byte[]]$Bytes) {
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString(
+            $sha256.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
+function Assert-BytesContainAsciiToken(
+    [byte[]]$Bytes,
+    [string]$Token,
+    [string]$Description
+) {
+    $binaryText = [Text.Encoding]::ASCII.GetString($Bytes)
+    if ($binaryText.IndexOf($Token, [StringComparison]::Ordinal) -lt 0) {
+        throw "$Description does not contain required token '$Token'."
+    }
+}
+
+function Assert-BinaryContainsAsciiToken(
+    [string]$Path,
+    [string]$Token,
+    [string]$Description
+) {
+    Assert-BytesContainAsciiToken `
+        -Bytes ([IO.File]::ReadAllBytes($Path)) `
+        -Token $Token `
+        -Description $Description
+}
+
 $upstream = (Resolve-Path -LiteralPath $UpstreamRoot).Path
 $original = (Resolve-Path -LiteralPath $OriginalRuntime).Path
+$originalArchive = (Resolve-Path -LiteralPath $OriginalRuntimeArchive).Path
 $headless = (Resolve-Path -LiteralPath $HeadlessExecutable).Path
 $libuxplay = Join-Path $upstream "libuxplay"
 $bonjourHeader = Join-Path $upstream "Bonjour SDK\Include\dns_sd.h"
+$buildGStreamerCore = Join-Path $runtimeBin "libgstreamer-1.0-0.dll"
+$buildWasapi2Plugin = Join-Path $prefix "lib\gstreamer-1.0\libgstwasapi2.dll"
 
 $required = @(
     $headless,
@@ -73,6 +113,8 @@ $required = @(
     (Join-Path $runtimeBin "windeployqt.exe"),
     (Join-Path $runtimeBin "python.exe"),
     (Join-Path $runtimeBin "objdump.exe")
+    $buildGStreamerCore,
+    $buildWasapi2Plugin
 )
 $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
 if ($missing) {
@@ -86,10 +128,104 @@ if ($provenance.schemaVersion -ne 1 -or
     $provenance.libuxplayCommit -notmatch '^[0-9a-f]{40}$' -or
     $provenance.uxplayWindowsPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
     $provenance.libuxplayPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
-    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$') {
+    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeGStreamerVersion -notmatch '^\d+\.\d+\.\d+$' -or
+    $provenance.buildGStreamerVersion -notmatch '^\d+\.\d+\.\d+$' -or
+    $provenance.runtimeGStreamerCoreSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeWasapi2PluginSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.pinnedRuntimeArchiveSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeWasapi2RequiredProperty -ne 'continue-on-error') {
     throw "source-provenance.json is missing required pinned values."
 }
 $provenanceHash = Get-Sha256Lower -Path $provenancePath
+
+$runtimeGStreamerCore = Join-Path $original (
+    ([string]$provenance.runtimeGStreamerCorePath).Replace('/', '\'))
+$runtimeWasapi2Plugin = Join-Path $original (
+    ([string]$provenance.runtimeWasapi2PluginPath).Replace('/', '\'))
+Assert-ChildPath -Parent $original -Child $runtimeGStreamerCore
+Assert-ChildPath -Parent $original -Child $runtimeWasapi2Plugin
+$missingRuntimeFiles = @(
+    $runtimeGStreamerCore,
+    $runtimeWasapi2Plugin
+) | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }
+if ($missingRuntimeFiles) {
+    throw "Pinned runtime GStreamer files are missing:`n$($missingRuntimeFiles -join [Environment]::NewLine)"
+}
+
+Assert-FileHash -Path $originalArchive `
+    -Expected $provenance.pinnedRuntimeArchiveSha256 `
+    -Description "Pinned upstream runtime archive"
+Assert-FileHash -Path $runtimeGStreamerCore `
+    -Expected $provenance.runtimeGStreamerCoreSha256 `
+    -Description "Pinned runtime GStreamer core"
+Assert-FileHash -Path $runtimeWasapi2Plugin `
+    -Expected $provenance.runtimeWasapi2PluginSha256 `
+    -Description "Pinned runtime wasapi2 plug-in"
+Assert-BinaryContainsAsciiToken -Path $runtimeGStreamerCore `
+    -Token ([string]$provenance.runtimeGStreamerVersion) `
+    -Description "Pinned runtime GStreamer core"
+Assert-BinaryContainsAsciiToken -Path $runtimeWasapi2Plugin `
+    -Token ([string]$provenance.runtimeGStreamerVersion) `
+    -Description "Pinned runtime wasapi2 plug-in"
+Assert-BinaryContainsAsciiToken -Path $runtimeWasapi2Plugin `
+    -Token ([string]$provenance.runtimeWasapi2RequiredProperty) `
+    -Description "Pinned runtime wasapi2 plug-in"
+
+$archive = [IO.Compression.ZipFile]::OpenRead($originalArchive)
+try {
+    $expectedArchiveEntries = @{
+        ([string]$provenance.runtimeGStreamerCorePath) = @{
+            Hash = [string]$provenance.runtimeGStreamerCoreSha256
+            Tokens = @([string]$provenance.runtimeGStreamerVersion)
+        }
+        ([string]$provenance.runtimeWasapi2PluginPath) = @{
+            Hash = [string]$provenance.runtimeWasapi2PluginSha256
+            Tokens = @(
+                [string]$provenance.runtimeGStreamerVersion,
+                [string]$provenance.runtimeWasapi2RequiredProperty)
+        }
+    }
+    foreach ($expectedEntry in $expectedArchiveEntries.GetEnumerator()) {
+        $matches = @($archive.Entries | Where-Object {
+            $_.FullName -ceq $expectedEntry.Key
+        })
+        if ($matches.Count -ne 1) {
+            throw "Pinned runtime archive must contain exactly one '$($expectedEntry.Key)' entry."
+        }
+        $entryStream = $matches[0].Open()
+        $memory = New-Object IO.MemoryStream
+        try {
+            $entryStream.CopyTo($memory)
+            $entryBytes = $memory.ToArray()
+        }
+        finally {
+            $memory.Dispose()
+            $entryStream.Dispose()
+        }
+        $entryHash = Get-Sha256LowerFromBytes -Bytes $entryBytes
+        if ($entryHash -ne $expectedEntry.Value.Hash) {
+            throw "Pinned runtime archive entry '$($expectedEntry.Key)' has SHA-256 $entryHash."
+        }
+        foreach ($token in $expectedEntry.Value.Tokens) {
+            Assert-BytesContainAsciiToken -Bytes $entryBytes -Token $token `
+                -Description ("Pinned runtime archive entry " + $expectedEntry.Key)
+        }
+    }
+}
+finally {
+    $archive.Dispose()
+}
+
+Assert-BinaryContainsAsciiToken -Path $buildGStreamerCore `
+    -Token ([string]$provenance.buildGStreamerVersion) `
+    -Description "Engineering build GStreamer core"
+Assert-BinaryContainsAsciiToken -Path $buildWasapi2Plugin `
+    -Token ([string]$provenance.buildGStreamerVersion) `
+    -Description "Engineering build wasapi2 plug-in"
+Assert-BinaryContainsAsciiToken -Path $buildWasapi2Plugin `
+    -Token ([string]$provenance.runtimeWasapi2RequiredProperty) `
+    -Description "Engineering build wasapi2 plug-in"
 
 Assert-FileHash -Path $uxplayPatch `
     -Expected $provenance.uxplayWindowsPatchSha256 `
@@ -116,6 +252,22 @@ foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
     Assert-FileHash -Path $sourcePath `
         -Expected ([string]$sourceProperty.Value) `
         -Description ("Patched source " + $sourceProperty.Name)
+}
+foreach ($sourceProperty in $provenance.protectedSources.PSObject.Properties) {
+    $sourcePath = Join-Path $upstream (
+        $sourceProperty.Name.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Pinned protected source is missing: $sourcePath"
+    }
+    Assert-FileHash -Path $sourcePath `
+        -Expected ([string]$sourceProperty.Value) `
+        -Description ("Protected unmodified source " + $sourceProperty.Name)
+}
+
+$libuxplayPatchText = Get-Content -LiteralPath $libuxplayPatch `
+    -Raw -Encoding UTF8
+if ($libuxplayPatchText -match '(?i)audio_renderer\.c') {
+    throw "The reviewed hotfix must not modify audio_renderer.c."
 }
 
 $upstreamHasGit = Test-Path -LiteralPath (Join-Path $upstream ".git")
@@ -224,6 +376,25 @@ if ($LASTEXITCODE -ne 0) {
     throw "GStreamer plugin resolution failed with exit code $LASTEXITCODE"
 }
 
+$stagedBuildGStreamerCore = Join-Path $stage "libgstreamer-1.0-0.dll"
+$stagedBuildWasapi2Plugin = Join-Path $stage `
+    "lib\gstreamer-1.0\libgstwasapi2.dll"
+# The feature resolver copies plug-ins, while the later dependency collector
+# supplies their DLL closure. Seed the GStreamer core now so its exact
+# build-time version and hash can be recorded in the manifest before that
+# collector inventories the complete stage.
+Copy-Item -LiteralPath $buildGStreamerCore `
+    -Destination $stagedBuildGStreamerCore -Force
+Assert-BinaryContainsAsciiToken -Path $stagedBuildGStreamerCore `
+    -Token ([string]$provenance.buildGStreamerVersion) `
+    -Description "Staged engineering GStreamer core"
+Assert-BinaryContainsAsciiToken -Path $stagedBuildWasapi2Plugin `
+    -Token ([string]$provenance.buildGStreamerVersion) `
+    -Description "Staged engineering wasapi2 plug-in"
+Assert-BinaryContainsAsciiToken -Path $stagedBuildWasapi2Plugin `
+    -Token ([string]$provenance.runtimeWasapi2RequiredProperty) `
+    -Description "Staged engineering wasapi2 plug-in"
+
 $scannerDestination = Join-Path $stage "libexec\gstreamer-1.0"
 New-Item -ItemType Directory -Force -Path $scannerDestination | Out-Null
 Copy-Item -LiteralPath (Join-Path $prefix "libexec\gstreamer-1.0\gst-plugin-scanner.exe") `
@@ -244,6 +415,14 @@ $buildManifest = [ordered]@{
     architecture = "x64"
     shellMode = "headless"
     qtBuildVersion = [string]$provenance.qtBuildVersion
+    runtimeGStreamerVersion = [string]$provenance.runtimeGStreamerVersion
+    buildGStreamerVersion = [string]$provenance.buildGStreamerVersion
+    runtimeGStreamerCorePath = [string]$provenance.runtimeGStreamerCorePath
+    runtimeGStreamerCoreSha256 = [string]$provenance.runtimeGStreamerCoreSha256
+    runtimeWasapi2PluginPath = [string]$provenance.runtimeWasapi2PluginPath
+    runtimeWasapi2PluginSha256 = [string]$provenance.runtimeWasapi2PluginSha256
+    runtimeWasapi2RequiredProperty = [string]$provenance.runtimeWasapi2RequiredProperty
+    pinnedRuntimeArchiveSha256 = [string]$provenance.pinnedRuntimeArchiveSha256
     pinnedRuntimeRelease = [string]$provenance.pinnedRuntimeRelease
     coreRuntimeCompatibility = [string]$provenance.coreRuntimeCompatibility
     qtImportedVersionTag = "qt_version_tag_6_10"
@@ -258,7 +437,12 @@ $buildManifest = [ordered]@{
     uxplayWindowsPatchSha256 = [string]$provenance.uxplayWindowsPatchSha256
     libuxplayPatchSha256 = [string]$provenance.libuxplayPatchSha256
     patchedSources = $provenance.patchedSources
+    protectedSources = $provenance.protectedSources
     buildInputs = $provenance.buildInputs
+    stagedBuildGStreamerCoreSha256 = Get-Sha256Lower -Path (
+        $stagedBuildGStreamerCore)
+    stagedBuildWasapi2PluginSha256 = Get-Sha256Lower -Path (
+        $stagedBuildWasapi2Plugin)
     compiler = (& (Join-Path $runtimeBin "gcc.exe") --version |
         Select-Object -First 1)
     cmake = (& (Join-Path $runtimeBin "cmake.exe") --version |

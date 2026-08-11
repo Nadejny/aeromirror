@@ -90,6 +90,25 @@ function Assert-FileHash {
     }
 }
 
+function Assert-BinaryContainsAsciiToken {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $binaryText = [Text.Encoding]::ASCII.GetString(
+        [IO.File]::ReadAllBytes($Path))
+    if ($binaryText.IndexOf($Token, [StringComparison]::Ordinal) -lt 0) {
+        throw "$Description does not contain required token '$Token'."
+    }
+}
+
 $upstream = (Resolve-Path -LiteralPath $UpstreamRoot).Path
 $qtPrefix = (Resolve-Path -LiteralPath $Qt610Prefix).Path
 $msys = (Resolve-Path -LiteralPath $MsysRoot).Path
@@ -108,6 +127,8 @@ $cCompiler = Join-Path $msysBin "gcc.exe"
 $objdump = Join-Path $msysBin "objdump.exe"
 $strip = Join-Path $msysBin "strip.exe"
 $dlltool = Join-Path $msysBin "dlltool.exe"
+$buildGStreamerCore = Join-Path $msysBin "libgstreamer-1.0-0.dll"
+$buildWasapi2Plugin = Join-Path $msys "ucrt64\lib\gstreamer-1.0\libgstwasapi2.dll"
 $bonjourSdk = Join-Path $upstream "Bonjour SDK"
 $bonjourHeader = Join-Path $bonjourSdk "Include\dns_sd.h"
 $bonjourImportLibrary = Join-Path $bonjourSdk "Lib\x64\dnssd.lib"
@@ -124,6 +145,7 @@ else {
     $bonjourHeader
 }
 $definitionFile = Join-Path $PSScriptRoot "dnssd.def"
+$wrapperSource = Join-Path $upstream "src\mainwindow.cpp"
 $buildDir = Join-Path $upstream "out\headless-x64-qt610"
 $output = Join-Path $buildDir "uxplay-windows.exe"
 
@@ -147,11 +169,14 @@ $required = @(
     $objdump,
     $strip,
     $dlltool,
+    $buildGStreamerCore,
+    $buildWasapi2Plugin,
     $provenancePath,
     $uxplayPatch,
     $libuxplayPatch,
     $sourceHeader,
-    $definitionFile
+    $definitionFile,
+    $wrapperSource
 )
 $missing = @($required | Where-Object {
     -not (Test-Path -LiteralPath $_)
@@ -167,7 +192,12 @@ if ($provenance.schemaVersion -ne 1 -or
     $provenance.libuxplayCommit -notmatch '^[0-9a-f]{40}$' -or
     $provenance.uxplayWindowsPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
     $provenance.libuxplayPatchSha256 -notmatch '^[0-9a-f]{64}$' -or
-    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$') {
+    $provenance.headlessExecutableSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeGStreamerVersion -notmatch '^\d+\.\d+\.\d+$' -or
+    $provenance.buildGStreamerVersion -notmatch '^\d+\.\d+\.\d+$' -or
+    $provenance.runtimeGStreamerCoreSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeWasapi2PluginSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $provenance.runtimeWasapi2RequiredProperty -ne 'continue-on-error') {
     throw "source-provenance.json is missing required pinned values."
 }
 
@@ -198,6 +228,63 @@ foreach ($sourceProperty in $provenance.patchedSources.PSObject.Properties) {
     Assert-FileHash -Path $sourcePath `
         -Expected ([string]$sourceProperty.Value) `
         -Description ("Patched source " + $sourceProperty.Name)
+}
+foreach ($sourceProperty in $provenance.protectedSources.PSObject.Properties) {
+    $relative = $sourceProperty.Name.Replace('/', '\')
+    $sourcePath = Join-Path $upstream $relative
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Pinned protected source is missing: $sourcePath"
+    }
+    Assert-FileHash -Path $sourcePath `
+        -Expected ([string]$sourceProperty.Value) `
+        -Description ("Protected unmodified source " + $sourceProperty.Name)
+}
+
+$libuxplayPatchText = Get-Content -LiteralPath $libuxplayPatch `
+    -Raw -Encoding UTF8
+if ($libuxplayPatchText -match '(?i)audio_renderer\.c') {
+    throw "The reviewed hotfix must not modify audio_renderer.c."
+}
+
+Assert-BinaryContainsAsciiToken -Path $buildGStreamerCore `
+    -Token ([string]$provenance.buildGStreamerVersion) `
+    -Description "Build-toolchain GStreamer core"
+Assert-BinaryContainsAsciiToken -Path $buildWasapi2Plugin `
+    -Token ([string]$provenance.buildGStreamerVersion) `
+    -Description "Build-toolchain wasapi2 plug-in"
+Assert-BinaryContainsAsciiToken -Path $buildWasapi2Plugin `
+    -Token ([string]$provenance.runtimeWasapi2RequiredProperty) `
+    -Description "Build-toolchain wasapi2 plug-in"
+
+$wrapperText = Get-Content -LiteralPath $wrapperSource -Raw -Encoding UTF8
+$wrapperMethod = $wrapperText.IndexOf(
+    "void MainWindow::applyRendererAndFullscreenArgs",
+    [StringComparison]::Ordinal)
+$externalGuard = $wrapperText.IndexOf(
+    "if (m_headless || !m_argumentOverride.isEmpty())",
+    [Math]::Max(0, $wrapperMethod),
+    [StringComparison]::Ordinal)
+$passThroughMarker = $wrapperText.IndexOf(
+    "AEROMIRROR_ARGUMENTS_PASSTHROUGH mode=external",
+    [Math]::Max(0, $externalGuard),
+    [StringComparison]::Ordinal)
+$guardReturn = $wrapperText.IndexOf(
+    "return;",
+    [Math]::Max(0, $passThroughMarker),
+    [StringComparison]::Ordinal)
+$firstArgumentMutation = $wrapperText.IndexOf(
+    "args.removeAt",
+    [Math]::Max(0, $wrapperMethod),
+    [StringComparison]::Ordinal)
+if ($wrapperMethod -lt 0 -or
+    $externalGuard -lt $wrapperMethod -or
+    $passThroughMarker -lt $externalGuard -or
+    $guardReturn -lt $passThroughMarker -or
+    $firstArgumentMutation -lt 0 -or
+    $guardReturn -gt $firstArgumentMutation) {
+    throw (
+        "The wrapper must return before mutating externally supplied " +
+        "headless/--uxplay arguments.")
 }
 
 $upstreamHasGit = Test-Path -LiteralPath (Join-Path $upstream ".git")
@@ -368,6 +455,11 @@ try {
     }
     $binaryText = [Text.Encoding]::ASCII.GetString(
         [IO.File]::ReadAllBytes($output))
+    if ($binaryText.IndexOf(
+            "AEROMIRROR_ARGUMENTS_PASSTHROUGH mode=external",
+            [StringComparison]::Ordinal) -lt 0) {
+        throw "Compatible core is missing the external-argument pass-through marker."
+    }
     if ($binaryText.IndexOf(
             $upstream,
             [StringComparison]::OrdinalIgnoreCase) -ge 0 -or

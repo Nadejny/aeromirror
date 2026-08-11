@@ -10,9 +10,13 @@ AirPlay geometry header, selected GStreamer decoder/video sink, and compact
 feedback-health capability/recovery markers. The raw auxiliary geometry pair
 is diagnostic only and is not represented as a validated crop, pixel-aspect
 ratio, or rotation signal. The AeroMirror 0.12.6 patch extension adds explicit
-native HTTP listener lifecycle markers, checked same-port listener reset, RTSP
-TEARDOWN disconnect handling, and honest removal of unsupported photo
-presentation feature declarations.
+native HTTP listener lifecycle markers, checked same-port listener reset, and
+honest removal of unsupported photo presentation feature declarations. The
+0.12.7 hotfix restores client-managed typed RTSP `TEARDOWN` handling while
+retaining upstream's `Connection: close` response header; it removes only the
+additional 0.12.6 server-side disconnect flag. It also makes the headless
+wrapper preserve externally supplied renderer arguments and does not modify
+libuxplay's native audio renderer.
 
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
@@ -26,8 +30,8 @@ asset directly from GitHub and verifies it before extraction:
   `https://github.com/leapbtw/uxplay-windows/tree/8cf3424b438424bc99a89155bd29a789f48a43c0`
 
 The exact AeroMirror and patched native corresponding source are attached
-beside Setup as `AeroMirror-source-0.12.6.zip` and
-`AeroMirror-native-source-0.12.6.zip`. The native archive is a prepared source
+beside Setup as `AeroMirror-source-0.12.7.zip` and
+`AeroMirror-native-source-0.12.7.zip`. The native archive is a prepared source
 tree with both AeroMirror patches included separately and already applied.
 Its `source-provenance.json` records the reviewed patch, modified-source,
 Bonjour-header, `dnssd.def`, and resulting-core hashes. The included build
@@ -60,7 +64,16 @@ source.
 ## GStreamer and plug-ins
 
 - Project: https://gstreamer.freedesktop.org/
-- Runtime version: 1.28.5.
+- Redistributed runtime version: 1.28.1, from the unchanged pinned
+  `uxplay-windows` 2.0.0.1736 archive.
+- Pinned GStreamer core SHA-256:
+  `F2ED35F5089521F9C050530AB74B56C297CC48A190E6CDB80D5E370400ADFFA0`.
+- Pinned wasapi2 plug-in SHA-256:
+  `EACD2DC97902D575298E65C4167F26C5809D82B26EF60B4E134F08DC08F35619`.
+  This GStreamer 1.28.1 plug-in contains the `continue-on-error` property
+  selected by AeroMirror's default Windows audio argument.
+- Engineering native build/staging input: GStreamer 1.28.5. This separate
+  prefix is not redistributed by the public network installer.
 - Predominant license: GNU LGPL 2.1+.
 - Individual plug-ins and codec libraries have their own licenses. Anyone
   redistributing the binary bundle must audit the exact staged DLL set and
