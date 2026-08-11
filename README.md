@@ -109,7 +109,7 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   connection-ownership and external-argument-pass-through markers; the 0.12.8
   candidate separates recovery epochs, video push/PTS/sink diagnostics, and
   the D3D11 presentation proof that alone can authorize continuity handoff;
-  the 0.12.9 candidate also records guarded idle/unlock discovery maintenance
+  the 0.12.9 release also records guarded idle/unlock discovery maintenance
   and provisional Photos/media canvas fits without logging mirrored content;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
@@ -138,35 +138,32 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.7.exe
+AeroMirror-Setup-0.12.9.exe
 ```
 
-`v0.12.7` is the normal latest updater-visible public review Release. Its
+`v0.12.9` is the normal latest updater-visible public review Release. Its
 managed build, resilience, native-source/provenance, Setup/lifecycle,
-exact-tag, checksum, API-digest, and public re-download gates pass. The
-reporter's public-build Windows 11/iPhone smoke passes the urgent involuntary
-Photos/video session-drop target. The installed 0.12.6-to-0.12.7 update,
-Windows 10, and the complete repeated/interrupt physical matrix remain pending.
-Exact tag, asset-size, and SHA-256 evidence is in the
-[0.12.7 build report](docs/releases/0.12.7/BUILD_REPORT.md). Its scope and
-still-pending physical acceptance are in the
-[0.12.7 release notes](docs/releases/0.12.7/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.7/TEST_PLAN.md).
+exact-tag, checksum, API-digest, canonical/legacy latest-route, and fresh
+public re-download gates pass. It carries the untagged 0.12.8
+presentation-proof work and adds bounded unlock discovery maintenance plus a
+default-off Photos outer-window A/B. Physical Windows 10/Windows 11/iPhone,
+the installed update from public 0.12.7, and actual discovery, Photos, and
+reconnect acceptance remain pending.
 
-The source tree now prepares a local, unpublished 0.12.9 candidate. It carries
-the automated/pretag-gated but untagged 0.12.8 presentation-proof work and adds
-bounded unlock discovery maintenance plus a default-off Photos outer-window
-A/B.
-See the [0.12.9 release notes](docs/releases/0.12.9/RELEASE_NOTES.md) and
+Exact tag, asset-size, and SHA-256 evidence is in the
+[0.12.9 build report](docs/releases/0.12.9/BUILD_REPORT.md). Scope and pending
+physical acceptance are in the
+[0.12.9 release notes](docs/releases/0.12.9/RELEASE_NOTES.md) and
 [test plan](docs/releases/0.12.9/TEST_PLAN.md). The historical
 [0.12.8 release notes](docs/releases/0.12.8/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.8/TEST_PLAN.md) remain available. No 0.12.8 or
-0.12.9 Setup is public, so 0.12.7 remains the download offered above.
+[test plan](docs/releases/0.12.8/TEST_PLAN.md) remain available; 0.12.8 was
+never tagged or published. Published 0.12.7 remains immutable history.
 
-The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.7 still
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.9 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
 `releases/latest` API to the canonical repository. Canonical and legacy API
-routes returned the same public `v0.12.7` Release ID after publication.
+and HTML/latest Setup routes return the same public `v0.12.9` Release ID
+`368804215`, tag, and Setup bytes.
 
 The installer:
 
@@ -201,7 +198,7 @@ framework prerequisite; a full Windows reboot is not an expected normal
 completion step. Bonjour is a separate machine-wide discovery service and may
 prompt for elevation when it is absent. One Windows 10 first-install report
 worked only after reboot, but the cause was not retained; a stopped or stale
-Bonjour lifecycle is only a hypothesis. The 0.12.9 candidate does not mutate
+Bonjour lifecycle is only a hypothesis. The 0.12.9 release does not mutate
 that service. Diagnose a repeat on a clean Windows 10 VM before rebooting, as
 described in
 [troubleshooting](docs/TROUBLESHOOTING.md).
@@ -339,7 +336,7 @@ pinned upstream asset at install time and verifies the locked SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.7.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.9.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -348,7 +345,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.7\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.9\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -440,8 +437,9 @@ docs/
   TODO.md                    product and protocol roadmap
   releases/
     0.12.9/
-      RELEASE_NOTES.md       discovery and Photos-window candidate summary
+      RELEASE_NOTES.md       public discovery and Photos review summary
       TEST_PLAN.md           discovery, Photos, install, and reconnect gates
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.8/
       RELEASE_NOTES.md       evidence-gated reconnect candidate summary
       TEST_PLAN.md           recovery-epoch and present-proof acceptance
@@ -525,7 +523,7 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   stale row tapped on iOS may still fail before any request reaches Windows,
   and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
   re-publication with an acknowledged ready state remains future work. The
-  0.12.9 candidate adds only a managed bounded mitigation: after the existing
+  0.12.9 release adds only a managed bounded mitigation: after the existing
   first ten-minute idle renewal, a later Windows unlock may trigger at most one
   final guarded restart after cooldown. It neither proves the missing-receiver
   cause nor preserves a stable advertised port across process replacement.
@@ -536,7 +534,7 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   an 11-second feedback gap, reconnect cleared the continuity placeholder but
   video remained frozen; closing AeroMirror briefly exposed the latest frame.
   That longer reconnect/handoff path remains unresolved.
-- The untagged 0.12.8 correction, carried into the 0.12.9 candidate, addresses
+- The untagged 0.12.8 correction, carried into the 0.12.9 release, addresses
   only the misleading handoff decision for that path. Feedback recovery,
   appsrc push/PTS, sink observation, and
   a visible cached renderer cannot close continuity; a matching current-PID,
@@ -544,7 +542,7 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   never arrives, AeroMirror keeps the view and shows a reconnect hint. This
   includes Direct3D 12 and other advanced sinks; Interactive `-vsync no`
   deliberately skips this synchronized proof and retains the hint. The
-  candidate does not yet repair the underlying
+  public review release does not yet repair the underlying
   long-gap video freeze. Selecting the
   receiver again may arm a new proof epoch, but mirror-start alone keeps the
   continuity view visible until matching D3D11 present proof arrives.
@@ -679,13 +677,13 @@ The current license inventory is an engineering review, not legal advice.
 
 ## Sharing a build
 
-For the public 0.12.7 review Release, share the GitHub Release page or its
+For the public 0.12.9 review Release, share the GitHub Release page or its
 network Setup—not a loose `AeroMirror.exe`. Project policy keeps these assets
 together and immutable:
 
-- `AeroMirror-Setup-0.12.7.exe`;
-- `AeroMirror-source-0.12.7.zip`;
-- `AeroMirror-native-source-0.12.7.zip`;
+- `AeroMirror-Setup-0.12.9.exe`;
+- `AeroMirror-source-0.12.9.zip`;
+- `AeroMirror-native-source-0.12.9.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

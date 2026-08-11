@@ -16,10 +16,9 @@ claims. It covers:
    any workaround.
 
 Published `v0.12.7` is immutable, and 0.12.8 was never tagged or published.
-Version 0.12.9 must use its own tag and assets. It may enter the normal
-updater-visible channel as a public review release after the publication-
-readiness gates pass even while explicitly identified physical rows remain
-pending.
+Version 0.12.9 uses its own tag and assets and is now the normal
+updater-visible public review Release. Its publication-readiness gates pass;
+the explicitly identified physical and installed-update rows remain pending.
 
 ## Current evidence status
 
@@ -40,8 +39,8 @@ pending.
 | Windows 10 clean first install | PENDING | Clean VM, pre-reboot Setup/receiver logs and Bonjour service state |
 | 0.12.8 reconnect-proof regression | PENDING | Short/long gap and manual-reselection evidence |
 | Installed update and persistence | PENDING | Public 0.12.7-to-exact-0.12.9 update, settings/trust/runtime/shortcut lifecycle |
-| Exact tag and release packaging | PENDING | Clean exact `v0.12.9` source; requires explicit authorization |
-| Install from public and public verification | PENDING | Published asset/API/checksum/re-download evidence; requires authorization |
+| Exact tag and release packaging | PASS | Annotated tag object `10deba1d...` resolves to commit `b807d5de...` and tree `a2f49d66...` |
+| Public Release/channel/assets/API/re-download | PASS | Release `368804215`; normal latest; four exact assets; local/API/fresh-download hashes and canonical/legacy routes match |
 
 The exact reused native-core SHA-256 is
 `eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6`.
@@ -50,9 +49,9 @@ The independent legacy-compiler shell build verifies source semantics and
 cross-build shell hash equality is not required; the exact packaged shell hash
 belongs to the final focused package gate.
 
-Do not turn a physical or public pending row into PASS from source inspection
-or automated checks. Automated evidence cannot substitute for physical
-Windows/iPhone behavior.
+Do not turn a physical or installed-update pending row into PASS from source
+inspection, automated checks, or public-asset verification. Those gates cannot
+substitute for physical Windows/iPhone behavior or actual Setup execution.
 
 ## Environment and evidence to retain
 
@@ -77,9 +76,7 @@ private media, or an unreviewed diagnostic artifact.
 
 ## Automated acceptance and recorded result
 
-The following gates pass against the current candidate source. Because this
-evidence update changed packaged source documentation, the focused final
-package/Setup rerun recorded in step 6 was required and passed.
+The following gates passed against the exact tagged source.
 
 1. The final x64 managed shell build passes and `AeroMirror.exe` reports
    `0.12.9.0`. Independent legacy-compiler output confirms behavior/version but
@@ -117,25 +114,34 @@ package/Setup rerun recorded in step 6 was required and passed.
    - shell and Setup PE/file versions are `0.12.9.0`;
    - Setup's internal comparison version is `0.12.9`;
    - all five release-script defaults are `0.12.9`;
-   - candidate commands, asset names, and local documentation links use
-     0.12.9 while public download links still identify 0.12.7;
+   - commands, asset names, local documentation links, and public download
+     links identify 0.12.9;
    - all changed text files decode as strict UTF-8 without an added BOM unless
      an existing file contract requires one;
    - `git diff --check` passes.
 6. The focused thin package and Setup rebuild after the evidence update passes.
    Exact payload, embedded payload/provenance, `/verify-runtime`, shortcut/
    update lifecycle, PE/version/default/schema, local-link, strict-UTF-8, and
-   diff gates pass again. Retain volatile shell, payload, Setup, and native-
-   source-ZIP container hashes in the gate handoff and eventual
-   `BUILD_REPORT.md`, not in these source documents. Any later source or
-   documentation edit requires this focused gate again.
+   diff gates pass again. Volatile shell, payload, Setup, and native-source-ZIP
+   container hashes are recorded in `BUILD_REPORT.md`. No pre-tag source or
+   documentation edit followed this focused gate.
+7. Exact-tag and public verification passes. Annotated tag object
+   `10deba1d48482da3500cf0bd7c796c87c7fce736` resolves to commit
+   `b807d5dece26e972c58a3a2f7e5585dc8075672e` and tree
+   `a2f49d66039c79bdc72907a9cefe6833d4e0257d`. GitHub Release
+   `368804215` is normal latest, `draft=false`, and `prerelease=false` with
+   exactly four expected assets. Final local files, GitHub API digests, and
+   fresh public re-downloads match; `SHA256SUMS.txt` contains exactly three
+   entries. Canonical and configured legacy latest API, HTML, and Setup routes
+   resolve to the same Release, tag, and Setup bytes.
 
 ## Physical test A — long idle and Windows unlock
 
 Use Windows 11 first on the reporter's affected PC, then repeat on Windows 10.
 
-1. Start the exact 0.12.9 candidate on a ready Private physical network. Verify
-   the receiver appears on iPhone and complete one normal mirroring session.
+1. Start the exact public 0.12.9 build on a ready Private physical network.
+   Verify the receiver appears on iPhone and complete one normal mirroring
+   session.
 2. Disconnect normally and leave the receiver untouched. Retain the log from
    before idle begins.
 3. Confirm the existing first idle discovery renewal occurs no earlier than
@@ -245,7 +251,7 @@ from that outcome.
 
 ## Failure and acceptance conditions
 
-The candidate fails its scoped target if any of these occurs:
+The release fails its scoped target if any of these occurs:
 
 - unlock maintenance can restart an active/connecting session, bypass network
   readiness, run before the first idle renewal, run more than once afterward,
@@ -266,15 +272,14 @@ The candidate fails its scoped target if any of these occurs:
 - versions, source/provenance, payload, Setup, documentation links, or public
   release status disagree.
 
-Publication readiness requires the scoped automated, native-reuse,
+Publication readiness passes: the scoped automated, native-reuse,
 package/Setup, version/link/UTF-8/diff, exact-tag, corresponding-source, and
-authorized public-asset gates to pass. Physical Windows/iPhone and installed-
-update rows may remain `PENDING` for a normal updater-visible public review
-release, but the Release body and post-publication report must preserve every
-such limitation.
+authorized public-asset gates are complete. Physical Windows/iPhone and
+installed-update rows remain `PENDING` for this normal updater-visible public
+review release, and the Release body and post-publication report preserve
+those limitations.
 
-Full physical acceptance requires all scoped physical Windows/iPhone and
-installed-update rows to pass. Before publication, describe 0.12.9 as a local
-unpublished candidate. After publication and until that physical matrix
-passes, describe it as a public review release, not as physically accepted,
-production-complete, or 1.0.
+Full physical acceptance still requires all scoped physical Windows/iPhone and
+installed-update rows to pass. Until that matrix passes, describe 0.12.9 as a
+public review release, not as physically accepted, production-complete, or
+1.0. Exact public evidence is in [`BUILD_REPORT.md`](BUILD_REPORT.md).

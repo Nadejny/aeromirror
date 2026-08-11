@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.12.9 — bounded discovery and Photos-window review candidate
+## 0.12.9 — bounded discovery and Photos-window public review release
 
-### Candidate scope
+### Review scope
 
 - After the existing ten-minute idle-discovery renewal has completed, a later
   Windows session unlock may schedule at most one final managed receiver
@@ -19,7 +19,7 @@
   bit, decoded pixel, crop, or zoom, so inner photo/video content may remain
   small.
 - The untagged 0.12.8 Direct3D 11 presentation-proof handoff remains part of
-  this source candidate. Feedback, mirror-start, push/PTS, sink observation,
+  this public review release. Feedback, mirror-start, push/PTS, sink observation,
   cached HWND state, or a stale image still cannot close continuity without
   matching current-PID/session/epoch/reason/gap Present proof.
 - A full Windows reboot is not an expected normal result of AeroMirror Setup.
@@ -32,8 +32,8 @@
 
 ### Compatibility and verification status
 
-- Public/app/Setup version is prepared as `0.12.9`; Windows PE/file version is
-  prepared as `0.12.9.0`. Setup's internal comparison version and all five
+- Public/app/Setup version is `0.12.9`; Windows PE/file version is
+  `0.12.9.0`. Setup's internal comparison version and all five
   release-script defaults target 0.12.9; source-version and settings-schema-12
   checks pass.
 - The final managed x64 build and complete receiver resilience suite pass.
@@ -55,14 +55,20 @@
   documents pass: exact payload, embedded payload/provenance, runtime,
   shortcut/update lifecycle, version/default, link, UTF-8, and diff checks all
   pass again. Volatile shell/payload/Setup/native-source-ZIP container hashes
-  are intentionally excluded from source docs and retained in the gate handoff
-  for an eventual `BUILD_REPORT.md`.
-- Physical Windows 10/Windows 11/iPhone, installed-update, exact-tag,
-  install-from-public, GitHub Release, checksum, API, and public re-download
-  verification remain pending.
-- Public `v0.12.7` remains the updater-visible latest Release. No 0.12.8 or
-  0.12.9 tag or public asset exists, and published 0.12.7 assets remain
-  immutable.
+  are recorded in the versioned `BUILD_REPORT.md`.
+- Annotated tag object
+  `10deba1d48482da3500cf0bd7c796c87c7fce736` resolves to commit
+  `b807d5dece26e972c58a3a2f7e5585dc8075672e`. GitHub Release `368804215`
+  is normal, updater-visible latest, `draft=false`, and `prerelease=false`.
+  Exactly four assets were published; all final local files, GitHub API
+  digests, and fresh public re-downloads match. `SHA256SUMS.txt` contains
+  exactly the three non-checksum assets. Canonical and configured legacy
+  latest routes resolve to the same Release, tag, and Setup bytes.
+- Physical Windows 10/Windows 11/iPhone, the installed update from public
+  0.12.7, and actual discovery, Photos, and reconnect acceptance remain
+  pending. This is a public review release, not a physically accepted build.
+- Version 0.12.8 remains untagged and unpublished. Published 0.12.7 is
+  immutable historical release evidence and was not modified.
 
 ## 0.12.8 — evidence-gated reconnect handoff candidate
 
@@ -116,10 +122,10 @@
   update also pass: exact 13-entry payload, embedded payload/provenance,
   `verify-runtime`, shortcut/update lifecycle, version, link, and diff gates all
   pass again. Volatile payload/Setup container hashes are retained in the gate
-  handoff and belong in the eventual `BUILD_REPORT.md`, not in these
-  self-referential source docs. Physical iPhone/Windows 10/Windows 11, exact
-  tag, install-from-public, GitHub Release, checksum, and public re-download
-  evidence remain pending. No 0.12.8 asset is public yet.
+  handoff. Physical iPhone/Windows 10/Windows 11, exact tag,
+  install-from-public, GitHub Release, checksum, and public re-download
+  evidence were not completed before 0.12.8 was superseded. No 0.12.8 asset
+  was published, so no post-publication 0.12.8 `BUILD_REPORT.md` exists.
 - The change is scoped to a truthful continuity handoff. It does not yet claim
   to repair the underlying long-gap video freeze, automatic discovery or
   reconnect, immediate loss detection, or a first iPhone tap that never reaches

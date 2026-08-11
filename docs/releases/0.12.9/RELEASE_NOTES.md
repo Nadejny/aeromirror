@@ -1,4 +1,4 @@
-# AeroMirror 0.12.9 — bounded discovery and Photos-window review candidate
+# AeroMirror 0.12.9 — bounded discovery and Photos-window public review release
 
 ## Summary
 
@@ -114,18 +114,33 @@ the pending physical Windows/iPhone matrix accepted.
   builds; `/verify-runtime`, shortcut, update-lifecycle, and embedded payload/
   provenance checks pass; shell and Setup are x64 `0.12.9.0`; and local-link,
   strict-UTF-8, and diff checks pass.
-- The focused package review and Setup rebuild after these evidence documents
-  pass: exact payload, embedded payload/provenance, runtime, shortcut/update
-  lifecycle, version/default, link, UTF-8, and diff checks all pass again.
+- The focused package review and Setup rebuild after the final pre-tag evidence
+  documents passed: exact payload, embedded payload/provenance, runtime,
+  shortcut/update lifecycle, version/default, link, UTF-8, and diff checks all
+  passed again against the exact tagged source.
   Volatile shell, payload, Setup, and native-source-ZIP container hashes are
-  intentionally omitted from source docs and retained in the final handoff for
-  an eventual `BUILD_REPORT.md`.
+  recorded in the versioned `BUILD_REPORT.md`.
+- Annotated tag object
+  `10deba1d48482da3500cf0bd7c796c87c7fce736` resolves to commit
+  `b807d5dece26e972c58a3a2f7e5585dc8075672e`. GitHub Release `368804215`
+  is the normal updater-visible latest Release with `draft=false` and
+  `prerelease=false`.
+- Exactly four public assets were published. Their final local hashes, GitHub
+  API digests, and fresh public re-downloads match; `SHA256SUMS.txt` contains
+  exactly the three non-checksum assets. Canonical and configured legacy
+  latest API, HTML, and Setup routes resolve to the same Release, tag, and
+  Setup bytes. At publication, the GitHub body matched the exact tagged form
+  of these release notes.
 - Windows 10 clean-install/reboot, long-idle discovery, repeated unlock, Photos
-  A/B, reconnect-regression, installed-update, install-from-public, API-digest,
-  and public re-download evidence are **pending**.
+  A/B, reconnect regression, the installed update from public 0.12.7, and
+  actual discovery/Photos/reconnect acceptance are **pending**.
 - Version 0.12.8 was never tagged or published. This 0.12.9 review release uses
   its own tag and four release assets. Published `v0.12.7` and its four assets
   remain immutable.
+
+Exact tag, asset, checksum, route, and public re-download evidence is in
+[`BUILD_REPORT.md`](BUILD_REPORT.md). Remaining physical and installed-update
+acceptance is defined in [`TEST_PLAN.md`](TEST_PLAN.md).
 
 ## Known limitations
 
@@ -145,5 +160,7 @@ the pending physical Windows/iPhone matrix accepted.
   handoff.
 
 Published `v0.12.7` and its four assets remain immutable under AeroMirror
-project policy. This 0.12.9 review release uses a new tag and new assets; never
-move or replace the 0.12.7 release.
+project policy. Published `v0.12.9` and its four assets are now immutable by
+the same project rule even though GitHub reports API `immutable=false`. Any
+correction uses a later patch; never move a tag or replace either Release's
+assets.

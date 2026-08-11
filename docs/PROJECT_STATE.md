@@ -6,14 +6,27 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current 0.12.9 candidate
+## Latest public release — 0.12.9
 
-- Status: local and unpublished. The implementation, final managed build,
-  complete resilience suite, independent source review, unchanged-native
-  reuse/provenance, thin-package, and Setup gates pass, including the focused
-  package/Setup rebuild after the final evidence update. Independent review
-  reports no P0/P1/P2 finding. Physical Windows/iPhone, installed-update,
-  exact-tag, install-from-public, and public verification remain pending.
+- Status: published normal updater-visible public review Release. The
+  implementation, final managed build, complete resilience suite, independent
+  source review, unchanged-native reuse/provenance, thin-package, Setup,
+  exact-tag, four-asset, checksum, API-digest, canonical/legacy latest-route,
+  and fresh public re-download gates pass. Independent review reports no
+  P0/P1/P2 finding. Physical Windows/iPhone, the installed update from public
+  0.12.7, and actual discovery, Photos, and reconnect acceptance remain
+  pending.
+- Annotated tag object:
+  `10deba1d48482da3500cf0bd7c796c87c7fce736`; commit:
+  `b807d5dece26e972c58a3a2f7e5585dc8075672e`; tree:
+  `a2f49d66039c79bdc72907a9cefe6833d4e0257d`. The tag/Release was
+  created at `2026-08-11T19:14:44Z`; GitHub Release `368804215` was published
+  at `2026-08-11T19:25:27Z`:
+  https://github.com/pyram1da/aeromirror/releases/tag/v0.12.9
+- Channel: normal latest, `draft=false`, `prerelease=false`. GitHub reports
+  API `immutable=false`; the tag and four assets are immutable by AeroMirror
+  project policy. Exact public evidence is recorded in
+  `docs/releases/0.12.9/BUILD_REPORT.md`.
 - Public/app/Setup version: `0.12.9`; Windows PE/file version: `0.12.9.0`.
   Setup's internal comparison version and all five release-script defaults
   target 0.12.9. Source-version, settings-schema-12/default-false, and version-
@@ -54,7 +67,7 @@ next step changes.
   machine-wide Bonjour mutation is authorized. A clean Windows 10 VM with
   pre-reboot Setup/receiver logs and service state is the immediate evidence
   target.
-- Managed/pretag evidence: the final x64 shell build and full resilience suite
+- Managed/release evidence: the final x64 shell build and full resilience suite
   pass; shell and Setup are x64 `0.12.9.0`; the exact 13-entry review payload,
   Setup build, `/verify-runtime`, shortcut/update lifecycle, and embedded
   payload/provenance checks pass. Local links, strict UTF-8, and diff checks
@@ -68,12 +81,10 @@ next step changes.
   independent builds. Its independent build confirms semantics and
   `0.12.9.0`; the exact packaged shell hash is evidence from the final focused
   package gate, not from cross-build byte equality.
-- Immediate next step: run long-idle/unlock, Photos off/on, reconnect,
-  installed-update, and clean Windows 10 first-install physical plans. Keep
-  volatile shell/payload/Setup/native-ZIP container hashes in the final gate
-  handoff and eventual `BUILD_REPORT.md`, not in self-referential source docs.
-  Any later source or documentation edit requires the focused package/Setup
-  gate again. Do not tag or publish without explicit authorization.
+- Immediate next step: run long-idle/unlock, Photos off/on, reconnect, the
+  installed update from public 0.12.7, and clean Windows 10 first-install
+  physical plans. Do not infer physical acceptance from the completed public
+  asset verification, and never replace the published 0.12.9 tag or assets.
 
 ## Prior untagged 0.12.8 candidate history
 
@@ -88,7 +99,8 @@ working-tree defaults.
   reproducibility, prepared-source rebuild, runtime/provenance/dependency,
   loader, thin-package, and Setup pretag gates pass. The focused final package
   review and Setup rebuild after the evidence-doc update also pass. Physical,
-  tag, install-from-public, and public verification remain pending.
+  exact-tag, install-from-public, and public verification were not completed;
+  the candidate was superseded by 0.12.9.
 - Public/app/Setup version: `0.12.8`; Windows PE/file version: `0.12.8.0`.
   Setup's internal comparison version and all five release-script defaults
   target 0.12.8.
@@ -141,13 +153,13 @@ working-tree defaults.
 - A focused final package review and Setup rebuild after the evidence-doc update
   pass again: exact 13 entries, embedded payload/provenance, `verify-runtime`,
   shortcut/update lifecycle, version, link, and diff checks all pass. Exact
-  payload/Setup byte sizes and SHA-256 values are retained in the gate handoff
-  for the eventual `BUILD_REPORT.md`; embedding them here would create a
-  self-reference. Physical iPhone/Windows 10/Windows 11, exact-tag,
+  payload/Setup byte sizes and SHA-256 values remain in the historical
+  candidate handoff. Physical iPhone/Windows 10/Windows 11, exact-tag,
   install-from-public, GitHub Release, checksums, API, and public re-download
-  verification remain pending. No 0.12.8 asset is public.
+  verification were not completed. No 0.12.8 asset is public, so no
+  post-publication 0.12.8 `BUILD_REPORT.md` exists.
 
-## Latest public release
+## Prior public release — 0.12.7
 
 - Version: `v0.12.7`
 - Annotated tag object: `6154c7f3c3384dcd039b4e1e0c2feceb46b84fad`
@@ -156,17 +168,18 @@ working-tree defaults.
 - GitHub Release ID: `368571434`
 - Published: `2026-08-11T12:57:13Z`
 - Channel: normal, non-draft, non-prerelease GitHub Release
-- Updater status: current `releases/latest` public review Release
+- Updater status: historical public review Release; superseded on
+  `releases/latest` by `v0.12.9`
 - Supported target: Windows 10 version 1809+ x64 and Windows 11 x64
 - Installer: unsigned per-user network Setup; SmartScreen may warn
 - Public assets: Setup, AeroMirror source, prepared native corresponding
   source, and `SHA256SUMS.txt`
 - Offline portable package: engineering-only and not published
 
-AeroMirror project policy treats the published `v0.12.7` tag and its four
-assets as immutable, although GitHub reports API `immutable=false`. Any
-correction must use 0.12.8 or later; never move the tag or replace a published
-file. Exact evidence is recorded in
+AeroMirror project policy continues to treat the published `v0.12.7` tag and
+its four assets as immutable, although GitHub reports API `immutable=false`.
+It is historical release evidence and was not modified for 0.12.9. Exact
+evidence is recorded in
 `docs/releases/0.12.7/BUILD_REPORT.md`.
 
 Project policy also treats the published 0.12.6, 0.12.5, 0.12.4, 0.12.3,
@@ -367,34 +380,40 @@ together.
 
 ## Release verification
 
-Passed against the exact source published as `v0.12.7`:
+Passed against the exact source published as `v0.12.9`:
 
-1. managed x64 shell build and combined receiver resilience suite;
-2. reproducible native core SHA-256
-   `11b65324c83f23503f2d555d0064d1348c884407bf7f9b1c34d27b5d1c05fb9b`,
-   exact 143-file prepared corresponding source and extracted rebuild,
-   provenance/reverse-apply/dependency/loader checks, reviewed patch/source
-   hashes, and the runtime 1.28.1 versus build-toolchain 1.28.5 contract;
+1. managed x64 shell build, complete receiver resilience suite, and
+   independent source review with no P0/P1/P2 finding;
+2. reused native core SHA-256
+   `eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6`,
+   exact 143 archive entries/139 files in prepared corresponding source,
+   extracted rebuild, provenance/reverse-apply/dependency/loader checks, and
+   the runtime 1.28.1 versus build-toolchain 1.28.5 contract;
 3. exact 13-entry thin review payload, Setup build, embedded-payload SHA-256,
    and shortcut/update lifecycle verification;
-4. shell/Setup `0.12.7.0` PE, internal Setup version, five script defaults,
-   asset-name, documentation-version, local-link, changed-file, and
-   `git diff --check` audits;
+4. shell/Setup `0.12.9.0` PE, internal Setup version, five script defaults,
+   settings-schema-12/default-false, asset-name, documentation-version,
+   local-link, strict-UTF-8, changed-file, and `git diff --check` audits;
 5. clean exact-tag release packaging from annotated tag object
-   `6154c7f3c3384dcd039b4e1e0c2feceb46b84fad`, resolving to commit
-   `dd343a44b0c9b6904815cd78e54a841e9f5ef6be`;
-6. normal latest GitHub channel with Release ID `368571434`, `draft=false`,
+   `10deba1d48482da3500cf0bd7c796c87c7fce736`, resolving to commit
+   `b807d5dece26e972c58a3a2f7e5585dc8075672e` and tree
+   `a2f49d66039c79bdc72907a9cefe6833d4e0257d`;
+6. normal latest GitHub channel with Release ID `368804215`, `draft=false`,
    `prerelease=false`, and exactly four expected assets;
 7. all public re-download byte sizes and SHA-256 values match final local
    release files, and all four GitHub API digest fields match;
-8. canonical and configured legacy `releases/latest` API routes return the
-   same `v0.12.7` Release ID, and the legacy-route Setup SHA-256 matches.
+8. canonical and configured legacy latest API, HTML, and Setup routes resolve
+   to the same `v0.12.9` Release ID, tag, and Setup bytes; the GitHub Release
+   body matches the exact tagged release notes.
 
 No physical Windows/iPhone result is claimed by these gates. Exact asset
-evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
+evidence is in `docs/releases/0.12.9/BUILD_REPORT.md`.
 
 ## Pending physical verification and known limitations
 
+- the installed updater path from public 0.12.7 to public 0.12.9, including
+  version detection, settings/trust-state preservation, runtime-cache reuse,
+  Setup launch, shortcut/autostart preservation, and rollback;
 - the installed updater path from public 0.12.6 to public 0.12.7, including
   version detection, settings/trust-state preservation, runtime-cache reuse,
   Setup launch and rollback; the public-build smoke does not prove this updater
@@ -445,16 +464,15 @@ evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
   effect on direct-in-Photos startup has not been accepted;
 - genuine AirDrop interoperability remains separate Bluetooth/AWDL, identity,
   and encrypted-transfer research. A staged AeroDrop companion/share-extension
-  path is a separate future product decision, not part of 0.12.7;
+  path is a separate future product decision, not part of 0.12.9;
 - localization is not included. D-006 remains the planned resource-based
   system-language and manual override design.
 
 ## Immediate next steps
 
-1. Preserve the passing focused 0.12.9 package/Setup gate and its volatile
-   final container hashes in the release handoff for an eventual
-   `BUILD_REPORT.md`. Any later source or documentation edit requires that
-   focused gate to run again.
+1. Preserve the published tag and four assets as immutable project history.
+   Keep exact public hashes and route verification in
+   `docs/releases/0.12.9/BUILD_REPORT.md`; any correction uses a later patch.
 2. Leave the receiver idle through its first renewal, then lock/unlock after
    cooldown and retain every guard, refresh, iPhone browse, first-tap, and
    manual-workaround result. Repeat controls for active mirroring, client grace,
@@ -473,11 +491,11 @@ evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
    row. Confirm either a current presentation proof followed by real video or a
    persistent reconnect hint; do not claim that the underlying longer-gap video
    recovery is fixed from overlay behavior alone.
-6. Retain public 0.12.7 updater/install and Photos evidence as regression
-   coverage. Keep exact tag, Release, checksums, API digests, public re-download,
-   and
-   install-from-public pending until explicit publication authorization and the
-   final rebuilt containers are verified.
+6. Run the actual installed update from public 0.12.7 to public 0.12.9 and
+   retain settings, receiver identity/trust, shortcuts, autostart, runtime
+   cache, Setup launch, and rollback evidence. Public tag, asset, checksum,
+   API-digest, route, and re-download verification already pass and must not be
+   confused with installed-update acceptance.
 
 ## Where information belongs
 
