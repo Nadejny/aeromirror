@@ -18,6 +18,14 @@ additional 0.12.6 server-side disconnect flag. It also makes the headless
 wrapper preserve externally supplied renderer arguments and does not modify
 libuxplay's native audio renderer.
 
+The untagged 0.12.8 patch extension adds recovery-scoped video-path telemetry
+and a correlated Direct3D 11 presentation marker. That marker is used only to
+prevent the managed continuity view from closing on control recovery or a
+stale renderer window before a current frame reaches the swap chain. It does
+not add crop, zoom, discovery repair, or a generic media-error bypass. The
+managed-only AeroMirror 0.12.9 shell changes reuse that reviewed native patch
+and core.
+
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
 asset directly from GitHub and verifies it before extraction:
@@ -29,10 +37,17 @@ asset directly from GitHub and verifies it before extraction:
 - Exact upstream source:
   `https://github.com/leapbtw/uxplay-windows/tree/8cf3424b438424bc99a89155bd29a789f48a43c0`
 
-The exact AeroMirror and patched native corresponding source are attached
-beside Setup as `AeroMirror-source-0.12.7.zip` and
-`AeroMirror-native-source-0.12.7.zip`. The native archive is a prepared source
-tree with both AeroMirror patches included separately and already applied.
+The AeroMirror 0.12.9 public release set pairs Setup with the exact AeroMirror
+and patched native corresponding source:
+
+- `AeroMirror-source-0.12.9.zip`
+- `AeroMirror-native-source-0.12.9.zip`
+
+Published `v0.12.7` assets remain immutable, and the untagged 0.12.8 candidate
+produced no public assets. Every later release must use its own versioned
+filenames rather than replace an earlier asset. The native archive is a
+prepared source tree with both AeroMirror patches included separately and
+already applied.
 Its `source-provenance.json` records the reviewed patch, modified-source,
 Bonjour-header, `dnssd.def`, and resulting-core hashes. The included build
 script validates those inputs and generates the x64 `dnssd.lib` import library

@@ -30,11 +30,118 @@ $source = [string]::Join(
     }))
 $lostConnectionUiSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "UI\LostConnectionForm.cs"))
+$settingsFormSource = [IO.File]::ReadAllText(
+    (Join-Path $sourceRoot "UI\SettingsForm.cs"))
+$receiverCoreSource = [IO.File]::ReadAllText(
+    (Join-Path $sourceRoot "Receiver\ReceiverContext.Core.cs"))
+$advancedDiscardStart = $settingsFormSource.IndexOf(
+    "private bool ConfirmAdvancedUnsavedChanges()")
+$advancedDiscardEnd = $settingsFormSource.IndexOf(
+    "private void UpdatePinPanel()", $advancedDiscardStart)
+Assert-True ($advancedDiscardStart -ge 0 -and
+    $advancedDiscardEnd -gt $advancedDiscardStart) `
+    "advanced settings discard has a focused implementation boundary"
+$advancedDiscardSource = $settingsFormSource.Substring(
+    $advancedDiscardStart,
+    $advancedDiscardEnd - $advancedDiscardStart)
+$discardSuppressStart = $advancedDiscardSource.IndexOf(
+    "suppressDirty = true;")
+$discardMediaCanvasRestore = $advancedDiscardSource.IndexOf(
+    "followPhotosMediaCanvas.Checked =")
+$discardSuppressEnd = $advancedDiscardSource.IndexOf(
+    "suppressDirty = false;", $discardSuppressStart + 1)
+Assert-True ($discardSuppressStart -ge 0 -and
+    $discardMediaCanvasRestore -gt $discardSuppressStart -and
+    $discardSuppressEnd -gt $discardMediaCanvasRestore -and
+    $advancedDiscardSource.Contains(
+        "context.CurrentSettings.FollowPhotosMediaCanvas") -and
+    $advancedDiscardSource.IndexOf(
+        "UpdateAdvancedDirty();", $discardSuppressEnd) -gt
+        $discardSuppressEnd) `
+    "discarding advanced changes restores the Photos checkbox without leaving dirty state"
+$lostConnectionContextSource = [IO.File]::ReadAllText(
+    (Join-Path $sourceRoot "Receiver\ReceiverContext.LostConnection.cs"))
+$handoffMethodStart = $lostConnectionContextSource.IndexOf(
+    "private void CompleteLostConnectionRendererHandoff()")
+$handoffMethodEnd = $lostConnectionContextSource.IndexOf(
+    "private bool IsFeedbackRendererHandoffCurrent", $handoffMethodStart)
+$handoffMethodSource = $lostConnectionContextSource.Substring(
+    $handoffMethodStart, $handoffMethodEnd - $handoffMethodStart)
+Assert-True ($handoffMethodSource.IndexOf(
+        "placeholder.CancelRendererHandoff();") -ge 0 -and
+    $handoffMethodSource.IndexOf(
+        "placeholder.CancelRendererHandoff();") -lt
+        $handoffMethodSource.IndexOf("placeholder.BeginRendererHandoff(") -and
+    $handoffMethodSource.Contains(
+        "ref lostConnectionRendererHandoffPending, 1, 0")) `
+    "a fresh one-shot proof synchronously cancels an older fade and requeues if Begin still loses the race"
 $nativePatchPath = Join-Path $projectRoot `
     "native-core\libuxplay-aeromirror.patch"
 Assert-True (Test-Path -LiteralPath $nativePatchPath) `
     "pinned libuxplay patch exists"
 $nativePatchSource = [IO.File]::ReadAllText($nativePatchPath)
+$nativeArmStart = $nativePatchSource.IndexOf(
+    "+void video_renderer_arm_recovery")
+$nativeArmEnd = $nativePatchSource.IndexOf(
+    "+void video_renderer_cancel_recovery", $nativeArmStart)
+$nativeArmSource = $nativePatchSource.Substring(
+    $nativeArmStart, $nativeArmEnd - $nativeArmStart)
+$nativeFlushStart = $nativePatchSource.IndexOf(
+    " void video_renderer_flush()")
+$nativeFlushEnd = $nativePatchSource.IndexOf(
+    " void video_renderer_hls_ready()", $nativeFlushStart)
+$nativeFlushSource = $nativePatchSource.Substring(
+    $nativeFlushStart, $nativeFlushEnd - $nativeFlushStart)
+$nativeFeedbackTimerStart = $nativePatchSource.IndexOf(
+    " static gboolean feedback_callback")
+$nativeFeedbackTimerEnd = $nativePatchSource.IndexOf(
+    "@@ -721", $nativeFeedbackTimerStart)
+$nativeFeedbackTimerSource = $nativePatchSource.Substring(
+    $nativeFeedbackTimerStart,
+    $nativeFeedbackTimerEnd - $nativeFeedbackTimerStart)
+Assert-True ($nativePatchSource.Contains(
+        "#define AEROMIRROR_RECOVERY_PTS_SLOTS 64") -and
+    $nativePatchSource.Contains(
+        "aeromirror_recovery_pts[i].pts == sink_pts") -and
+    -not $nativePatchSource.Contains(
+        "aeromirror_recovery_pts[i].pts >= sink_pts")) `
+    "native recovery uses a bounded ring of exact post-recovery PTS values"
+Assert-True ($nativeArmSource.IndexOf(
+        "g_atomic_int_set(&aeromirror_recovery_epoch, 0)") -lt
+        $nativeArmSource.IndexOf(
+            "aeromirror_reset_recovery_candidates_locked()") -and
+    $nativeArmSource.IndexOf(
+        "aeromirror_reset_recovery_candidates_locked()") -lt
+        $nativeArmSource.LastIndexOf(
+            "g_atomic_int_set(&aeromirror_recovery_epoch, (gint) epoch)")) `
+    "a new native presentation challenge disarms the old epoch before reset and publishes the new epoch last"
+Assert-True (-not $nativeFlushSource.Contains(
+        "aeromirror_reset_recovery_candidates") -and
+    -not $nativeFlushSource.Contains("video_renderer_cancel_recovery")) `
+    "generic RAOP HTTP connection teardown cannot erase an in-flight video proof"
+Assert-True ($nativeFeedbackTimerSource.IndexOf(
+        "video_present_arm_mutex") -ge 0 -and
+    $nativeFeedbackTimerSource.IndexOf(
+        "video_present_arm_mutex") -lt
+        $nativeFeedbackTimerSource.IndexOf(
+            "video_renderer_poll_recovery_present")) `
+    "native arm and Present polling share the same controller mutex"
+Assert-True ($nativePatchSource.Contains(
+        "static volatile gint aeromirror_active_present_proof_ready") -and
+    $nativePatchSource.Contains(
+        "sync && renderer->aeromirror_present_proof_ready ? 1 : 0") -and
+    $nativePatchSource.Contains("if (!sync)")) `
+    "D3D11 presentation capability is atomic and unavailable when video sync is disabled"
+Assert-True ([regex]::Matches(
+        $nativePatchSource, 'g_signal_handler_disconnect\(').Count -ge 2 -and
+    [regex]::Matches(
+        $nativePatchSource, 'gst_pad_remove_probe\(').Count -ge 2) `
+    "native renderer teardown explicitly detaches both Present signal and sink probe"
+Assert-True ($nativePatchSource.Contains(
+        "static std::atomic<unsigned int> open_connections(0)") -and
+    $nativePatchSource.Contains("open_connections.fetch_add(1)") -and
+    $nativePatchSource.Contains("open_connections.compare_exchange_weak")) `
+    "feedback polling observes an atomic underflow-safe connection count"
 $upstreamLockPath = Join-Path $projectRoot "UPSTREAM.lock"
 $nativeProvenancePath = Join-Path $projectRoot `
     "native-core\source-provenance.json"
@@ -94,6 +201,74 @@ Assert-True ($source.Contains("AEROMIRROR_BLE")) `
     "native BLE marker is observed"
 Assert-True ($source.Contains("Discovery registration: DNS-SD=")) `
     "support diagnostics expose native discovery registration"
+Assert-True ($source.Contains(
+        "SystemEvents.SessionSwitch += OnSessionSwitch") -and
+    $source.Contains(
+        "SystemEvents.SessionSwitch -= OnSessionSwitch")) `
+    "long-idle discovery maintenance observes and releases the Windows session-unlock event"
+Assert-True ($source.Contains(
+        "private const int IdleDiscoveryRenewalLimit = 2") -and
+    $source.Contains('"session-unlock discovery refresh"')) `
+    "unlock-triggered discovery re-registration is capped at one final retry per idle epoch"
+$unlockHandlerStart = $source.IndexOf(
+    "private void HandleSessionUnlockDiscoveryRefresh")
+$unlockHandlerEnd = $source.IndexOf(
+    "private void HandleLostConnectionRecovery", $unlockHandlerStart)
+Assert-True ($unlockHandlerStart -ge 0 -and
+    $unlockHandlerEnd -gt $unlockHandlerStart) `
+    "session-unlock discovery maintenance has a focused implementation boundary"
+$unlockHandlerSource = $source.Substring(
+    $unlockHandlerStart, $unlockHandlerEnd - $unlockHandlerStart)
+$unlockHandlerLockIndex = $unlockHandlerSource.IndexOf(
+    "lock (postSessionMaintenanceSync)")
+$unlockHandlerLockedDueReadIndex = $unlockHandlerSource.IndexOf(
+    "ref sessionUnlockDiscoveryRefreshDueTicks", $unlockHandlerLockIndex)
+$unlockHandlerEvaluateIndex = $unlockHandlerSource.IndexOf(
+    "EvaluateSessionUnlockDiscoveryRefresh(")
+Assert-True ($unlockHandlerLockIndex -ge 0 -and
+    $unlockHandlerLockedDueReadIndex -gt $unlockHandlerLockIndex -and
+    $unlockHandlerLockedDueReadIndex -lt $unlockHandlerEvaluateIndex -and
+    $unlockHandlerSource.IndexOf(
+        "now = DateTime.UtcNow;", $unlockHandlerLockIndex) -gt
+        $unlockHandlerLockedDueReadIndex) `
+    "unlock maintenance rechecks the newest settle deadline under its serialization lock"
+$unlockEventStart = $receiverCoreSource.IndexOf(
+    "private void OnSessionSwitch(")
+Assert-True ($unlockEventStart -ge 0) `
+    "the Windows session-unlock callback has a focused implementation boundary"
+$unlockEventSource = $receiverCoreSource.Substring($unlockEventStart)
+$unlockEventLockIndex = $unlockEventSource.IndexOf(
+    "lock (postSessionMaintenanceSync)")
+$unlockEventDueIndex = $unlockEventSource.IndexOf(
+    "ref sessionUnlockDiscoveryRefreshDueTicks")
+$unlockEventPendingIndex = $unlockEventSource.IndexOf(
+    "ref sessionUnlockDiscoveryRefreshPending")
+Assert-True ($unlockEventLockIndex -ge 0 -and
+    $unlockEventDueIndex -gt $unlockEventLockIndex -and
+    $unlockEventPendingIndex -gt $unlockEventDueIndex) `
+    "a newer unlock publishes its settle deadline and pending state atomically with timer consumption"
+$unlockRefreshGateIndex = $unlockHandlerSource.IndexOf(
+    "if (action != SessionUnlockDiscoveryAction.Refresh)")
+$unlockRenewalConsumeIndex = $unlockHandlerSource.LastIndexOf(
+    "ref idleDiscoveryRenewalUsed")
+$unlockScheduleIndex = $unlockHandlerSource.IndexOf(
+    'ScheduleRestart(')
+Assert-True ($unlockHandlerSource.Contains(
+        "EvaluateSessionUnlockDiscoveryRefresh(") -and
+    $unlockHandlerSource.Contains("ref coreSocketsReady") -and
+    $unlockHandlerSource.Contains("ref coreDnsSdStatus") -and
+    $unlockHandlerSource.Contains("ref coreBleStatus") -and
+    $unlockHandlerSource.Contains(
+        "dnsSdStatus == 1 || bleStatus == 1") -and
+    $unlockHandlerSource.Contains("localDiscoveryReady") -and
+    $unlockHandlerSource.Contains("physicalNetworkReady") -and
+    $unlockHandlerSource.Contains("networkProfileKnown") -and
+    $unlockHandlerSource.Contains(
+        "FirstNumericIpv4(physicalNetworkAddresses)") -and
+    $unlockRefreshGateIndex -ge 0 -and
+    $unlockRefreshGateIndex -lt $unlockRenewalConsumeIndex -and
+    $unlockRenewalConsumeIndex -lt $unlockScheduleIndex) `
+    "only the deterministic Refresh action consumes the final allowance and schedules a restart"
 Assert-True (-not $source.Contains("post-session discovery renewal")) `
     "a completed session does not force an unconditional core restart"
 Assert-True ($source.Contains('parts.Add("-reset 15")')) `
@@ -361,7 +536,7 @@ Assert-True ($handoffUiSource.Contains(
 $renewedLossStateStart = $lostConnectionUiSource.IndexOf(
     "internal void ShowConnectionLost")
 $renewedLossStateEnd = $lostConnectionUiSource.IndexOf(
-    "private void CancelRendererHandoff", $renewedLossStateStart)
+    "internal void CancelRendererHandoff", $renewedLossStateStart)
 Assert-True ($renewedLossStateStart -ge 0 -and
     $renewedLossStateEnd -gt $renewedLossStateStart) `
     "renewed-loss presentation has a focused implementation boundary"
@@ -428,16 +603,20 @@ Assert-True ($placementQueueIndex -ge 0 -and
     "move-only and automatic-fit-disabled completion still queues placement persistence"
 $placementQueueCallCount = [regex]::Matches(
     $source, 'QueueStreamWindowPlacementSave\s*\(').Count
-Assert-True ($placementQueueCallCount -ge 7 -and
-    $source.Contains("SavePendingStreamWindowPlacement(window)")) `
+Assert-True ($placementQueueCallCount -ge 5 -and
+    $source.Contains("SavePendingStreamWindowPlacement(window)") -and
+    $source.Contains(
+        "UpdateStreamWindowPlacementAfterAutomaticFit")) `
     "interactive and programmatic fits persist through the supervision timer"
 Assert-True ($source.Contains(
         "MarkStreamWindowPlacementPersistable(window)") -and
     $source.Contains(
         "CanPersistStreamWindowPlacement(window)") -and
     $source.Contains(
-        "if (!automaticVideoSize.IsEmpty)")) `
-    "only a device-oriented automatic fit or explicit user move can replace saved renderer placement"
+        "if (!videoSize.IsEmpty)") -and
+    $source.Contains(
+        "ClearStreamWindowPlacementPersistence(window)")) `
+    "only a trusted automatic fit or explicit user move can replace saved renderer placement"
 $restorePlacementStart = $source.IndexOf(
     "private bool TryRestoreStreamWindowPlacement")
 $restorePlacementEnd = $source.IndexOf(
@@ -677,6 +856,94 @@ $migrateRendererDefault = $settingsType.GetMethod(
     "MigrateRendererStabilityDefault", $staticFlags)
 Assert-True ($null -ne $migrateRendererDefault) `
     "the renderer stability migration is independently testable"
+$migratePhotosMediaCanvasDefault = $settingsType.GetMethod(
+    "MigratePhotosMediaCanvasDefault", $staticFlags)
+Assert-True ($null -ne $migratePhotosMediaCanvasDefault) `
+    "the optional Photos media-canvas migration is independently testable"
+$settingsPersistenceSource = [IO.File]::ReadAllText(
+    (Join-Path $sourceRoot "Configuration\AppSettings.cs"))
+$settingsPersistenceSource = $settingsPersistenceSource.Replace(
+    "namespace AirPlayReceiverMvp",
+    "namespace AirPlayReceiverMvp.PersistenceRoundTripProbe")
+$productionFilePathSource =
+    'public static string FilePath { get { return Path.Combine(Folder, "settings.ini"); } }'
+$isolatedFilePathSource =
+    'public static string TestFilePath = "";' +
+    [Environment]::NewLine +
+    '        public static string FilePath { get { return TestFilePath; } }'
+Assert-True ($settingsPersistenceSource.Contains(
+        $productionFilePathSource)) `
+    "the isolated settings round-trip replaces only the production file path"
+$settingsPersistenceSource = $settingsPersistenceSource.Replace(
+    $productionFilePathSource, $isolatedFilePathSource)
+$settingsPersistenceTypes = Add-Type `
+    -TypeDefinition $settingsPersistenceSource `
+    -Language CSharp `
+    -ReferencedAssemblies @(
+        "System.dll",
+        "System.Core.dll",
+        "System.Drawing.dll",
+        "System.ServiceProcess.dll",
+        "System.Web.Extensions.dll",
+        "System.Windows.Forms.dll") `
+    -PassThru `
+    -WarningAction SilentlyContinue
+$settingsPersistenceType = $settingsPersistenceTypes |
+    Where-Object { $_.Name -eq "AppSettings" } |
+    Select-Object -First 1
+Assert-True ($null -ne $settingsPersistenceType) `
+    "the isolated profile uses the current AppSettings implementation"
+$settingsPersistencePathField = $settingsPersistenceType.GetField(
+    "TestFilePath", $staticFlags)
+$settingsPersistenceSave = $settingsPersistenceType.GetMethod(
+    "Save", $instanceFlags)
+$settingsPersistenceLoad = $settingsPersistenceType.GetMethod(
+    "Load", $staticFlags)
+$settingsPersistenceRoot = Join-Path ([IO.Path]::GetTempPath()) (
+    "AeroMirror-settings-roundtrip-" + [Guid]::NewGuid().ToString("N"))
+$settingsPersistencePath = Join-Path $settingsPersistenceRoot "settings.ini"
+try {
+    [IO.Directory]::CreateDirectory($settingsPersistenceRoot) | Out-Null
+    $settingsPersistencePathField.SetValue(
+        $null, $settingsPersistencePath)
+
+    $persistedMediaCanvas = [Activator]::CreateInstance(
+        $settingsPersistenceType, $true)
+    $persistedMediaCanvas.SettingsVersion = 12
+    $persistedMediaCanvas.FollowPhotosMediaCanvas = $true
+    $settingsPersistenceSave.Invoke(
+        $persistedMediaCanvas, [object[]]@()) | Out-Null
+    $loadedMediaCanvas = $settingsPersistenceLoad.Invoke(
+        $null, [object[]]@())
+    Assert-True ($loadedMediaCanvas.SettingsVersion -eq 12 -and
+        [bool]$loadedMediaCanvas.FollowPhotosMediaCanvas) `
+        "a schema-12 Photos opt-in survives a real isolated Save and Load"
+
+    $persistedMediaCanvas.FollowPhotosMediaCanvas = $false
+    $settingsPersistenceSave.Invoke(
+        $persistedMediaCanvas, [object[]]@()) | Out-Null
+    $loadedMediaCanvas = $settingsPersistenceLoad.Invoke(
+        $null, [object[]]@())
+    Assert-True ($loadedMediaCanvas.SettingsVersion -eq 12 -and
+        -not [bool]$loadedMediaCanvas.FollowPhotosMediaCanvas) `
+        "a schema-12 Photos opt-out survives a real isolated Save and Load"
+
+    [IO.File]::WriteAllText(
+        $settingsPersistencePath,
+        "SettingsVersion=12`r`n" +
+        "FollowPhotosMediaCanvas=not-a-boolean`r`n",
+        (New-Object Text.UTF8Encoding($false)))
+    $loadedMalformedMediaCanvas = $settingsPersistenceLoad.Invoke(
+        $null, [object[]]@())
+    Assert-True ($loadedMalformedMediaCanvas.SettingsVersion -eq 12 -and
+        -not [bool]$loadedMalformedMediaCanvas.FollowPhotosMediaCanvas) `
+        "a malformed schema-12 Photos value normalizes to the safe opt-out"
+}
+finally {
+    if ([IO.Directory]::Exists($settingsPersistenceRoot)) {
+        [IO.Directory]::Delete($settingsPersistenceRoot, $true)
+    }
+}
 $contextSettingsField = $contextType.GetField("settings", $instanceFlags)
 $buildUxPlayArguments = $contextType.GetMethod(
     "BuildUxPlayArguments", $instanceFlags)
@@ -709,10 +976,28 @@ $migrateRendererDefault.Invoke(
 Assert-True ($explicitD3D12Settings.SettingsVersion -eq 11 -and
     $explicitD3D12Settings.Renderer -eq "d3d12") `
     "the stability migration preserves an explicit Direct3D 12 choice"
+$legacyMediaCanvasSettings = [Activator]::CreateInstance(
+    $settingsType, $true)
+$legacyMediaCanvasSettings.SettingsVersion = 11
+$legacyMediaCanvasSettings.FollowPhotosMediaCanvas = $true
+$migratePhotosMediaCanvasDefault.Invoke(
+    $null, [object[]]@($legacyMediaCanvasSettings)) | Out-Null
+Assert-True ($legacyMediaCanvasSettings.SettingsVersion -eq 12 -and
+    -not [bool]$legacyMediaCanvasSettings.FollowPhotosMediaCanvas) `
+    "existing profiles migrate to conservative Photos window fitting"
+$currentMediaCanvasSettings = [Activator]::CreateInstance(
+    $settingsType, $true)
+$currentMediaCanvasSettings.FollowPhotosMediaCanvas = $true
+$migratePhotosMediaCanvasDefault.Invoke(
+    $null, [object[]]@($currentMediaCanvasSettings)) | Out-Null
+Assert-True ($currentMediaCanvasSettings.SettingsVersion -eq 12 -and
+    [bool]$currentMediaCanvasSettings.FollowPhotosMediaCanvas) `
+    "an explicit current-schema Photos window-fit opt-in is preserved"
 $settingsProbe = [Activator]::CreateInstance($settingsType, $true)
-Assert-True ([int]$settingsProbe.SettingsVersion -eq 11 -and
-    $settingsProbe.Renderer -eq "d3d11") `
-    "new settings profiles use the pinned Direct3D 11 stability default"
+Assert-True ([int]$settingsProbe.SettingsVersion -eq 12 -and
+    $settingsProbe.Renderer -eq "d3d11" -and
+    -not [bool]$settingsProbe.FollowPhotosMediaCanvas) `
+    "new settings profiles keep stable D3D11 and conservative Photos fitting defaults"
 $defaultAudioArguments = Invoke-UxPlayArguments $settingsProbe
 Assert-True ([regex]::Matches(
         $defaultAudioArguments,
@@ -741,6 +1026,16 @@ $settingsProbe.AutoFitWindow = $false
 $normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
 Assert-True (-not [bool]$settingsProbe.AutoFitWindow) `
     "settings normalization preserves an explicit automatic-fit opt-out"
+$mediaCanvasOffArguments = Invoke-UxPlayArguments $settingsProbe
+$mediaCanvasOnSettings = $settingsProbe.Copy()
+$mediaCanvasOnSettings.FollowPhotosMediaCanvas = $true
+$mediaCanvasOnCopy = $mediaCanvasOnSettings.Copy()
+Assert-True ([bool]$mediaCanvasOnCopy.FollowPhotosMediaCanvas) `
+    "copying current settings preserves an explicit Photos window-fit opt-in"
+$mediaCanvasOnArguments = Invoke-UxPlayArguments $mediaCanvasOnSettings
+Assert-True ($mediaCanvasOnArguments -eq $mediaCanvasOffArguments) `
+    "the Photos window-fit experiment does not alter native receiver arguments"
+Invoke-UxPlayArguments $settingsProbe | Out-Null
 $hasValidStreamWindowPlacement = $settingsType.GetMethod(
     "HasValidStreamWindowPlacement", $instanceFlags)
 Assert-True ($null -ne $hasValidStreamWindowPlacement) `
@@ -757,7 +1052,8 @@ $settingsCopy = $settingsType.GetMethod("Copy", $instanceFlags).Invoke(
     $settingsProbe, [object[]]@())
 Assert-True ($settingsCopy.StreamWindowLeft -eq -1200 -and
     $settingsCopy.StreamWindowWidth -eq 620 -and
-    $settingsCopy.StreamWindowDpi -eq 144) `
+    $settingsCopy.StreamWindowDpi -eq 144 -and
+    -not [bool]$settingsCopy.FollowPhotosMediaCanvas) `
     "ordinary settings edits preserve the saved stream-window placement"
 $settingsProbe.StreamWindowDpi = 0
 $normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
@@ -818,14 +1114,14 @@ try {
     [IO.Directory]::CreateDirectory($atomicRoot) | Out-Null
     [IO.File]::WriteAllText($atomicPath, "old=value")
     $atomicLines = [Array]::CreateInstance([string], 2)
-    $atomicLines.SetValue("SettingsVersion=11", 0)
+    $atomicLines.SetValue("SettingsVersion=12", 0)
     $atomicLines.SetValue("PairingMode=none", 1)
     $atomicArguments = [Array]::CreateInstance([object], 2)
     $atomicArguments.SetValue([string]$atomicPath, 0)
     $atomicArguments.SetValue($atomicLines, 1)
     $atomicWriter.Invoke($null, $atomicArguments) | Out-Null
     $atomicText = [IO.File]::ReadAllText($atomicPath)
-    Assert-True ($atomicText.Contains("SettingsVersion=11") -and
+    Assert-True ($atomicText.Contains("SettingsVersion=12") -and
         $atomicText.Contains("PairingMode=none")) `
         "atomic settings replacement publishes the complete new file"
     Assert-True (([IO.Directory]::GetFiles(
@@ -880,6 +1176,9 @@ $sessionEndedDue = Field "mirrorSessionEndedDueTicks"
 $settingsRestartDeferred = Field "settingsRestartDeferred"
 $idleRenewalDue = Field "idleDiscoveryRenewalDueTicks"
 $idleRenewalUsed = Field "idleDiscoveryRenewalUsed"
+$sessionUnlockRefreshPending =
+    Field "sessionUnlockDiscoveryRefreshPending"
+$sessionUnlockRefreshDue = Field "sessionUnlockDiscoveryRefreshDueTicks"
 $restartPending = Field "restartPending"
 $coreReadyPending = Field "coreReadyPending"
 $coreReadyChecks = Field "coreReadyChecks"
@@ -906,6 +1205,8 @@ $deviceFrameVideoSize = Field "deviceFrameVideoSize"
 $lastSuppressedVideoSize = Field "lastSuppressedVideoSize"
 $persistablePlacementWindow =
     Field "persistableStreamWindowPlacementWindow"
+$pendingPlacementWindow =
+    Field "pendingStreamWindowPlacementWindow"
 $startAfterNetwork = Field "startAfterNetworkCheck"
 $refreshAfterNetwork = Field "discoveryRefreshAfterNetworkCheck"
 $networkRefreshPending = Field "networkRefreshPending"
@@ -925,6 +1226,7 @@ $placeholderShowPending = Field "lostConnectionPlaceholderShowPending"
 $placeholderClosePending = Field "lostConnectionPlaceholderClosePending"
 $rendererHandoffPending = Field "lostConnectionRendererHandoffPending"
 $lostStatePending = Field "lostConnectionLostStatePending"
+$reconnectHintPending = Field "lostConnectionReconnectHintPending"
 $recoveredStatePending = Field "lostConnectionRecoveredStatePending"
 $feedbackEpisodeActive = Field "feedbackGapEpisodeActive"
 $feedbackEpisodeCount = Field "feedbackGapEpisodeCount"
@@ -932,21 +1234,118 @@ $feedbackLongest = Field "feedbackGapLongestSeconds"
 $feedbackPlaceholderActive = Field "feedbackGapPlaceholderActive"
 $feedbackPlaceholderDue = Field "feedbackGapPlaceholderDueTicks"
 $feedbackMarkersReady = Field "feedbackHealthMarkersReady"
+$feedbackPresentProofReady = Field "feedbackVideoPresentProofReady"
+$feedbackPresentProofPid = Field "feedbackVideoPresentProofPid"
+$feedbackVideoPending = Field "feedbackVideoRecoveryPending"
+$feedbackVideoPid = Field "feedbackVideoRecoveryPid"
+$feedbackVideoEpoch = Field "feedbackVideoRecoveryEpoch"
+$feedbackVideoGapSeconds = Field "feedbackVideoRecoveryGapSeconds"
+$feedbackVideoSession = Field "feedbackVideoRecoverySessionGeneration"
+$feedbackMirrorStartArmExpected = Field "feedbackVideoMirrorStartArmExpected"
+$feedbackVideoWaitDue = Field "feedbackVideoRecoveryWaitDueTicks"
+$feedbackVideoCompleted = Field "feedbackVideoRecoveryCompletedCount"
+$feedbackVideoHintCount = Field "feedbackVideoRecoveryHintCount"
+$feedbackHandoffPending = Field "lostConnectionFeedbackHandoffPending"
+$feedbackHandoffToken = Field "lostConnectionFeedbackHandoffToken"
+$continuityToken = Field "lostConnectionContinuityToken"
+$mirrorSessionGeneration = Field "mirrorSessionGeneration"
+$coreProcess = Field "coreProcess"
+$fittedStreamWindow = Field "fittedStreamWindow"
+$videoSizeWindow = Field "videoSizeWindow"
+$rendererPolicyWindow = Field "rendererPolicyWindow"
+$rendererPolicyApplied = Field "rendererPolicyApplied"
+$rendererPolicyAlwaysOnTop = Field "rendererPolicyAlwaysOnTop"
+$rendererPolicyShowInTaskbar = Field "rendererPolicyShowInTaskbar"
+$exactVideoSizeFitGeneration = Field "exactVideoSizeFitGeneration"
+$followPhotosMediaCanvasSettingObserved =
+    Field "followPhotosMediaCanvasSettingObserved"
+$observedFollowPhotosMediaCanvas =
+    Field "observedFollowPhotosMediaCanvas"
 
 $maintenanceSync.SetValue($context, (New-Object object))
 $videoSizeSync.SetValue($context, (New-Object object))
 $streamWindowPlacementSync.SetValue($context, (New-Object object))
 $activePid.SetValue($context, 42)
 $mirrorActive.SetValue($context, 1)
+$observeFollowPhotosMediaCanvasSettingChange = $contextType.GetMethod(
+    "ObserveFollowPhotosMediaCanvasSettingChange", $instanceFlags)
+$applyTopMost = $contextType.GetMethod("ApplyTopMost", $instanceFlags)
+Assert-True ($null -ne $observeFollowPhotosMediaCanvasSettingChange -and
+    $null -ne $applyTopMost) `
+    "live Photos fitting exposes a focused setting observer"
+$liveToggleContext =
+    [Runtime.Serialization.FormatterServices]::GetUninitializedObject(
+        $contextType)
+$liveToggleSettings = [Activator]::CreateInstance($settingsType, $true)
+$liveToggleSettings.AutoFitWindow = $false
+$contextSettingsField.SetValue($liveToggleContext, $liveToggleSettings)
+$videoSizeSync.SetValue($liveToggleContext, (New-Object object))
+$streamWindowPlacementSync.SetValue($liveToggleContext, (New-Object object))
+$liveToggleProcess = [Diagnostics.Process]::GetCurrentProcess()
+$coreProcess.SetValue($liveToggleContext, $liveToggleProcess)
+$liveToggleWindow = New-Object Windows.Forms.Form
+$liveToggleWindow.ShowInTaskbar = $false
+$liveToggleWindow.Opacity = 0
+$liveToggleWindow.Size = [Drawing.Size]::new(320, 640)
+try {
+    $liveToggleWindow.Show()
+    [Windows.Forms.Application]::DoEvents()
+    $liveToggleHandle = $liveToggleWindow.Handle
+    $fittedStreamWindow.SetValue($liveToggleContext, $liveToggleHandle)
+    $videoSizeWindow.SetValue($liveToggleContext, $liveToggleHandle)
+    $rendererPolicyWindow.SetValue($liveToggleContext, $liveToggleHandle)
+    $rendererPolicyApplied.SetValue($liveToggleContext, $true)
+    $rendererPolicyAlwaysOnTop.SetValue(
+        $liveToggleContext, $liveToggleSettings.AlwaysOnTop)
+    $rendererPolicyShowInTaskbar.SetValue(
+        $liveToggleContext, $liveToggleSettings.ShowStreamInTaskbar)
+
+    Assert-True (-not [bool]$observeFollowPhotosMediaCanvasSettingChange.Invoke(
+            $liveToggleContext, [object[]]@())) `
+        "the first observation establishes the live Photos setting baseline"
+    $exactVideoSizeFitGeneration.SetValue($liveToggleContext, 37)
+    $liveToggleSettings.FollowPhotosMediaCanvas = $true
+    $applyTopMost.Invoke($liveToggleContext, [object[]]@()) | Out-Null
+    Assert-True (
+        [bool]$followPhotosMediaCanvasSettingObserved.GetValue(
+            $liveToggleContext) -and
+        [bool]$observedFollowPhotosMediaCanvas.GetValue(
+            $liveToggleContext) -and
+        [int]$exactVideoSizeFitGeneration.GetValue(
+            $liveToggleContext) -eq -1) `
+        "enabling Photos fitting re-evaluates the current debounced frame immediately"
+
+    $exactVideoSizeFitGeneration.SetValue($liveToggleContext, 38)
+    $applyTopMost.Invoke($liveToggleContext, [object[]]@()) | Out-Null
+    Assert-True ([int]$exactVideoSizeFitGeneration.GetValue(
+            $liveToggleContext) -eq 38) `
+        "an unchanged Photos setting does not repeatedly invalidate the fitted generation"
+
+    $liveToggleSettings.FollowPhotosMediaCanvas = $false
+    $applyTopMost.Invoke($liveToggleContext, [object[]]@()) | Out-Null
+    Assert-True (-not [bool]$observedFollowPhotosMediaCanvas.GetValue(
+            $liveToggleContext) -and
+        [int]$exactVideoSizeFitGeneration.GetValue(
+            $liveToggleContext) -eq -1) `
+        "disabling Photos fitting also re-evaluates the current debounced frame immediately"
+}
+finally {
+    $liveToggleWindow.Close()
+    $liveToggleWindow.Dispose()
+    $liveToggleProcess.Dispose()
+}
 $markPlacementPersistable = $contextType.GetMethod(
     "MarkStreamWindowPlacementPersistable", $instanceFlags)
 $canPersistPlacement = $contextType.GetMethod(
     "CanPersistStreamWindowPlacement", $instanceFlags)
 $clearPlacementPersistence = $contextType.GetMethod(
     "ClearStreamWindowPlacementPersistence", $instanceFlags)
+$updatePlacementAfterAutomaticFit = $contextType.GetMethod(
+    "UpdateStreamWindowPlacementAfterAutomaticFit", $instanceFlags)
 Assert-True ($null -ne $markPlacementPersistable -and
     $null -ne $canPersistPlacement -and
-    $null -ne $clearPlacementPersistence) `
+    $null -ne $clearPlacementPersistence -and
+    $null -ne $updatePlacementAfterAutomaticFit) `
     "renderer placement persistence exposes a deterministic trust gate"
 $placementWindow = [IntPtr]::new(501)
 $otherPlacementWindow = [IntPtr]::new(502)
@@ -990,6 +1389,28 @@ $presentationCanvas = [Drawing.Size]::new(3840, 2160)
 $unknownCanvas = [Drawing.Size]::new(1200, 1000)
 $sixteenByNinePortrait = [Drawing.Size]::new(1080, 1920)
 $sixteenByNineLandscape = [Drawing.Size]::new(1920, 1080)
+$markPlacementPersistable.Invoke(
+    $context, [object[]]@($placementWindow)) | Out-Null
+$pendingPlacementWindow.SetValue($context, $placementWindow)
+$updatePlacementAfterAutomaticFit.Invoke(
+    $context, [object[]]@(
+        $placementWindow, $presentationCanvas, $true)) | Out-Null
+Assert-True ([IntPtr]$persistablePlacementWindow.GetValue($context) -eq
+        [IntPtr]::Zero -and
+    [IntPtr]$pendingPlacementWindow.GetValue($context) -eq
+        [IntPtr]::Zero) `
+    "an automatic Photos landscape fit cannot persist provisional placement"
+$updatePlacementAfterAutomaticFit.Invoke(
+    $context, [object[]]@(
+        $placementWindow, $portraitFrame, $false)) | Out-Null
+Assert-True ([IntPtr]$persistablePlacementWindow.GetValue($context) -eq
+        $placementWindow -and
+    [IntPtr]$pendingPlacementWindow.GetValue($context) -eq
+        $placementWindow) `
+    "a trusted device-frame fit remains eligible for normal placement persistence"
+$updatePlacementAfterAutomaticFit.Invoke(
+    $context, [object[]]@(
+        $placementWindow, $presentationCanvas, $true)) | Out-Null
 Assert-True ([bool]$sameDeviceAspect.Invoke(
         $null, [object[]]@($portraitFrame, $landscapeFrame))) `
     "portrait and physical landscape frames share the device aspect"
@@ -1079,6 +1500,41 @@ Assert-True ($portraitReturnResult.OrientationAuthoritative -and
     $portraitReturnResult.Size -eq $portraitFrame) `
     "returning from Photos restores authoritative portrait input"
 
+$settingsProbe.FollowPhotosMediaCanvas = $true
+$deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$followDirectMediaResult = Resolve-AutomaticVideoSize `
+    $presentationCanvas $true
+Assert-True (-not $followDirectMediaResult.OrientationAuthoritative -and
+    $followDirectMediaResult.Size -eq $presentationCanvas -and
+    -not $followDirectMediaResult.SuppressionChanged -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty) `
+    "opt-in direct-in-Photos fitting follows the canvas without seeding a device baseline"
+$followDirectPortrait = Resolve-AutomaticVideoSize $portraitFrame
+$followMediaAfterPortrait = Resolve-AutomaticVideoSize `
+    $presentationCanvas $true
+Assert-True ($followDirectPortrait.OrientationAuthoritative -and
+    $followMediaAfterPortrait.Size -eq $presentationCanvas -and
+    -not $followMediaAfterPortrait.OrientationAuthoritative -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        $portraitFrame) `
+    "opt-in Photos fitting preserves the trusted portrait baseline"
+$manualFollowMediaFit = [Drawing.Size]$resolveManualFitVideo.Invoke(
+    $context, [object[]]@($presentationCanvas, $true))
+Assert-True ($manualFollowMediaFit -eq $presentationCanvas) `
+    "manual fitting honors the explicit Photos canvas opt-in"
+$followPortraitReturn = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True ($followPortraitReturn.OrientationAuthoritative -and
+    $followPortraitReturn.Size -eq $portraitFrame) `
+    "a trusted phone frame remains able to restore portrait after temporary Photos fitting"
+$settingsProbe.FollowPhotosMediaCanvas = $false
+$disabledMediaFit = Resolve-AutomaticVideoSize $presentationCanvas $true
+Assert-True (-not $disabledMediaFit.OrientationAuthoritative -and
+    $disabledMediaFit.Size -eq $portraitFrame -and
+    $disabledMediaFit.SuppressionChanged) `
+    "disabling the experiment immediately returns to conservative baseline selection"
+
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 Resolve-AutomaticVideoSize $portraitFrame | Out-Null
@@ -1118,6 +1574,21 @@ $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 
 $observe = $contextType.GetMethod("ObserveCoreOutput", $instanceFlags)
 Assert-True ($null -ne $observe) "core-output observer exists"
+$observeVideoPresentation = $contextType.GetMethod(
+    "ObserveRecoveredVideoPresentation", $instanceFlags)
+$proofReadyMarker =
+    "AEROMIRROR_VIDEO_PRESENT_PROOF_READY codec=h264 videosink=d3d11videosink"
+$activePid.SetValue($context, 43)
+$observeVideoPresentation.Invoke(
+    $context, [object[]]@(43, $proofReadyMarker)) | Out-Null
+$observeVideoPresentation.Invoke(
+    $context, [object[]]@(42, $proofReadyMarker)) | Out-Null
+Assert-True ([int]$feedbackPresentProofReady.GetValue($context) -eq 1 -and
+    [int]$feedbackPresentProofPid.GetValue($context) -eq 43) `
+    "late proof capability output from a detached core cannot overwrite the current core owner"
+$feedbackPresentProofReady.SetValue($context, 0)
+$feedbackPresentProofPid.SetValue($context, 0)
+$activePid.SetValue($context, 42)
 $observeSocketReady = $contextType.GetMethod(
     "ObserveCoreSocketReady", $instanceFlags)
 Assert-True ($null -ne $observeSocketReady) `
@@ -1373,12 +1844,24 @@ $pinMarker = $contextType.GetMethod(
     "IsAirPlayPinEntryMarker", $staticFlags)
 $deferDisruptive = $contextType.GetMethod(
     "ShouldDeferDisruptiveMaintenance", $staticFlags)
+$evaluateUnlockRefresh = $contextType.GetMethod(
+    "EvaluateSessionUnlockDiscoveryRefresh", $staticFlags)
+$onSessionSwitch = $contextType.GetMethod(
+    "OnSessionSwitch", $instanceFlags)
 $calculateFeedbackPlaceholderDue = $contextType.GetMethod(
     "CalculateFeedbackGapPlaceholderDueTicks", $staticFlags)
 $shouldShowFeedbackPlaceholder = $contextType.GetMethod(
     "ShouldShowFeedbackGapPlaceholder", $staticFlags)
 $handleFeedbackPlaceholderTimer = $contextType.GetMethod(
     "HandleFeedbackGapPlaceholderTimer", $instanceFlags)
+$parseFeedbackRecoverySeconds = $contextType.GetMethod(
+    "ParseClientFeedbackRecoverySeconds", $staticFlags)
+$parseFeedbackRecoveryEpoch = $contextType.GetMethod(
+    "ParseClientFeedbackRecoveryEpoch", $staticFlags)
+$tryParseVideoPresentReady = $contextType.GetMethod(
+    "TryParseVideoPresentReady", $staticFlags)
+$tryParseVideoPresentArmed = $contextType.GetMethod(
+    "TryParseVideoPresentArmed", $staticFlags)
 $consumeLostRecovery = $contextType.GetMethod(
     "ConsumeDueLostConnectionRecoveryLocked", $instanceFlags)
 Assert-True ($null -ne $calculateFeedbackPlaceholderDue -and
@@ -1387,6 +1870,173 @@ Assert-True ($null -ne $calculateFeedbackPlaceholderDue -and
     "feedback-gap continuity exposes deterministic deadline transitions"
 Assert-True ($null -ne $consumeLostRecovery) `
     "lost-client recovery exposes a focused one-shot state transition"
+Assert-True ($null -ne $evaluateUnlockRefresh) `
+    "session-unlock discovery maintenance exposes a deterministic action transition"
+Assert-True ($null -ne $onSessionSwitch) `
+    "Windows session changes have a focused discovery-maintenance observer"
+$sessionUnlockRefreshPending.SetValue($context, 0)
+$sessionUnlockRefreshDue.SetValue($context, [long]0)
+$sessionLockArgs = [Activator]::CreateInstance(
+    [Microsoft.Win32.SessionSwitchEventArgs],
+    [object[]]@([Microsoft.Win32.SessionSwitchReason]::SessionLock))
+$onSessionSwitch.Invoke(
+    $context,
+    [object[]]@($null, $sessionLockArgs)) |
+    Out-Null
+Assert-True ([int]$sessionUnlockRefreshPending.GetValue($context) -eq 0 -and
+    [long]$sessionUnlockRefreshDue.GetValue($context) -eq 0) `
+    "locking Windows does not churn the AirPlay advertisement"
+$unlockObservedBefore = [DateTime]::UtcNow
+$sessionUnlockArgs = [Activator]::CreateInstance(
+    [Microsoft.Win32.SessionSwitchEventArgs],
+    [object[]]@([Microsoft.Win32.SessionSwitchReason]::SessionUnlock))
+$onSessionSwitch.Invoke(
+    $context,
+    [object[]]@($null, $sessionUnlockArgs)) |
+    Out-Null
+$queuedUnlockDue = [long]$sessionUnlockRefreshDue.GetValue($context)
+Assert-True ([int]$sessionUnlockRefreshPending.GetValue($context) -eq 1 -and
+    $queuedUnlockDue -ge $unlockObservedBefore.AddSeconds(1).Ticks -and
+    $queuedUnlockDue -le [DateTime]::UtcNow.AddSeconds(3).Ticks) `
+    "unlock queues a short network-settle delay without restarting on the event thread"
+$sessionUnlockRefreshPending.SetValue($context, 0)
+$sessionUnlockRefreshDue.SetValue($context, [long]0)
+function Invoke-UnlockDiscoveryDecision(
+    [int]$CompletedRenewals,
+    [bool]$CoreRunning,
+    [bool]$ReadinessCheckIdle,
+    [bool]$LocalDiscoveryReady,
+    [bool]$PhysicalNetworkReady,
+    [bool]$RestartBusy,
+    [bool]$MirrorActive,
+    [long]$ClientGraceDueTicks,
+    [DateTime]$LastRefreshUtc,
+    [DateTime]$NowUtc) {
+    $arguments = [object[]]@(
+        $CompletedRenewals,
+        $CoreRunning,
+        $ReadinessCheckIdle,
+        $LocalDiscoveryReady,
+        $PhysicalNetworkReady,
+        $RestartBusy,
+        $MirrorActive,
+        $ClientGraceDueTicks,
+        $NowUtc.Ticks,
+        $LastRefreshUtc,
+        $NowUtc,
+        [long]0,
+        [int]0)
+    $action = $evaluateUnlockRefresh.Invoke($null, $arguments)
+    return [pscustomobject]@{
+        Action = $action.ToString()
+        NextDueTicks = [long]$arguments[11]
+        NextCompletedRenewals = [int]$arguments[12]
+    }
+}
+$unlockNow = [DateTime]::UtcNow
+$unlockIdleRefresh = $unlockNow.AddMinutes(-11)
+$refreshDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $true $true $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+Assert-True ($refreshDecision.Action -eq "Refresh" -and
+    $refreshDecision.NextDueTicks -eq 0 -and
+    $refreshDecision.NextCompletedRenewals -eq 2) `
+    "a healthy long-idle unlock consumes allowance 1 to 2 and requests the final refresh"
+$exhaustedDecision = Invoke-UnlockDiscoveryDecision `
+    2 $true $true $true $true $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+Assert-True ($exhaustedDecision.Action -eq "None" -and
+    $exhaustedDecision.NextDueTicks -eq 0 -and
+    $exhaustedDecision.NextCompletedRenewals -eq 2) `
+    "the consumed second allowance cannot create a third restart"
+$firstPendingDecision = Invoke-UnlockDiscoveryDecision `
+    0 $true $true $true $true $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+Assert-True ($firstPendingDecision.Action -eq "None" -and
+    $firstPendingDecision.NextCompletedRenewals -eq 0) `
+    "unlock cannot replace the normal first idle renewal"
+$cooldownRefresh = $unlockNow.AddMinutes(-9)
+$cooldownDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $true $true $false $false ([long]0) `
+    $cooldownRefresh $unlockNow
+Assert-True ($cooldownDecision.Action -eq "RetryLater" -and
+    $cooldownDecision.NextDueTicks -eq
+        $cooldownRefresh.AddMinutes(10).Ticks -and
+    $cooldownDecision.NextCompletedRenewals -eq 1) `
+    "the cooldown preserves allowance 1 and reschedules at its exact deadline"
+$busyDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $true $true $true $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+Assert-True ($busyDecision.Action -eq "RetryLater" -and
+    $busyDecision.NextDueTicks -eq $unlockNow.AddSeconds(5).Ticks -and
+    $busyDecision.NextCompletedRenewals -eq 1) `
+    "busy restart or network work receives an exact five-second retry without consuming allowance"
+$readinessDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $false $true $true $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+$localDiscoveryDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $false $true $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+$physicalNetworkDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $true $false $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+Assert-True ($readinessDecision.Action -eq "RetryLater" -and
+    $localDiscoveryDecision.Action -eq "RetryLater" -and
+    $physicalNetworkDecision.Action -eq "RetryLater" -and
+    $readinessDecision.NextDueTicks -eq $unlockNow.AddSeconds(5).Ticks -and
+    $localDiscoveryDecision.NextDueTicks -eq $unlockNow.AddSeconds(5).Ticks -and
+    $physicalNetworkDecision.NextDueTicks -eq
+        $unlockNow.AddSeconds(5).Ticks) `
+    "unlock waits five seconds for an idle readiness check, local discovery marker, and cached physical IPv4"
+$activeDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $true $true $false $true ([long]0) `
+    $unlockIdleRefresh $unlockNow
+$graceDecision = Invoke-UnlockDiscoveryDecision `
+    1 $true $true $true $true $false $false `
+    $unlockNow.AddSeconds(30).Ticks $unlockIdleRefresh $unlockNow
+Assert-True ($activeDecision.Action -eq "None" -and
+    $graceDecision.Action -eq "None" -and
+    $activeDecision.NextCompletedRenewals -eq 1 -and
+    $graceDecision.NextCompletedRenewals -eq 1) `
+    "unlock never interrupts mirroring or AirPlay client grace"
+Assert-True ([int]$parseFeedbackRecoverySeconds.Invoke(
+        $null,
+        [object[]]@(
+            "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=15 epoch=71")) -eq
+        15 -and
+    [int]$parseFeedbackRecoveryEpoch.Invoke(
+        $null,
+        [object[]]@(
+            "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=15 epoch=71")) -eq
+        71) `
+    "the structured feedback recovery marker retains exact gap and epoch"
+$readyArguments = [object[]]@(
+    "AEROMIRROR_VIDEO_PRESENT_READY epoch=71 gap_seconds=0 proof=d3d11-present pts_delta_ms=-120",
+    0, 0, 0)
+Assert-True ([bool]$tryParseVideoPresentReady.Invoke(
+        $null, $readyArguments) -and
+    [int]$readyArguments[1] -eq 71 -and
+    [int]$readyArguments[2] -eq 0 -and
+    [int]$readyArguments[3] -eq -120) `
+    "mirror-start presentation proof allows an exact zero-gap marker"
+$malformedReadyArguments = [object[]]@(
+    "prefix AEROMIRROR_VIDEO_PRESENT_READY epoch=71 gap_seconds=0 proof=d3d11-present pts_delta_ms=0",
+    0, 0, 0)
+$wrongProofArguments = [object[]]@(
+    "AEROMIRROR_VIDEO_PRESENT_READY epoch=71 gap_seconds=0 proof=sink-buffer pts_delta_ms=0",
+    0, 0, 0)
+$armedArguments = [object[]]@(
+    "AEROMIRROR_VIDEO_PRESENT_ARMED reason=mirror-start epoch=72", 0)
+$malformedArmedArguments = [object[]]@(
+    "AEROMIRROR_VIDEO_PRESENT_ARMED reason=feedback epoch=72", 0)
+Assert-True (-not [bool]$tryParseVideoPresentReady.Invoke(
+        $null, $malformedReadyArguments) -and
+    -not [bool]$tryParseVideoPresentReady.Invoke(
+        $null, $wrongProofArguments) -and
+    [bool]$tryParseVideoPresentArmed.Invoke($null, $armedArguments) -and
+    -not [bool]$tryParseVideoPresentArmed.Invoke(
+        $null, $malformedArmedArguments)) `
+    "presentation markers are whole-line strict and only D3D11 Present can authorize a fade"
 Assert-True ([bool]$connectionMarker.Invoke(
         $null, [object[]]@("connection request from iPhone (iPhone14,8)"))) `
     "the anchored post-auth AirPlay request marker is recognized"
@@ -1653,16 +2303,161 @@ Assert-True ([int]$placeholderShowPending.GetValue($context) -eq 1 -and
 $observe.Invoke(
     $context,
     [object[]]@(42,
-        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=4")) |
+        "AEROMIRROR_VIDEO_PRESENT_PROOF_READY codec=h264 videosink=d3d11videosink")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=4 epoch=11")) |
     Out-Null
 Assert-True ([int]$feedbackEpisodeActive.GetValue($context) -eq 0 -and
-    [int]$feedbackPlaceholderActive.GetValue($context) -eq 0 -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 1 -and
     [int]$placeholderShowPending.GetValue($context) -eq 1 -and
     [int]$placeholderClosePending.GetValue($context) -eq 0 -and
-    [int]$rendererHandoffPending.GetValue($context) -eq 1 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0 -and
     [int]$recoveredStatePending.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoPending.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoEpoch.GetValue($context) -eq 11 -and
+    [int]$feedbackVideoGapSeconds.GetValue($context) -eq 4 -and
     [long]$feedbackPlaceholderDue.GetValue($context) -eq 0) `
-    "a native feedback-recovered marker shows recovery state and queues a smooth renderer handoff"
+    "control recovery keeps continuity visible while it waits for matching presented video"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_ARMED reason=mirror-start epoch=99")) |
+    Out-Null
+Assert-True ([int]$feedbackVideoEpoch.GetValue($context) -eq 11 -and
+    [int]$feedbackVideoGapSeconds.GetValue($context) -eq 4 -and
+    [int]$feedbackMirrorStartArmExpected.GetValue($context) -eq 0) `
+    "an ordinary feedback recovery rejects an unexpected mirror-start challenge"
+
+$handleFeedbackVideoWaitTimer = $contextType.GetMethod(
+    "HandleFeedbackVideoRecoveryWaitTimer", $instanceFlags)
+$feedbackVideoWaitDue.SetValue(
+    $context, [DateTime]::UtcNow.AddMilliseconds(-1).Ticks)
+$handleFeedbackVideoWaitTimer.Invoke($context, @()) | Out-Null
+Assert-True ([int]$reconnectHintPending.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoPending.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoHintCount.GetValue($context) -eq 1 -and
+    [int]$recoveryPending.GetValue($context) -eq 0 -and
+    -not [bool]$restartPending.GetValue($context)) `
+    "a three-second presentation timeout shows guidance without resetting sockets or the core"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(41,
+        "AEROMIRROR_VIDEO_PRESENT_READY epoch=11 gap_seconds=4 proof=d3d11-present pts_delta_ms=0")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_READY epoch=11 gap_seconds=0 proof=d3d11-present pts_delta_ms=0")) |
+    Out-Null
+Assert-True ([int]$rendererHandoffPending.GetValue($context) -eq 0 -and
+    [int]$feedbackHandoffPending.GetValue($context) -eq 0 -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 1) `
+    "wrong-PID and wrong-gap Present markers cannot dismiss continuity"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_READY epoch=11 gap_seconds=4 proof=d3d11-present pts_delta_ms=-35")) |
+    Out-Null
+$fadeToken = [long]$feedbackHandoffToken.GetValue($context)
+$fadeSession = [int]$feedbackVideoSession.GetValue($context)
+$isFeedbackHandoffCurrent = $contextType.GetMethod(
+    "IsFeedbackRendererHandoffCurrent", $instanceFlags)
+Assert-True ($null -ne $isFeedbackHandoffCurrent -and
+    [bool]$isFeedbackHandoffCurrent.Invoke(
+        $context,
+        [object[]]@($fadeToken, 42, $fadeSession, 11))) `
+    "matching D3D11 Present queues a PID/session/epoch-correlated fade"
+Assert-True ([int]$feedbackPlaceholderActive.GetValue($context) -eq 1 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 1 -and
+    [int]$feedbackHandoffPending.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoCompleted.GetValue($context) -eq 0) `
+    "continuity stays active until the fade completion callback revalidates its token"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "*** ERROR:   3 seconds since last client feedback request (expected every two seconds); client may be offline")) |
+    Out-Null
+Assert-True ([long]$continuityToken.GetValue($context) -ne $fadeToken -and
+    [int]$feedbackHandoffPending.GetValue($context) -eq 0 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0 -and
+    -not [bool]$isFeedbackHandoffCurrent.Invoke(
+        $context,
+        [object[]]@($fadeToken, 42, $fadeSession, 11))) `
+    "a new loss during the 180 ms fade invalidates the old completion token"
+
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=3 epoch=12")) |
+    Out-Null
+$preReselectSession = [int]$mirrorSessionGeneration.GetValue($context)
+$observe.Invoke(
+    $context,
+    [object[]]@(42, "raop_rtp_mirror starting mirroring")) | Out-Null
+$reselectSession = [int]$mirrorSessionGeneration.GetValue($context)
+Assert-True ($reselectSession -eq $preReselectSession + 1 -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoPending.GetValue($context) -eq 1 -and
+    [int]$feedbackVideoEpoch.GetValue($context) -eq 0 -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    "manual reselection keeps continuity visible and never trusts mirror-start or HWND alone"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_READY epoch=12 gap_seconds=3 proof=d3d11-present pts_delta_ms=0")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_ARMED reason=mirror-start epoch=13")) |
+    Out-Null
+Assert-True ([int]$feedbackVideoEpoch.GetValue($context) -eq 13 -and
+    [int]$feedbackVideoGapSeconds.GetValue($context) -eq 0 -and
+    [int]$feedbackVideoSession.GetValue($context) -eq $reselectSession -and
+    [int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    "the latest valid mirror-start challenge supersedes the stale feedback epoch"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_READY epoch=13 gap_seconds=3 proof=d3d11-present pts_delta_ms=0")) |
+    Out-Null
+Assert-True ([int]$rendererHandoffPending.GetValue($context) -eq 0) `
+    "a mirror-start challenge rejects a forged positive-gap Present marker"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_PRESENT_READY epoch=13 gap_seconds=0 proof=d3d11-present pts_delta_ms=12")) |
+    Out-Null
+Assert-True ([int]$rendererHandoffPending.GetValue($context) -eq 1 -and
+    [int]$feedbackHandoffPending.GetValue($context) -eq 1 -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 1) `
+    "manual reselection fades only after its exact new-session presentation proof"
+$completeFeedbackHandoff = $contextType.GetMethod(
+    "TryCompleteFeedbackRendererHandoff", $instanceFlags)
+$completedToken = [long]$feedbackHandoffToken.GetValue($context)
+$completedBefore = [int]$feedbackVideoCompleted.GetValue($context)
+$rendererHandoffPending.SetValue($context, 0)
+$completedOnce = [bool]$completeFeedbackHandoff.Invoke(
+    $context,
+    [object[]]@($completedToken, 42, $reselectSession, 13))
+$completedTwice = [bool]$completeFeedbackHandoff.Invoke(
+    $context,
+    [object[]]@($completedToken, 42, $reselectSession, 13))
+Assert-True ($completedOnce -and -not $completedTwice -and
+    [int]$feedbackPlaceholderActive.GetValue($context) -eq 0 -and
+    [int]$feedbackHandoffPending.GetValue($context) -eq 0 -and
+    [int]$feedbackVideoPending.GetValue($context) -eq 0 -and
+    [int]$feedbackVideoCompleted.GetValue($context) -eq
+        $completedBefore + 1) `
+    "fade completion revalidates and consumes its token exactly once"
+$placeholderShowPending.SetValue($context, 0)
 
 $observe.Invoke(
     $context,

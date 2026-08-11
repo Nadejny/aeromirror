@@ -220,7 +220,7 @@ namespace AirPlayReceiverMvp
                 "» в «Повторе экрана» на iPhone.";
         }
 
-        private void CancelRendererHandoff()
+        internal void CancelRendererHandoff()
         {
             Timer timer = rendererHandoffTimer;
             rendererHandoffTimer = null;

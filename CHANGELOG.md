@@ -1,5 +1,139 @@
 # Changelog
 
+## 0.12.9 — bounded discovery and Photos-window review candidate
+
+### Candidate scope
+
+- After the existing ten-minute idle-discovery renewal has completed, a later
+  Windows session unlock may schedule at most one final managed receiver
+  restart and discovery re-registration. A ten-minute cooldown, ready local
+  sockets and discovery marker, cached physical IPv4, idle mirroring/client
+  state, and clear restart/network-maintenance guards are required. This is a
+  bounded mitigation for a receiver reported missing after long idle, not a
+  proven root-cause fix or a stable-port discovery contract.
+- Settings schema 12 adds a default-off Advanced option that lets the exact
+  ambiguous Photos/media `3840x2160`, source `3840x2160`, auxiliary `0x0`,
+  encoded `3840x2160` canvas temporarily shape the outer renderer window. The
+  provisional wide fit cannot become trusted device orientation or overwrite
+  a valid saved placement. It changes no native AirPlay capability, feature
+  bit, decoded pixel, crop, or zoom, so inner photo/video content may remain
+  small.
+- The untagged 0.12.8 Direct3D 11 presentation-proof handoff remains part of
+  this source candidate. Feedback, mirror-start, push/PTS, sink observation,
+  cached HWND state, or a stale image still cannot close continuity without
+  matching current-PID/session/epoch/reason/gap Present proof.
+- A full Windows reboot is not an expected normal result of AeroMirror Setup.
+  Setup extracts the pinned portable app runtime, but installs no system-wide
+  .NET/VC++ redistributable, driver, or framework prerequisite. A stopped or
+  stale system-wide Bonjour lifecycle is the strongest current hypothesis for
+  one reported Windows 10 first-install case, but it is unproven. This patch
+  does not mutate Bonjour; a clean Windows 10 VM run with pre-reboot evidence
+  is the acceptance path.
+
+### Compatibility and verification status
+
+- Public/app/Setup version is prepared as `0.12.9`; Windows PE/file version is
+  prepared as `0.12.9.0`. Setup's internal comparison version and all five
+  release-script defaults target 0.12.9; source-version and settings-schema-12
+  checks pass.
+- The final managed x64 build and complete receiver resilience suite pass.
+  Independent source review reports no P0/P1/P2 finding. A separate legacy
+  `csc.exe` build confirms source semantics and `0.12.9.0` metadata; that
+  compiler is not byte-deterministic, so the exact packaged shell hash belongs
+  to the final package gate rather than the independent-build comparison.
+- The unchanged 0.12.8 native core is reused at SHA-256
+  `eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6`.
+  Provenance, both patch reverse-apply checks, the extracted prepared-source
+  rebuild, 143 archive entries/139 files, the loader test, and the runtime
+  dependency audit covering 199 inspected binaries and 148 copied DLLs pass.
+- The pre-documentation thin review package has the exact 13 entries. Setup
+  builds; `/verify-runtime`, shortcut, and update-lifecycle checks pass; the
+  embedded payload/provenance comparison passes; and shell plus Setup are x64
+  `0.12.9.0`. Version/default/schema, local-link, strict-UTF-8, and diff checks
+  pass.
+- The focused package review and Setup rebuild against the final evidence
+  documents pass: exact payload, embedded payload/provenance, runtime,
+  shortcut/update lifecycle, version/default, link, UTF-8, and diff checks all
+  pass again. Volatile shell/payload/Setup/native-source-ZIP container hashes
+  are intentionally excluded from source docs and retained in the gate handoff
+  for an eventual `BUILD_REPORT.md`.
+- Physical Windows 10/Windows 11/iPhone, installed-update, exact-tag,
+  install-from-public, GitHub Release, checksum, API, and public re-download
+  verification remain pending.
+- Public `v0.12.7` remains the updater-visible latest Release. No 0.12.8 or
+  0.12.9 tag or public asset exists, and published 0.12.7 assets remain
+  immutable.
+
+## 0.12.8 — evidence-gated reconnect handoff candidate
+
+### Candidate scope
+
+- A recovered AirPlay feedback heartbeat is no longer treated as proof that
+  video presentation resumed in the same-session feedback-gap path. The
+  connection-loss view may change to
+  **Connection restored / Waiting for image**, but it will close only after a
+  current-process, current-session, current-recovery-epoch marker proves that
+  fresh post-gap media reached the Direct3D 11 swap-chain present path.
+- Recovery telemetry distinguishes
+  `AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=N epoch=E`, appsrc
+  push/PTS and exact sink observations, and the sole fade authority
+  `AEROMIRROR_VIDEO_PRESENT_READY epoch=E gap_seconds=N
+  proof=d3d11-present pts_delta_ms=D`. Push, timestamp, sink,
+  renderer-window visibility, and a cached HWND remain diagnostic evidence
+  only and cannot dismiss the view.
+- If presentation proof does not arrive within the bounded three-second wait,
+  AeroMirror keeps continuity visible and replaces the waiting text with
+  explicit Screen Mirroring reconnect guidance. This candidate does not silently reset
+  the receiver, replace a half-open video socket, or rebase the media clock.
+- Selecting the receiver again may emit
+  `AEROMIRROR_VIDEO_PRESENT_ARMED reason=mirror-start epoch=E` and restart the
+  three-second presentation wait. A feedback challenge requires the exact
+  stored positive gap; only an accepted mirror-start challenge expects
+  `gap_seconds=0`. Mirroring-start alone does not expose the old renderer, and
+  the new epoch still needs matching Direct3D 11 present proof.
+
+### Compatibility and verification status
+
+- Public/app/Setup version is prepared as `0.12.8`; Windows PE/file version is
+  prepared as `0.12.8.0`. Setup's internal comparison version and all five
+  release-script defaults target 0.12.8.
+- The source implementation and independent final code review are complete
+  with no remaining P0/P1/P2 finding. The managed build and receiver resilience
+  suite pass.
+- The official native build and extracted prepared-source rebuild reproduce
+  core SHA-256
+  `eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6`;
+  the reviewed libuxplay patch SHA-256 is
+  `c5be47ee96be25609677103cf85b3d98b07e2752a980d0d6d9fb975d187ad05e`.
+  Both native patches reverse-apply. Native source generation produces 143
+  archive entries/139 files; loader testing and the runtime/provenance/
+  dependency audit covering 199 inspected binaries and 148 copied DLLs pass.
+- The thin review package has the exact 13 entries. Setup builds,
+  `verify-runtime`, shortcut, and update-lifecycle checks exit 0, and the
+  embedded payload/provenance comparison passes. Shell, Setup, and core are x64
+  `0.12.8.0`; version/default, documentation-link, and diff checks also pass.
+- The focused final package review and Setup rebuild after the evidence-doc
+  update also pass: exact 13-entry payload, embedded payload/provenance,
+  `verify-runtime`, shortcut/update lifecycle, version, link, and diff gates all
+  pass again. Volatile payload/Setup container hashes are retained in the gate
+  handoff and belong in the eventual `BUILD_REPORT.md`, not in these
+  self-referential source docs. Physical iPhone/Windows 10/Windows 11, exact
+  tag, install-from-public, GitHub Release, checksum, and public re-download
+  evidence remain pending. No 0.12.8 asset is public yet.
+- The change is scoped to a truthful continuity handoff. It does not yet claim
+  to repair the underlying long-gap video freeze, automatic discovery or
+  reconnect, immediate loss detection, or a first iPhone tap that never reaches
+  Windows.
+- Direct3D 12 and advanced sinks do not provide this proof. Interactive
+  `-vsync no` deliberately skips the synchronized PTS/Present proof and retains
+  reconnect guidance.
+- Photos' small inner photo/video presentation is not fixed. The mirror-only
+  AirPlay feature-bit experiment is unchanged, and this candidate does not
+  infer a crop rectangle from the `3840x2160` presentation canvas.
+- No exact display-capability marker landed in this patch. The HEVC
+  4K-versus-Full-HD Photos comparison remains a physical A/B using existing
+  launch and geometry evidence.
+
 ## 0.12.7 — media-session continuity hotfix
 
 ### Fixed

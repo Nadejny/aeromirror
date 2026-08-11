@@ -6,6 +6,147 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
+## Current 0.12.9 candidate
+
+- Status: local and unpublished. The implementation, final managed build,
+  complete resilience suite, independent source review, unchanged-native
+  reuse/provenance, thin-package, and Setup gates pass, including the focused
+  package/Setup rebuild after the final evidence update. Independent review
+  reports no P0/P1/P2 finding. Physical Windows/iPhone, installed-update,
+  exact-tag, install-from-public, and public verification remain pending.
+- Public/app/Setup version: `0.12.9`; Windows PE/file version: `0.12.9.0`.
+  Setup's internal comparison version and all five release-script defaults
+  target 0.12.9. Source-version, settings-schema-12/default-false, and version-
+  default checks pass.
+- Discovery scope: retain the existing first ten-minute idle renewal. Only
+  after it has completed, a later Windows SessionUnlock may request at most one
+  final receiver restart and discovery re-registration after a ten-minute
+  cooldown. The core, local sockets, at least one DNS-SD/BLE marker, cached
+  physical IPv4, inactive mirroring/client grace, and restart/network guards
+  must be ready. Temporary socket/discovery/address readiness or competing
+  maintenance defers evaluation. A stopped core, active mirroring/client
+  grace, or an otherwise ineligible idle epoch cancels the pending unlock
+  request. Unlock events themselves do not re-arm the allowance. New client or
+  mirroring activity, an explicit manual discovery refresh, or an actual
+  physical-network signature change begins a new eligible discovery epoch.
+- The unlock refresh is a bounded mitigation for one reported missing-after-
+  idle receiver. It is not a proven root-cause correction, adds no
+  acknowledged native discovery IPC or in-place DNS-SD/BLE re-publication,
+  cannot force iOS browse-cache invalidation, and provides no stable-port
+  contract across process replacement.
+- Photos scope: settings schema 12 adds a default-off Advanced A/B option for
+  allowing only the exact ambiguous `3840x2160`, source `3840x2160`,
+  auxiliary `0x0`, encoded `3840x2160` Photos/media canvas to shape the outer
+  renderer window temporarily. The provisional landscape does not become the
+  trusted device baseline and does not overwrite a valid saved placement.
+- The Photos option changes no native capability, feature bit, negotiation,
+  decoder, pixel, crop, or zoom. Inner media can remain small inside the
+  iPhone-provided canvas, and Photos/video stability still requires physical
+  regression testing.
+- The untagged 0.12.8 current-PID/session/recovery-epoch Direct3D 11 Present-
+  proof handoff is carried forward unchanged in product behavior. The
+  underlying long-gap frozen-video path remains unresolved.
+- One Windows 10 first-install report appeared to work only after a full OS
+  reboot. Setup extracts the portable app runtime but installs no system-wide
+  .NET/VC++ redistributable, driver, or framework prerequisite, so reboot is
+  not treated as normal. A stopped/stale system-wide Bonjour service lifecycle
+  is the strongest current hypothesis but is unproven; no
+  machine-wide Bonjour mutation is authorized. A clean Windows 10 VM with
+  pre-reboot Setup/receiver logs and service state is the immediate evidence
+  target.
+- Managed/pretag evidence: the final x64 shell build and full resilience suite
+  pass; shell and Setup are x64 `0.12.9.0`; the exact 13-entry review payload,
+  Setup build, `/verify-runtime`, shortcut/update lifecycle, and embedded
+  payload/provenance checks pass. Local links, strict UTF-8, and diff checks
+  pass.
+- Native reuse evidence: core SHA-256 is
+  `eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6`.
+  Provenance, both patch reverse-apply checks, extracted prepared-source
+  rebuild, exact 143 archive entries/139 files, runtime inspection of 199
+  binaries/148 copied DLLs, and the loader test pass.
+- The legacy C# compiler does not produce a byte-deterministic shell across
+  independent builds. Its independent build confirms semantics and
+  `0.12.9.0`; the exact packaged shell hash is evidence from the final focused
+  package gate, not from cross-build byte equality.
+- Immediate next step: run long-idle/unlock, Photos off/on, reconnect,
+  installed-update, and clean Windows 10 first-install physical plans. Keep
+  volatile shell/payload/Setup/native-ZIP container hashes in the final gate
+  handoff and eventual `BUILD_REPORT.md`, not in self-referential source docs.
+  Any later source or documentation edit requires the focused package/Setup
+  gate again. Do not tag or publish without explicit authorization.
+
+## Prior untagged 0.12.8 candidate history
+
+0.12.8 completed its automated, native, package, Setup, and pretag gates but
+not physical or public acceptance, and it was never tagged or published. Its
+implementation is carried into 0.12.9. The version/default statements in this
+historical section describe the former 0.12.8 candidate, not the current
+working-tree defaults.
+
+- Status: source implementation and independent final code review are complete
+  with no remaining P0/P1/P2 finding. Managed build/resilience, official native
+  reproducibility, prepared-source rebuild, runtime/provenance/dependency,
+  loader, thin-package, and Setup pretag gates pass. The focused final package
+  review and Setup rebuild after the evidence-doc update also pass. Physical,
+  tag, install-from-public, and public verification remain pending.
+- Public/app/Setup version: `0.12.8`; Windows PE/file version: `0.12.8.0`.
+  Setup's internal comparison version and all five release-script defaults
+  target 0.12.8.
+- Scope: correct the 0.12.7 continuity false handoff. The captured longer-gap
+  run proves that HTTP feedback recovered while the old external renderer HWND
+  remained visible. The shell then closed the placeholder without evidence of
+  a fresh displayed frame, and video remained frozen.
+- Candidate same-session gap contract: HTTP feedback recovery may change the
+  continuity view to
+  **Connection restored / Waiting for image**, but only a current native PID,
+  current managed mirror-session generation, and current recovery-epoch
+  `AEROMIRROR_VIDEO_PRESENT_READY epoch=E gap_seconds=N
+  proof=d3d11-present pts_delta_ms=D` marker may authorize the fade for that
+  path. Appsrc push/PTS, sink telemetry, window
+  visibility, or a cached HWND are diagnostic evidence only. Manual reselection
+  may arm a new epoch with `AEROMIRROR_VIDEO_PRESENT_ARMED
+  reason=mirror-start epoch=E`, but only while that reason is expected.
+  Feedback proof must repeat the exact positive stored gap; accepted
+  mirror-start proof must use `gap_seconds=0`. Either accepted challenge gets a
+  fresh three-second proof wait, and mirror-start alone cannot close continuity.
+- Balanced Direct3D 11 is the primary proof path. Direct3D 12, advanced sinks,
+  and Interactive `-vsync no` keep waiting/reconnect guidance; the Interactive
+  path deliberately skips synchronized PTS/Present proof, and none may fall
+  back to cached HWND state.
+- If current presentation proof does not arrive during the bounded three-second
+  wait, the view remains visible and changes to explicit iPhone Screen
+  Mirroring reconnect guidance. The candidate does not auto-reset the core,
+  hot-replace a half-open video socket, or rebase the media clock.
+- This is not yet a fix for the underlying long-gap frozen-video path. The
+  small photo/video inside Photos' encoded `3840x2160` canvas is also unchanged;
+  the mirror-only feature-bit experiment remains as published in 0.12.7. A
+  retained HEVC 4K-versus-Full-HD Photos A/B remains pending. No exact display-
+  capability marker landed; any future marker is negotiation evidence, not a
+  sizing fix.
+- Updated provenance records expect native core SHA-256
+  `eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6`
+  and libuxplay patch SHA-256
+  `c5be47ee96be25609677103cf85b3d98b07e2752a980d0d6d9fb975d187ad05e`.
+  The official native build and extracted prepared-source rebuild reproduce
+  that exact core hash. Both native patches reverse-apply. Native source
+  generation produces 143 archive entries/139 files, and the loader test
+  passes; the runtime/provenance/dependency audit covers 199 inspected binaries
+  and 148 copied DLLs.
+- Managed build and receiver resilience pass. The thin package review has the
+  exact 13 entries; Setup builds, `verify-runtime` exits 0, and embedded
+  payload/provenance matches. Shortcut and update-lifecycle checks also exit 0;
+  shell, Setup, and core are x64 `0.12.8.0`. Version/default,
+  documentation-link, and diff gates pass. Independent final review reports no
+  P0/P1/P2 finding.
+- A focused final package review and Setup rebuild after the evidence-doc update
+  pass again: exact 13 entries, embedded payload/provenance, `verify-runtime`,
+  shortcut/update lifecycle, version, link, and diff checks all pass. Exact
+  payload/Setup byte sizes and SHA-256 values are retained in the gate handoff
+  for the eventual `BUILD_REPORT.md`; embedding them here would create a
+  self-reference. Physical iPhone/Windows 10/Windows 11, exact-tag,
+  install-from-public, GitHub Release, checksums, API, and public re-download
+  verification remain pending. No 0.12.8 asset is public.
+
 ## Latest public release
 
 - Version: `v0.12.7`
@@ -280,10 +421,21 @@ evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
   frame-pacing, audio drift, CPU/GPU, feedback-gap, and decoder/sink evidence;
 - direct-in-Photos startup where the ambiguous 4K canvas arrives before a
   phone-shaped frame; portrait/landscape rotation; unresolved placement
-  persistence; fullscreen media; and actual inner photo size;
+  persistence; fullscreen media; actual inner photo size; and the schema-12
+  default-off outer-window A/B without provisional-landscape persistence;
 - Photos may still place a small image and black bars inside a `3840x2160`
   encoded canvas. Raw geometry diagnostics do not provide a validated content
   rectangle, so this release does not crop or zoom those pixels;
+- the missing-after-long-idle receiver report: first ten-minute renewal, later
+  SessionUnlock, one guarded final refresh, repeated-unlock limit, iPhone browse
+  and first-tap evidence, and whether manual discovery restart remains needed;
+- the Windows 10 first-install report that became usable only after reboot.
+  AeroMirror extracts a portable app runtime but installs no system-wide
+  .NET/VC++ redistributable, driver, or framework prerequisite and does not
+  normally require reboot; retain clean-VM pre/post-reboot Bonjour
+  service/process, Setup/receiver log, pending-reboot, firewall, network, and
+  iPhone evidence before considering any Setup message or machine-wide service
+  action;
 - an external GStreamer window cannot yet provide a Mac-style hover-only frame,
   true borderless surface, or live aspect lock while dragging. Those require a
   native embedded renderer plus versioned IPC;
@@ -299,17 +451,33 @@ evidence is in `docs/releases/0.12.7/BUILD_REPORT.md`.
 
 ## Immediate next steps
 
-1. Install exact public 0.12.7 over public 0.12.6 and retain updater discovery,
-   download, Setup launch, settings/trust-state, shortcut, runtime-cache, and
-   rollback evidence. Never modify the immutable 0.12.7 tag or assets; any
-   correction uses 0.12.8 or later.
-2. Repeat the priority Photos/photo/video sequence in
-   `docs/releases/0.12.7/TEST_PLAN.md` with retained logs and a screen recording
-   to extend the scoped urgent PASS. Include the first-tap direct-Photos case;
-   inner Photos sizing remains a separate failed backlog target.
-3. Run the remaining Windows 10/11, default-audio endpoint, D3D11 argument,
-   interruption, reconnect, and discovery rows. Do not describe this review
-   patch as physically accepted or 1.0 until D-008 acceptance is complete.
+1. Preserve the passing focused 0.12.9 package/Setup gate and its volatile
+   final container hashes in the release handoff for an eventual
+   `BUILD_REPORT.md`. Any later source or documentation edit requires that
+   focused gate to run again.
+2. Leave the receiver idle through its first renewal, then lock/unlock after
+   cooldown and retain every guard, refresh, iPhone browse, first-tap, and
+   manual-workaround result. Repeat controls for active mirroring, client grace,
+   unavailable physical network, competing maintenance, repeated unlock, an
+   explicit manual discovery refresh, and an actual physical-network epoch
+   change. Unlock alone must not re-arm the allowance.
+3. Run the schema-12 Photos A/B off/on with the same media. Measure outer client
+   bounds and inner visible content separately, confirm no native restart or
+   session drop, and prove provisional landscape does not overwrite a valid
+   saved placement.
+4. Reproduce first install on a clean Windows 10 VM without rebooting or
+   mutating Bonjour until Setup/receiver logs and service/process state are
+   retained. Compare receiver Stop/Start and only then a full reboot.
+5. Physically repeat short and longer Wi-Fi interruptions on D3D11 with logs
+   and a screen recording, using Balanced first and Interactive as a separate
+   row. Confirm either a current presentation proof followed by real video or a
+   persistent reconnect hint; do not claim that the underlying longer-gap video
+   recovery is fixed from overlay behavior alone.
+6. Retain public 0.12.7 updater/install and Photos evidence as regression
+   coverage. Keep exact tag, Release, checksums, API digests, public re-download,
+   and
+   install-from-public pending until explicit publication authorization and the
+   final rebuilt containers are verified.
 
 ## Where information belongs
 

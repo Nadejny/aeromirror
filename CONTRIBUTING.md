@@ -28,7 +28,23 @@ Open one GitHub issue per problem and include:
 - whether stopping the receiver, starting it again, or restarting the whole
   app changed the result;
 - whether an AirPlay session was connecting, active, or disconnecting;
-- for layout issues, the phone orientation and the app/media being displayed.
+- for a receiver missing after long idle, include the last successful session,
+  Windows lock/unlock times, both automatic idle-discovery decisions, each
+  iPhone browse/tap time, and the first log before manually restarting
+  discovery;
+- for a Wi-Fi interruption or frozen reconnect, whether the continuity view
+  showed connection lost, waiting for image, the Screen Mirroring reconnect
+  hint, or faded before the picture actually resumed; retain the log from the
+  first feedback warning through any manual reselection and final image/hint;
+- for layout issues, the phone orientation and the app/media being displayed;
+  for the 0.12.9 Photos A/B also state whether the experimental wide-window
+  option was off/on and measure the outer renderer separately from the visible
+  inner photo/video;
+- if a Windows 10 first install works only after reboot, retain `setup.log`,
+  `receiver.log`, Bonjour service/process state, pending-reboot state, and
+  iPhone visibility before and after reboot. AeroMirror does not normally
+  install a framework that requires reboot, and reinstalling on the same PC is
+  not a clean Bonjour reproduction.
 
 Screenshots or a short screen recording are welcome when they do not expose
 private messages, photos, account names, or other personal information.

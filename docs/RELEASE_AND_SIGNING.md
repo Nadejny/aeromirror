@@ -95,9 +95,10 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. For the current 0.12.7 candidate, use
-[`releases/0.12.7/TEST_PLAN.md`](releases/0.12.7/TEST_PLAN.md). Historical 0.11
-plans remain part of the evidence required before labelling the project 1.0.
+passes. For the current local 0.12.9 candidate, use
+[`releases/0.12.9/TEST_PLAN.md`](releases/0.12.9/TEST_PLAN.md). The published
+0.12.7 evidence remains under `releases/0.12.7/`; historical 0.11 plans remain
+part of the evidence required before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.

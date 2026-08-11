@@ -78,6 +78,14 @@ separate Windows user account. Bonjour is installed system-wide, so reinstalling
 AeroMirror on the same account is not equivalent to a machine that has never
 had Bonjour.
 
+AeroMirror Setup extracts the pinned portable application runtime, but installs
+no system-wide .NET/VC++ redistributable, driver, or framework prerequisite; a
+full Windows reboot is not an expected normal prerequisite. One reported
+Windows 10 installation became usable only after reboot, but no pre-reboot
+evidence was retained. A stopped or stale Bonjour service lifecycle is only the
+strongest current hypothesis, not a diagnosis. The 0.12.9 candidate does not
+start, stop, repair, uninstall, or otherwise mutate that machine-wide service.
+
 For a normal review test:
 
 1. Record the AeroMirror version, Windows version, iPhone model and iOS
@@ -86,7 +94,9 @@ For a normal review test:
 3. Start the review build and note the exact local time.
 4. Accept the Windows Firewall prompt for private/local networks if it appears.
    If Bonjour installation or a UAC prompt appears, record the choice and
-   result. Do not remove or modify Bonjour manually on a daily-use PC.
+   result. Before any reboot, record whether the Bonjour service exists, its
+   state/start type, and whether its process is running. Do not remove or
+   modify Bonjour manually on a daily-use PC.
 5. Do not restart the receiver yet. Wait 60 seconds, open **Control Center →
    Screen Mirroring** on the iPhone, and record whether AeroMirror appears.
 6. Attempt one connection. Record whether the PIN prompt, video window, and
@@ -105,7 +115,11 @@ Windows account if you are not comfortable handling this backup.
 
 For a startup-after-reboot problem, also state whether AeroMirror was launched
 by Windows startup or manually. Wait at least 60 seconds after signing in
-before applying the stop/start workaround.
+before applying the stop/start workaround. If only a full reboot helps, retain
+both pre- and post-reboot Setup/receiver logs, Bonjour service/process state,
+pending-reboot indicators, sockets/readiness markers, and iPhone browse result.
+Do not report the reboot as a normal installation requirement until a clean VM
+reproduces the same lifecycle.
 
 ## What the review log records
 
@@ -117,10 +131,24 @@ Depending on the review build, the log may include:
   codes, and restart backoff;
 - Bonjour service presence and running state, plus observed receiver
   server-socket initialization;
+- guarded idle-discovery and Windows-unlock maintenance decisions, including
+  whether the first ten-minute allowance or final post-renewal allowance was
+  consumed, deferred, canceled, or scheduled;
 - relevant physical-network changes without stream content;
 - UxPlay standard output and error messages;
-- feedback-gap episode count, longest duration, and native recovery-marker
-  capability state in 0.12.4 and later;
+- feedback-gap episode count, longest duration, native recovery-marker
+  capability state, and in the 0.12.8 proof gate carried into 0.12.9 the
+  recovery epoch carried by
+  `AEROMIRROR_CLIENT_FEEDBACK_RECOVERED`;
+- one-shot post-gap `AEROMIRROR_VIDEO_PUSH_RECOVERED` flow/PTS,
+  `AEROMIRROR_VIDEO_PUSH_PENDING`, `AEROMIRROR_VIDEO_SINK_RECOVERED` exact-PTS,
+  and `AEROMIRROR_VIDEO_PRESENT_READY epoch=E gap_seconds=N
+  proof=d3d11-present pts_delta_ms=D` stages, plus the exact
+  `AEROMIRROR_VIDEO_PRESENT_PROOF_READY codec=h264|h265
+  videosink=d3d11videosink` capability. The earlier stages are diagnostic only;
+  only a present marker
+  correlated to the current process, mirroring session, recovery epoch, and
+  capability may authorize continuity handoff;
 - the raw AirPlay geometry header, including an auxiliary width/height pair
   that is diagnostic only and is not a validated crop, pixel-aspect-ratio, or
   rotation field;
@@ -146,10 +174,25 @@ Please include:
 - the exact failure time and time zone;
 - whether it happened on first install, first start after reboot, manual
   start, reconnection, or after changing settings;
+- for a missing receiver after idle, the last successful session time, lock,
+  sleep, sign-in and SessionUnlock times, both automatic discovery-maintenance
+  log decisions, every iPhone browse attempt, and whether the first tap reached
+  Windows before using **Restart discovery**;
+- for the Windows 10 reboot symptom, whether the machine/VM had ever contained
+  Bonjour, every installer/UAC/firewall prompt, pre/post-reboot Bonjour service
+  and process state, and whether receiver Stop/Start changed the result;
 - whether **Restart receiver** helped, and whether a full **Stop receiver** /
   **Start receiver** cycle helped;
 - whether the receiver process or only the video window disappeared;
+- whether the continuity view stayed at **Connection lost**, changed to
+  **Connection restored / Waiting for image**, changed to the Screen Mirroring
+  reconnect hint, or faded while the image was still frozen;
 - the selected quality, latency, renderer, and audio options;
+- for a Photos sizing report, whether the schema-12 experimental wide-window
+  option was off or on, the raw/encoded geometry, outer renderer client bounds,
+  separately measured visible inner-media bounds, phone orientation, and
+  whether the same session remained connected; a wide outer window is not
+  evidence that inner media was enlarged;
 - for stutter, the local Wi-Fi band/channel and PC connection type, a 60-second
   reproduction interval, visible freeze count, audio drift, CPU/GPU load, and
   the feedback-gap totals from diagnostics; public internet speed alone does
@@ -158,6 +201,14 @@ Please include:
 - whether VPN, Hyper-V, WSL, a mobile hotspot, or a virtual network adapter was
   active;
 - a minimal numbered reproduction sequence;
+- for a reconnect handoff, the feedback gap, recovery epoch, core PID, managed
+  session generation and start/stop transition, and the complete sequence of
+  push/PTS/sink/present markers, including any
+  `AEROMIRROR_VIDEO_PRESENT_ARMED reason=mirror-start epoch=E` re-arm after
+  manual reselection and whether the three-second proof wait then expired;
+  do not treat feedback recovery, mirror-start, or `flow=ok` as proof that
+  Windows displayed a fresh frame; `gap_seconds=0` is expected only for the
+  matching mirror-start re-arm, not for ordinary feedback recovery;
 - the reviewed and masked `receiver.log`.
 
 Avoid posting only “it crashed.” A timestamp plus the distinction between the

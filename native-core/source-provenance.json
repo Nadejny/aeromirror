@@ -3,8 +3,8 @@
   "uxplayWindowsCommit": "8cf3424b438424bc99a89155bd29a789f48a43c0",
   "libuxplayCommit": "437f37514257d9cb513ac7fbdee743b4da85852e",
   "uxplayWindowsPatchSha256": "a57fa119aa9630551db9c42e99a1f15524482b472067e5fb13f3090e6e7f0902",
-  "libuxplayPatchSha256": "2eaba74bfcce989927a013088559f2ac174afe9179aa360a6a7db7098a12ebcc",
-  "headlessExecutableSha256": "11b65324c83f23503f2d555d0064d1348c884407bf7f9b1c34d27b5d1c05fb9b",
+  "libuxplayPatchSha256": "c5be47ee96be25609677103cf85b3d98b07e2752a980d0d6d9fb975d187ad05e",
+  "headlessExecutableSha256": "eb8162577689eed354c4382acfe099665a6d9e14eed466cb4da6ca6e087448d6",
   "qtBuildVersion": "6.10.1",
   "runtimeGStreamerVersion": "1.28.1",
   "buildGStreamerVersion": "1.28.5",
@@ -24,9 +24,10 @@
     "src/mainwindow.h": "541aa1df5e7561fedac969373df6d952854b3d1823ba7f848cda2c310681c0bb",
     "libuxplay/lib/http_handlers.h": "f4c3bf1ec55ec2af6c951cd7846ee512780d4fec4fe57857fab728cc6427eb6a",
     "libuxplay/lib/raop_handlers.h": "4a45f7203dd3e1007b99b22b896e5e90102542253adc451e75c6f02a22f49670",
-    "libuxplay/lib/raop_rtp_mirror.c": "8760adbb0a70de900fa99845b6673af9c30e8f9ffcaea9da7fb714379fe013d8",
-    "libuxplay/renderers/video_renderer.c": "23c6037a7cccde29bb0cfbf2446d27b098ccb23dc9a06a37f4de323664d6e693",
-    "libuxplay/uxplay.cpp": "5f45895f5d91a9b30a7f8869e833d4a751483ace823af53c162f02c87b7f88e4"
+    "libuxplay/lib/raop_rtp_mirror.c": "88758fb2aa73f82b27c0408cdec3ae7ec7a5dfe6ddbfd2ea2da7f98509350239",
+    "libuxplay/renderers/video_renderer.c": "2fd1c9a28ce0666617d0b751f0cb1b742c35c36ba1e8da80da9c2be3b45dd6a6",
+    "libuxplay/renderers/video_renderer.h": "00325d27b0505ecb1c38c082f2948a88c438f5ebd156166928b0fd7949245d36",
+    "libuxplay/uxplay.cpp": "09ed04b93b784a5f9b4e4e537f9e5142bc0108ef8b8c37b4f7f3bffb7aee3185"
   },
   "protectedSources": {
     "libuxplay/renderers/audio_renderer.c": "afc6d28d41f044769ef56f9bacf3cc0619a71bb0385578a6bfa4e42a5f8d1ee7"

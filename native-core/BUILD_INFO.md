@@ -7,7 +7,8 @@ selected GStreamer pipeline diagnostics. AeroMirror 0.12.6 added native HTTP
 listener reset validation and removed unsupported photo-presentation feature
 declarations. AeroMirror 0.12.7 keeps those changes, restores client-managed
 RTSP `TEARDOWN` handling, and preserves externally supplied headless renderer
-arguments before the legacy Qt settings UI can rewrite them. The source bundle
+arguments before the legacy Qt settings UI can rewrite them. AeroMirror 0.12.8
+adds epoch-correlated D3D11 presentation proof for feedback-gap recovery. The source bundle
 contains the complete upstream trees and both patches separately and applied
 in place.
 
@@ -23,7 +24,8 @@ in place.
   `src/mainwindow.cpp`, `src/mainwindow.h`,
   `libuxplay/lib/http_handlers.h`, `libuxplay/lib/raop_handlers.h`,
   `libuxplay/lib/raop_rtp_mirror.c`,
-  `libuxplay/renderers/video_renderer.c`, and `libuxplay/uxplay.cpp`
+  `libuxplay/renderers/video_renderer.c`,
+  `libuxplay/renderers/video_renderer.h`, and `libuxplay/uxplay.cpp`
 - Architecture: x64, MSYS2 UCRT64
 - Compiler recorded in the binary:
   `gcc.exe (Rev6, Built by MSYS2 project) 16.1.0`
@@ -45,7 +47,7 @@ in place.
 - Engineering build/staging GStreamer input: 1.28.5. It is not the
   redistributed-runtime version recorded above.
 - Resulting patched executable SHA-256:
-  `11B65324C83F23503F2D555D0064D1348C884407BF7F9B1C34D27B5D1C05FB9B`
+  `EB8162577689EED354C4382ACFE099665A6D9E14EED466CB4DA6CA6E087448D6`
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.

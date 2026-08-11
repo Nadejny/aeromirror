@@ -41,7 +41,7 @@ index 1aeba28..1cd698a 100644
      http_response_add_header(response, "Connection", "close");
    
 diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
-index 2bb4f5f..55340ef 100644
+index 2bb4f5f..6ad69d8 100644
 --- a/lib/raop_rtp_mirror.c
 +++ b/lib/raop_rtp_mirror.c
 @@ -22,6 +22,7 @@
@@ -84,22 +84,326 @@ index 2bb4f5f..55340ef 100644
                  if (width != width_0 || height != height_0) {
                  logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror: Unexpected : data  %f,"
                             " %f != width_source = %f, height_source = %f", width_0, height_0, width_source, height_source);
+@@ -893,7 +912,6 @@ void
+ raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror_data_lport,
+                       uint8_t show_client_FPS_data)
+ {
+-    logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "raop_rtp_mirror starting mirroring");
+     int use_ipv6 = 0;
+ 
+     assert(raop_rtp_mirror);
+@@ -922,6 +940,8 @@ raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror
+     /* Create the thread and initialize running values */
+     raop_rtp_mirror->running = 1;
+     raop_rtp_mirror->joined = 0;
++    logger_log(raop_rtp_mirror->logger, LOGGER_INFO,
++               "raop_rtp_mirror starting mirroring");
+     if (raop_rtp_mirror->callbacks.mirror_video_running) {
+         raop_rtp_mirror->callbacks.mirror_video_running(raop_rtp_mirror->callbacks.cls, true);
+     }
 diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
-index ea1c450..b3c4b2f 100644
+index ea1c450..bcff89c 100644
 --- a/renderers/video_renderer.c
 +++ b/renderers/video_renderer.c
-@@ -81,6 +81,7 @@ struct video_renderer_s {
+@@ -75,12 +75,19 @@ typedef enum {
+ } GstPlayFlags;
+ 
+ #define NCODECS  3   /* renderers for h264,h265, and jpeg images */
++#define AEROMIRROR_RECOVERY_PTS_SLOTS 64
+ 
+ struct video_renderer_s {
+     GstElement *appsrc, *pipeline, *textsrc;
      GstBus *bus;
      const char *codec;
      bool autovideo;
 +    bool aeromirror_selection_logged;
++    bool aeromirror_present_proof_ready;
++    GstElement *aeromirror_present_sink;
++    GstPad *aeromirror_present_pad;
++    gulong aeromirror_present_handler;
++    gulong aeromirror_sink_probe;
      int id;
      char *uri;
      gboolean eos;
-@@ -101,6 +102,68 @@ static char h265[] = "h265";
+@@ -101,6 +108,343 @@ static char h265[] = "h265";
  static char hls[]  = "hls";
  static char jpeg[] = "jpeg";
  
++/* The feedback callback arms an epoch only after it has logged HTTP recovery.
++ * A matching frame must then pass each stage in order: accepted appsrc push,
++ * decoded sink-pad buffer with the exact fresh input PTS, and D3D11 Present.
++ * The Present callback runs under the D3D11 device lock, so it only publishes
++ * an atomic flag; the GLib main-loop timer writes the diagnostic marker. */
++static volatile gint aeromirror_recovery_epoch = 0;
++static volatile gint aeromirror_recovery_gap_seconds = 0;
++static volatile gint aeromirror_recovery_push_accepted_epoch = 0;
++static volatile gint aeromirror_recovery_sink_epoch = 0;
++static volatile gint aeromirror_recovery_present_seen_epoch = 0;
++static volatile gint aeromirror_recovery_present_pending_epoch = 0;
++static volatile gint aeromirror_recovery_push_logged_epoch = 0;
++static volatile gint aeromirror_recovery_push_failure_logged_epoch = 0;
++static volatile gint aeromirror_active_renderer_id = 0;
++static volatile gint aeromirror_active_present_proof_ready = 0;
++static GMutex aeromirror_recovery_metadata_lock;
++typedef struct {
++    GstClockTime pts;
++    gint epoch;
++    gint pts_delta_ms;
++    gboolean accepted;
++} aeromirror_recovery_pts_candidate_t;
++static aeromirror_recovery_pts_candidate_t
++    aeromirror_recovery_pts[AEROMIRROR_RECOVERY_PTS_SLOTS];
++static guint aeromirror_recovery_pts_next = 0;
++static gint aeromirror_recovery_matched_slot = -1;
++static GstClockTime aeromirror_recovery_matched_pts = GST_CLOCK_TIME_NONE;
++static gint aeromirror_recovery_pts_delta_ms = 0;
++
++static void aeromirror_reset_recovery_candidates_locked() {
++    g_atomic_int_set(&aeromirror_recovery_push_accepted_epoch, 0);
++    g_atomic_int_set(&aeromirror_recovery_sink_epoch, 0);
++    g_atomic_int_set(&aeromirror_recovery_present_seen_epoch, 0);
++    g_atomic_int_set(&aeromirror_recovery_present_pending_epoch, 0);
++    g_atomic_int_set(&aeromirror_recovery_push_logged_epoch, 0);
++    g_atomic_int_set(&aeromirror_recovery_push_failure_logged_epoch, 0);
++    memset(aeromirror_recovery_pts, 0,
++           sizeof(aeromirror_recovery_pts));
++    aeromirror_recovery_pts_next = 0;
++    aeromirror_recovery_matched_slot = -1;
++    aeromirror_recovery_matched_pts = GST_CLOCK_TIME_NONE;
++    aeromirror_recovery_pts_delta_ms = 0;
++}
++
++static void aeromirror_reset_recovery_candidates() {
++    g_mutex_lock(&aeromirror_recovery_metadata_lock);
++    aeromirror_reset_recovery_candidates_locked();
++    g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++}
++
++static gint aeromirror_signed_delta_ms(GstClockTime pts,
++                                       GstClockTime running_time) {
++    guint64 delta_ns;
++    guint64 delta_ms;
++    if (pts >= running_time) {
++        delta_ns = pts - running_time;
++        delta_ms = delta_ns / GST_MSECOND;
++        return delta_ms > G_MAXINT ? G_MAXINT : (gint) delta_ms;
++    }
++    delta_ns = running_time - pts;
++    delta_ms = delta_ns / GST_MSECOND;
++    return delta_ms > G_MAXINT ? G_MININT : -(gint) delta_ms;
++}
++
++void video_renderer_arm_recovery(unsigned int epoch,
++                                 unsigned int gap_seconds) {
++    if (!epoch || epoch > G_MAXINT) {
++        return;
++    }
++    /* Disarm the previous challenge before clearing any stage. This prevents
++     * a late sink/Present callback from repopulating an old epoch while the
++     * new challenge is being published. */
++    g_atomic_int_set(&aeromirror_recovery_epoch, 0);
++    g_mutex_lock(&aeromirror_recovery_metadata_lock);
++    aeromirror_reset_recovery_candidates_locked();
++    g_atomic_int_set(&aeromirror_recovery_gap_seconds,
++                     (gint) MIN(gap_seconds, (unsigned int) G_MAXINT));
++    g_atomic_int_set(&aeromirror_recovery_epoch, (gint) epoch);
++    g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++}
++
++void video_renderer_cancel_recovery() {
++    g_atomic_int_set(&aeromirror_recovery_epoch, 0);
++    g_mutex_lock(&aeromirror_recovery_metadata_lock);
++    aeromirror_reset_recovery_candidates_locked();
++    g_atomic_int_set(&aeromirror_recovery_gap_seconds, 0);
++    g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++}
++
++static GstPadProbeReturn aeromirror_recovery_sink_probe(
++        GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
++    gint selected_id = GPOINTER_TO_INT(user_data);
++    gint epoch = g_atomic_int_get(&aeromirror_recovery_epoch);
++    if (!epoch || selected_id <= 0 ||
++        g_atomic_int_get(&aeromirror_active_renderer_id) != selected_id ||
++        !(GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)) {
++        return GST_PAD_PROBE_OK;
++    }
++    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
++    GstClockTime sink_pts = buffer ? GST_BUFFER_PTS(buffer) : GST_CLOCK_TIME_NONE;
++    gint matched_slot = -1;
++    gboolean accepted = FALSE;
++    gint pts_delta_ms = 0;
++    g_mutex_lock(&aeromirror_recovery_metadata_lock);
++    if (g_atomic_int_get(&aeromirror_recovery_epoch) == epoch &&
++        aeromirror_recovery_matched_slot < 0) {
++        for (guint i = 0; i < AEROMIRROR_RECOVERY_PTS_SLOTS; i++) {
++            if (aeromirror_recovery_pts[i].epoch == epoch &&
++                aeromirror_recovery_pts[i].pts == sink_pts) {
++                matched_slot = (gint) i;
++                accepted = aeromirror_recovery_pts[i].accepted;
++                pts_delta_ms =
++                    aeromirror_recovery_pts[i].pts_delta_ms;
++                aeromirror_recovery_matched_slot = matched_slot;
++                aeromirror_recovery_matched_pts = sink_pts;
++                aeromirror_recovery_pts_delta_ms = pts_delta_ms;
++                break;
++            }
++        }
++    }
++    g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++    if (!GST_CLOCK_TIME_IS_VALID(sink_pts) || matched_slot < 0) {
++        return GST_PAD_PROBE_OK;
++    }
++    if (g_atomic_int_compare_and_exchange(
++            &aeromirror_recovery_sink_epoch, 0, epoch)) {
++        logger_log(logger, LOGGER_INFO,
++                   "AEROMIRROR_VIDEO_SINK_RECOVERED epoch=%d "
++                   "target_pts_ns=%" G_GUINT64_FORMAT " sink_pts_ns=%" G_GUINT64_FORMAT,
++                   epoch, sink_pts, sink_pts);
++    }
++    if (accepted) {
++        g_atomic_int_set(
++            &aeromirror_recovery_push_accepted_epoch, epoch);
++    }
++    return GST_PAD_PROBE_OK;
++}
++
++static void aeromirror_recovery_present(GstElement *videosink,
++                                        GstObject *device,
++                                        gpointer render_target,
++                                        gpointer user_data) {
++    gint selected_id = GPOINTER_TO_INT(user_data);
++    gint epoch = g_atomic_int_get(&aeromirror_recovery_epoch);
++    (void) videosink;
++    (void) device;
++    (void) render_target;
++    if (!epoch || selected_id <= 0 ||
++        g_atomic_int_get(&aeromirror_active_renderer_id) != selected_id ||
++        g_atomic_int_get(&aeromirror_recovery_sink_epoch) != epoch) {
++        return;
++    }
++    g_atomic_int_compare_and_exchange(
++        &aeromirror_recovery_present_seen_epoch, 0, epoch);
++    if (g_atomic_int_get(
++            &aeromirror_recovery_push_accepted_epoch) == epoch) {
++        g_atomic_int_compare_and_exchange(
++            &aeromirror_recovery_present_pending_epoch, 0, epoch);
++    }
++}
++
++void video_renderer_poll_recovery_present() {
++    g_mutex_lock(&aeromirror_recovery_metadata_lock);
++    gint epoch = g_atomic_int_get(
++        &aeromirror_recovery_present_pending_epoch);
++    if (!epoch || !g_atomic_int_compare_and_exchange(
++            &aeromirror_recovery_epoch, epoch, 0)) {
++        g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++        return;
++    }
++    gint gap_seconds = g_atomic_int_get(
++        &aeromirror_recovery_gap_seconds);
++    gint pts_delta_ms = aeromirror_recovery_pts_delta_ms;
++    aeromirror_reset_recovery_candidates_locked();
++    g_atomic_int_set(&aeromirror_recovery_gap_seconds, 0);
++    g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++    logger_log(logger, LOGGER_INFO,
++               "AEROMIRROR_VIDEO_PRESENT_READY epoch=%d gap_seconds=%d "
++               "proof=d3d11-present pts_delta_ms=%d",
++               epoch, gap_seconds, pts_delta_ms);
++}
++
++static void aeromirror_attach_d3d11_present_proof(
++        video_renderer_t *selected, GstElement *videosink_element) {
++    if (!sync) {
++        return;
++    }
++    GstElementFactory *factory = gst_element_get_factory(videosink_element);
++    const gchar *factory_name = factory
++        ? gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory)) : NULL;
++    if (!factory_name || strcmp(factory_name, "d3d11videosink") ||
++        !g_signal_lookup("present", G_OBJECT_TYPE(videosink_element)) ||
++        !g_object_class_find_property(
++            G_OBJECT_GET_CLASS(videosink_element), "emit-present")) {
++        return;
++    }
++    GstPad *sink_pad = gst_element_get_static_pad(videosink_element, "sink");
++    if (!sink_pad) {
++        return;
++    }
++    g_object_set(videosink_element, "emit-present", TRUE, NULL);
++    selected->aeromirror_present_sink =
++        GST_ELEMENT(gst_object_ref(videosink_element));
++    selected->aeromirror_present_pad = sink_pad;
++    selected->aeromirror_present_handler = g_signal_connect(
++        videosink_element, "present",
++        G_CALLBACK(aeromirror_recovery_present),
++        GINT_TO_POINTER(selected->id + 1));
++    selected->aeromirror_sink_probe = gst_pad_add_probe(
++        sink_pad, GST_PAD_PROBE_TYPE_BUFFER,
++        aeromirror_recovery_sink_probe,
++        GINT_TO_POINTER(selected->id + 1), NULL);
++    selected->aeromirror_present_proof_ready =
++        selected->aeromirror_present_handler != 0 &&
++        selected->aeromirror_sink_probe != 0;
++    if (!selected->aeromirror_present_proof_ready) {
++        if (selected->aeromirror_present_handler) {
++            g_signal_handler_disconnect(
++                selected->aeromirror_present_sink,
++                selected->aeromirror_present_handler);
++        }
++        if (selected->aeromirror_sink_probe) {
++            gst_pad_remove_probe(
++                selected->aeromirror_present_pad,
++                selected->aeromirror_sink_probe);
++        }
++        gst_object_unref(selected->aeromirror_present_pad);
++        gst_object_unref(selected->aeromirror_present_sink);
++        selected->aeromirror_present_pad = NULL;
++        selected->aeromirror_present_sink = NULL;
++        selected->aeromirror_present_handler = 0;
++        selected->aeromirror_sink_probe = 0;
++        return;
++    }
++    logger_log(logger, LOGGER_INFO,
++               "AEROMIRROR_VIDEO_PRESENT_PROOF_READY codec=%s "
++               "videosink=d3d11videosink",
++               selected->codec);
++}
++
++static void aeromirror_detach_d3d11_present_proof(
++        video_renderer_t *selected) {
++    if (!selected) {
++        return;
++    }
++    selected->aeromirror_present_proof_ready = false;
++    if (selected->aeromirror_present_handler &&
++        selected->aeromirror_present_sink) {
++        g_signal_handler_disconnect(
++            selected->aeromirror_present_sink,
++            selected->aeromirror_present_handler);
++    }
++    if (selected->aeromirror_sink_probe &&
++        selected->aeromirror_present_pad) {
++        gst_pad_remove_probe(
++            selected->aeromirror_present_pad,
++            selected->aeromirror_sink_probe);
++    }
++    if (selected->aeromirror_present_pad) {
++        gst_object_unref(selected->aeromirror_present_pad);
++    }
++    if (selected->aeromirror_present_sink) {
++        gst_object_unref(selected->aeromirror_present_sink);
++    }
++    selected->aeromirror_present_pad = NULL;
++    selected->aeromirror_present_sink = NULL;
++    selected->aeromirror_present_handler = 0;
++    selected->aeromirror_sink_probe = 0;
++}
++
++bool video_renderer_present_proof_available() {
++    return g_atomic_int_get(
++        &aeromirror_active_present_proof_ready) == 1;
++}
++
 +static void aeromirror_log_pipeline_selection(video_renderer_t *selected) {
 +    if (!selected || selected->aeromirror_selection_logged || hls_video ||
 +        !strcmp(selected->codec, jpeg)) {
@@ -165,7 +469,7 @@ index ea1c450..b3c4b2f 100644
  static void append_videoflip (GString *launch, const videoflip_t *flip, const videoflip_t *rot) {
      /* videoflip image transform */
      switch (*flip) {
-@@ -177,6 +240,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
+@@ -177,6 +521,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
      height_source = (unsigned short) *f_height_source;
      width = (unsigned short) *f_width;
      height = (unsigned short) *f_height;
@@ -175,7 +479,194 @@ index ea1c450..b3c4b2f 100644
      logger_log(logger, LOGGER_DEBUG, "begin video stream wxh = %dx%d; source %dx%d", width, height, width_source, height_source);
  }
  
-@@ -812,7 +878,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -400,6 +747,16 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
+             renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
+             g_assert(renderer_type[i]->appsrc);
+             g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
++            gchar *videosink_element_name =
++                g_strdup_printf("%s_%s", videosink, renderer_type[i]->codec);
++            GstElement *videosink_element = gst_bin_get_by_name(
++                GST_BIN(renderer_type[i]->pipeline), videosink_element_name);
++            if (videosink_element) {
++                aeromirror_attach_d3d11_present_proof(
++                    renderer_type[i], videosink_element);
++                gst_object_unref(videosink_element);
++            }
++            g_free(videosink_element_name);
+             g_string_free(launch, TRUE);
+             gst_caps_unref(caps);
+             gst_object_unref(clock);
+@@ -481,6 +838,10 @@ void video_renderer_resume() {
+ }
+ 
+ void video_renderer_start() {
++    /* A renderer lifecycle boundary cannot inherit queued proof metadata. */
++    video_renderer_cancel_recovery();
++    g_atomic_int_set(&aeromirror_active_renderer_id, 0);
++    g_atomic_int_set(&aeromirror_active_present_proof_ready, 0);
+     GstState state;
+     const gchar *state_name = NULL;
+     if (hls_video) {
+@@ -617,7 +978,120 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+             GST_BUFFER_PTS(buffer) = pts;
+         }
+         gst_buffer_fill(buffer, 0, data, *data_len);
+-        gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
++        gint recovery_epoch = g_atomic_int_get(
++            &aeromirror_recovery_epoch);
++        gboolean recovery_candidate = FALSE;
++        gint recovery_candidate_slot = -1;
++        GstClockTime running_time = GST_CLOCK_TIME_NONE;
++        gint pts_delta_ms = 0;
++        if (recovery_epoch && sync && GST_CLOCK_TIME_IS_VALID(pts)) {
++            running_time =
++                gst_element_get_current_running_time(renderer->pipeline);
++            if (GST_CLOCK_TIME_IS_VALID(running_time)) {
++                pts_delta_ms =
++                    aeromirror_signed_delta_ms(pts, running_time);
++                g_mutex_lock(&aeromirror_recovery_metadata_lock);
++                if (g_atomic_int_get(&aeromirror_recovery_epoch) ==
++                    recovery_epoch) {
++                    recovery_candidate_slot =
++                        (gint) aeromirror_recovery_pts_next;
++                    aeromirror_recovery_pts_next =
++                        (aeromirror_recovery_pts_next + 1) %
++                        AEROMIRROR_RECOVERY_PTS_SLOTS;
++                    aeromirror_recovery_pts[recovery_candidate_slot].pts = pts;
++                    aeromirror_recovery_pts[recovery_candidate_slot].epoch =
++                        recovery_epoch;
++                    aeromirror_recovery_pts[recovery_candidate_slot]
++                        .pts_delta_ms = pts_delta_ms;
++                    aeromirror_recovery_pts[recovery_candidate_slot].accepted =
++                        FALSE;
++                }
++                g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++                recovery_candidate = recovery_candidate_slot >= 0;
++            }
++        }
++        GstFlowReturn flow_return =
++            gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
++        if (recovery_candidate && flow_return == GST_FLOW_OK &&
++            g_atomic_int_get(&aeromirror_recovery_epoch) ==
++                recovery_epoch) {
++            gboolean matched = FALSE;
++            g_mutex_lock(&aeromirror_recovery_metadata_lock);
++            if (recovery_candidate_slot >= 0 &&
++                g_atomic_int_get(&aeromirror_recovery_epoch) ==
++                    recovery_epoch &&
++                aeromirror_recovery_pts[recovery_candidate_slot].epoch ==
++                    recovery_epoch &&
++                aeromirror_recovery_pts[recovery_candidate_slot].pts == pts) {
++                aeromirror_recovery_pts[recovery_candidate_slot].accepted =
++                    TRUE;
++                matched = aeromirror_recovery_matched_slot ==
++                    recovery_candidate_slot &&
++                    aeromirror_recovery_matched_pts == pts;
++            }
++            g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++            if (matched) {
++                g_atomic_int_set(
++                    &aeromirror_recovery_push_accepted_epoch,
++                    recovery_epoch);
++            }
++            if (g_atomic_int_compare_and_exchange(
++                    &aeromirror_recovery_push_logged_epoch,
++                    0, recovery_epoch)) {
++                logger_log(logger, LOGGER_INFO,
++                           "AEROMIRROR_VIDEO_PUSH_RECOVERED epoch=%d "
++                           "gap_seconds=%d bytes=%d nal_count=%d flow=ok "
++                           "target_pts_ns=%" G_GUINT64_FORMAT " pts_delta_ms=%d",
++                           recovery_epoch,
++                           g_atomic_int_get(
++                               &aeromirror_recovery_gap_seconds),
++                           *data_len, *nal_count, pts, pts_delta_ms);
++            }
++            if (matched && g_atomic_int_get(
++                    &aeromirror_recovery_present_seen_epoch) ==
++                    recovery_epoch) {
++                g_atomic_int_compare_and_exchange(
++                    &aeromirror_recovery_present_pending_epoch,
++                    0, recovery_epoch);
++            }
++        } else if (recovery_candidate) {
++            gboolean matched = FALSE;
++            g_mutex_lock(&aeromirror_recovery_metadata_lock);
++            if (recovery_candidate_slot >= 0 &&
++                aeromirror_recovery_pts[recovery_candidate_slot].epoch ==
++                    recovery_epoch &&
++                aeromirror_recovery_pts[recovery_candidate_slot].pts == pts) {
++                matched = aeromirror_recovery_matched_slot ==
++                    recovery_candidate_slot;
++                memset(&aeromirror_recovery_pts[recovery_candidate_slot],
++                       0, sizeof(aeromirror_recovery_pts[0]));
++                if (matched) {
++                    aeromirror_recovery_matched_slot = -1;
++                    aeromirror_recovery_matched_pts = GST_CLOCK_TIME_NONE;
++                }
++            }
++            g_mutex_unlock(&aeromirror_recovery_metadata_lock);
++            if (matched) {
++                g_atomic_int_compare_and_exchange(
++                    &aeromirror_recovery_sink_epoch,
++                    recovery_epoch, 0);
++                g_atomic_int_compare_and_exchange(
++                    &aeromirror_recovery_present_seen_epoch,
++                    recovery_epoch, 0);
++            }
++        }
++        if (recovery_epoch && flow_return != GST_FLOW_OK &&
++            g_atomic_int_compare_and_exchange(
++                &aeromirror_recovery_push_failure_logged_epoch,
++                0, recovery_epoch)) {
++            logger_log(logger, LOGGER_INFO,
++                       "AEROMIRROR_VIDEO_PUSH_PENDING epoch=%d "
++                       "gap_seconds=%d flow=%s",
++                       recovery_epoch,
++                       g_atomic_int_get(
++                           &aeromirror_recovery_gap_seconds),
++                       gst_flow_get_name(flow_return));
++        }
+ #ifdef X_DISPLAY_FIX
+         if (renderer->gst_window && !(renderer->gst_window->window) && renderer->use_x11) {
+             X11_search_attempts++;
+@@ -636,6 +1110,8 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+ }
+ 
+ void video_renderer_flush() {
++    /* This callback is also used for unrelated RAOP HTTP connection teardown.
++     * It is not evidence that the mirroring stream or proof epoch ended. */
+ }
+ 
+ void video_renderer_hls_ready() {
+@@ -652,6 +1128,9 @@ void video_renderer_hls_ready() {
+ }
+ 
+ void video_renderer_stop() {
++    video_renderer_cancel_recovery();
++    g_atomic_int_set(&aeromirror_active_renderer_id, 0);
++    g_atomic_int_set(&aeromirror_active_present_proof_ready, 0);
+     if (renderer) {
+         logger_log(logger, LOGGER_DEBUG,"video_renderer_stop");
+         if (renderer->appsrc) {
+@@ -711,6 +1190,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
+             gst_object_unref (renderer->appsrc);
+             renderer->appsrc = NULL;
+         }
++        aeromirror_detach_d3d11_present_proof(renderer);
+         if (renderer->textsrc) {
+             gst_object_unref (renderer->textsrc);
+             renderer->textsrc = NULL;
+@@ -734,6 +1214,9 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
+ }
+ 
+ void video_renderer_destroy() {
++    video_renderer_cancel_recovery();
++    g_atomic_int_set(&aeromirror_active_renderer_id, 0);
++    g_atomic_int_set(&aeromirror_active_present_proof_ready, 0);
+     for (int i = 0; i < n_renderers; i++) {
+         if (renderer_type[i]) {
+             video_renderer_destroy_instance(renderer_type[i]);
+@@ -812,7 +1295,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
          return TRUE;
      }
  
@@ -185,7 +676,7 @@ index ea1c450..b3c4b2f 100644
  
      gint64 pos = -1;
      if (hls_video) {
-@@ -1009,6 +1077,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -1009,6 +1494,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
        /* unhandled message */
          break;
      }
@@ -195,21 +686,117 @@ index ea1c450..b3c4b2f 100644
      return TRUE;
  }
  
+@@ -1038,9 +1526,16 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
+         return -1;
+     }
+     renderer = renderer_used;
++    g_atomic_int_set(
++        &aeromirror_active_renderer_id, renderer->id + 1);
++    g_atomic_int_set(
++        &aeromirror_active_present_proof_ready,
++        sync && renderer->aeromirror_present_proof_ready ? 1 : 0);
+     gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+     GstState old_state, new_state;
+     if (gst_element_get_state(renderer->pipeline, &old_state, &new_state, 100 * GST_MSECOND) == GST_STATE_CHANGE_FAILURE) {
++        g_atomic_int_set(&aeromirror_active_renderer_id, 0);
++        g_atomic_int_set(&aeromirror_active_present_proof_ready, 0);
+         g_error("video pipeline failed to go into playing state");
+         return -1;
+     }
+diff --git a/renderers/video_renderer.h b/renderers/video_renderer.h
+index fd48415..30e6014 100644
+--- a/renderers/video_renderer.h
++++ b/renderers/video_renderer.h
+@@ -64,6 +64,10 @@ int video_renderer_cycle ();
+ bool video_renderer_is_paused();
+ bool video_renderer_eos_watch();
+ uint64_t  video_renderer_render_buffer (unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time);
++void video_renderer_arm_recovery(unsigned int epoch, unsigned int gap_seconds);
++void video_renderer_cancel_recovery();
++void video_renderer_poll_recovery_present();
++bool video_renderer_present_proof_available();
+ void video_renderer_display_jpeg(const void *data, int *data_len);
+ void video_renderer_flush ();
+ unsigned int video_renderer_listen(void *loop, int id);
 diff --git a/uxplay.cpp b/uxplay.cpp
-index d10edd4..af7c50a 100644
+index d10edd4..1046a6c 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
-@@ -190,6 +190,7 @@ static guint gst_hls_position_id = 0;
+@@ -28,6 +28,8 @@
+ #include <ctype.h>
+ #include <string>
+ #include <algorithm>
++#include <atomic>
++#include <mutex>
+ #include <vector>
+ #include <fstream>
+ #include <sstream>
+@@ -105,7 +107,7 @@ static int64_t audio_delay_alac = 0;
+ static int64_t audio_delay_aac = 0;
+ static bool relaunch_video = false;
+ static bool reset_loop = false;
+-static unsigned int open_connections= 0;
++static std::atomic<unsigned int> open_connections(0);
+ static std::string videosink = "autovideosink";
+ static std::string videosink_options = "";
+ static videoflip_t videoflip[2] = { NONE , NONE };
+@@ -189,7 +191,12 @@ static guint progress_id = 0;
+ static guint gst_hls_position_id = 0;
  static bool preserve_connections = false;
  static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
- static guint missed_feedback = 0;
+-static guint missed_feedback = 0;
++static std::atomic<guint> missed_feedback(0);
++static std::mutex feedback_health_mutex;
 +static bool feedback_health_ready_logged = false;
++static std::atomic<guint> feedback_recovery_epoch_counter(0);
++static std::atomic<bool> mirror_start_present_arm_requested(false);
++static std::mutex video_present_arm_mutex;
  static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
  static bool reset_httpd = false;
  static bool monitor_progress = false;
-@@ -723,6 +724,10 @@ static void main_loop()  {
+@@ -535,8 +542,12 @@ static void dump_video_to_file(unsigned char *data, int datalen) {
+ }
  
-     missed_feedback = 0;
+ static gboolean feedback_callback(gpointer loop) {
+-    if (open_connections) {
+-        if (missed_feedback_limit && missed_feedback > missed_feedback_limit) {
++    bool poll_recovery_present = false;
++    std::lock_guard<std::mutex> feedback_guard(feedback_health_mutex);
++    guint gap_seconds = missed_feedback.load();
++    if (open_connections.load()) {
++        poll_recovery_present = gap_seconds <= 2;
++        if (missed_feedback_limit && gap_seconds > missed_feedback_limit) {
+             LOGI("***ERROR lost connection with client (network problem?)");
+             LOGI("   Interval since last client feedback request exceeds limit of %u seconds", missed_feedback_limit);
+             LOGI("   Sometimes the network connection may recover after a longer delay:\n"
+@@ -549,12 +560,17 @@ static gboolean feedback_callback(gpointer loop) {
+             full_video_reset = true;
+             g_main_loop_quit((GMainLoop *) loop);
+             return TRUE;
+-        } else if (missed_feedback > 2) {
+-            LOGE("%3u seconds since last client feedback request (expected every two seconds); client may be offline", missed_feedback);
++        } else if (gap_seconds > 2) {
++            LOGE("%3u seconds since last client feedback request (expected every two seconds); client may be offline", gap_seconds);
+         }
+-        missed_feedback++;
++        missed_feedback.fetch_add(1);
+     } else {
+-        missed_feedback = 0;
++        missed_feedback.store(0);
++    }
++    if (poll_recovery_present) {
++        std::lock_guard<std::mutex> present_guard(
++            video_present_arm_mutex);
++        video_renderer_poll_recovery_present();
+     }
+     return TRUE;
+ }
+@@ -721,8 +737,12 @@ static void main_loop()  {
+         }
+     }
+ 
+-    missed_feedback = 0;
++    missed_feedback.store(0);
      guint feedback_watch_id = g_timeout_add_seconds(1, (GSourceFunc) feedback_callback, (gpointer) loop);
 +    if (feedback_watch_id && !feedback_health_ready_logged) {
 +        LOGI("AEROMIRROR_FEEDBACK_HEALTH_READY");
@@ -218,7 +805,7 @@ index d10edd4..af7c50a 100644
      guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
  
  #ifdef _WIN32
-@@ -1919,6 +1924,8 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
+@@ -1919,6 +1939,8 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
  static int register_dnssd() {
      int dnssd_error;
      uint64_t features;
@@ -227,7 +814,7 @@ index d10edd4..af7c50a 100644
      
      dnssd_error = dnssd_register_raop(dnssd, raop_port);
      if (dnssd_error) {
-@@ -1935,10 +1942,13 @@ static int register_dnssd() {
+@@ -1935,10 +1957,13 @@ static int register_dnssd() {
                       "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
                       "(see Apple's dns_sd.h)", dnssd_error);
              }
@@ -241,7 +828,7 @@ index d10edd4..af7c50a 100644
      }
  
      dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
-@@ -1947,12 +1957,19 @@ static int register_dnssd() {
+@@ -1947,12 +1972,19 @@ static int register_dnssd() {
              LOGE("dnssd_register_airplay failed with error code %d\n"
                   "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
                   "(see Apple's dns_sd.h)", dnssd_error);
@@ -261,7 +848,7 @@ index d10edd4..af7c50a 100644
      LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
           dnssd_get_airplay_features(dnssd));
      return 0;
-@@ -1998,12 +2015,12 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -1998,12 +2030,12 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
       * default: FEATURES_1 = 0x5A7FFEE6, FEATURES_2 = 0 */
  
      dnssd_set_airplay_features(dnssd,  0, 0); // AirPlay video supported 
@@ -276,7 +863,7 @@ index d10edd4..af7c50a 100644
      dnssd_set_airplay_features(dnssd,  6, 1); // 
      dnssd_set_airplay_features(dnssd,  7, 1); // mirroring supported
  
-@@ -2013,7 +2030,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -2013,7 +2045,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
      dnssd_set_airplay_features(dnssd, 11, 1); // audio packet redundancy supported
  
      dnssd_set_airplay_features(dnssd, 12, 1); // FaiPlay secure auth supported 
@@ -285,7 +872,7 @@ index d10edd4..af7c50a 100644
      dnssd_set_airplay_features(dnssd, 14, 1); // Authentication bit 4:  FairPlay authentication
      dnssd_set_airplay_features(dnssd, 15, 1); // Metadata bit 1 support:   Artwork 
  
-@@ -2089,6 +2106,8 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -2089,6 +2121,8 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
  
      /* bit 27 of Features determines whether the AirPlay2 client-pairing protocol will be used (1) or not (0) */
      dnssd_set_airplay_features(dnssd, 27, (int) setup_legacy_pairing);
@@ -294,18 +881,136 @@ index d10edd4..af7c50a 100644
      return 0;
  }
  
-@@ -2254,6 +2273,10 @@ extern "C" void conn_destroy (void *cls) {
+@@ -2229,16 +2263,22 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
+ }
+ 
+ extern "C" void conn_init (void *cls) {
+-    open_connections++;
+-    LOGD("Open connections: %i", open_connections);
++    unsigned int connection_count = open_connections.fetch_add(1) + 1;
++    LOGD("Open connections: %u", connection_count);
+     //video_renderer_update_background(1);
+ }
+ 
+ extern "C" void conn_destroy (void *cls) {
+     //video_renderer_update_background(-1);
+-    open_connections--;
+-    LOGD("Open connections: %i", open_connections);
+-    if (open_connections == 0) {
++    unsigned int previous_count = open_connections.load();
++    while (previous_count > 0 &&
++           !open_connections.compare_exchange_weak(
++               previous_count, previous_count - 1)) {
++    }
++    unsigned int connection_count =
++        previous_count > 0 ? previous_count - 1 : 0;
++    LOGD("Open connections: %u", connection_count);
++    if (connection_count == 0) {
+         remote_clock_offset = 0;
+         if (use_audio) {
+             audio_renderer_stop();
+@@ -2254,10 +2294,32 @@ extern "C" void conn_destroy (void *cls) {
  
  extern "C" void conn_feedback (void *cls) {
      /* received client heartbeat signal: connection still exists */
-+    if (missed_feedback > 2) {
-+        guint gap_seconds = std::min(missed_feedback, (guint) 86400);
-+        LOGI("AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=%u", gap_seconds);
+-    missed_feedback = 0;
++    std::lock_guard<std::mutex> feedback_guard(feedback_health_mutex);
++    guint observed_gap_seconds = missed_feedback.exchange(0);
++    if (observed_gap_seconds > 2) {
++        guint gap_seconds = std::min(observed_gap_seconds, (guint) 86400);
++        std::lock_guard<std::mutex> present_guard(
++            video_present_arm_mutex);
++        guint recovery_epoch =
++            feedback_recovery_epoch_counter.fetch_add(1) + 1;
++        if (!recovery_epoch) {
++            recovery_epoch = feedback_recovery_epoch_counter.fetch_add(1) + 1;
++        }
++        LOGI("AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=%u epoch=%u",
++             gap_seconds, recovery_epoch);
++        /* Arm only after the recovery marker has been written. A successful
++         * push observed before this point may still belong to the old frozen
++         * interval and must not prove that video resumed. */
++        video_renderer_arm_recovery(recovery_epoch, gap_seconds);
 +    }
-     missed_feedback = 0;
  }
  
-@@ -2759,8 +2782,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+ extern "C" void conn_reset (void *cls, int reason) {
++    {
++        std::lock_guard<std::mutex> present_guard(
++            video_present_arm_mutex);
++        video_renderer_cancel_recovery();
++    }
+     switch (reason) {
+     case 1:
+         LOGI("*** ERROR lost connection with client (network problem?)");
+@@ -2349,7 +2411,25 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
+         uint64_t pts_mismatch = 0;
+         do {
+             data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
+-            pts_mismatch = video_renderer_render_buffer(data->data, &(data->data_len), &(data->nal_count), &(data->ntp_time_remote));
++            if (data->data && data->data_len > 0 && !data->data[0] &&
++                video_renderer_present_proof_available()) {
++                std::lock_guard<std::mutex> present_guard(
++                    video_present_arm_mutex);
++                if (mirror_start_present_arm_requested.exchange(false)) {
++                    guint present_epoch =
++                        feedback_recovery_epoch_counter.fetch_add(1) + 1;
++                    if (!present_epoch) {
++                        present_epoch =
++                            feedback_recovery_epoch_counter.fetch_add(1) + 1;
++                    }
++                    LOGI("AEROMIRROR_VIDEO_PRESENT_ARMED "
++                         "reason=mirror-start epoch=%u", present_epoch);
++                    video_renderer_arm_recovery(present_epoch, 0);
++                }
++            }
++            pts_mismatch = video_renderer_render_buffer(
++                data->data, &(data->data_len), &(data->nal_count),
++                &(data->ntp_time_remote));
+             if (pts_mismatch) {
+                 LOGI("adjust timestamps by %8.6f secs", (double) pts_mismatch / SECOND_IN_NSECS);
+                 remote_clock_offset += pts_mismatch;
+@@ -2359,14 +2439,25 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
+     }
+ }
+ 
+-#ifdef DBUS
+ extern "C" void mirror_video_running  (void *cls, bool is_running) {
++#ifdef DBUS
+     if (scrsv != 1) {
+-        return;
++        /* Presentation proof is independent of DBus screensaver policy. */
++    } else {
++        dbus_screensaver_inhibiter(is_running);
+     }
+-    dbus_screensaver_inhibiter(is_running);
+-}
+ #endif
++    if (is_running) {
++        std::lock_guard<std::mutex> present_guard(
++            video_present_arm_mutex);
++        mirror_start_present_arm_requested.store(true);
++    } else {
++        std::lock_guard<std::mutex> present_guard(
++            video_present_arm_mutex);
++        mirror_start_present_arm_requested.store(false);
++        video_renderer_cancel_recovery();
++    }
++}
+ 
+ extern "C" void video_pause (void *cls) {
+     if (use_video) {
+@@ -2716,9 +2807,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+     raop_cbs.export_dacp = export_dacp;
+     raop_cbs.video_reset = video_reset;
+     raop_cbs.video_set_codec = video_set_codec;
+-#ifdef DBUS
+     raop_cbs.mirror_video_running = mirror_video_running;
+-#endif
+     raop_cbs.on_video_play = on_video_play;
+     raop_cbs.on_video_scrub = on_video_scrub;
+     raop_cbs.on_video_rate = on_video_rate;
+@@ -2759,8 +2848,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
      raop_set_udp_ports(raop, udp);
  
      raop_port = raop_get_port(raop);
@@ -321,7 +1026,7 @@ index d10edd4..af7c50a 100644
  
      /* use raop_port for airplay_port (instead of tcp[2]) */
      airplay_port = raop_port;
-@@ -3208,6 +3237,7 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3208,6 +3303,7 @@ int start_uxplay (int argc, char *argv[]) {
      if (start_raop_server(display, tcp, udp, debug_log)) {
          stop_dnssd();
          cleanup();
@@ -329,7 +1034,7 @@ index d10edd4..af7c50a 100644
      }
  
      if (lang.length() > 1) {
-@@ -3266,9 +3296,20 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3266,9 +3362,20 @@ int start_uxplay (int argc, char *argv[]) {
              video_renderer_start();
          }
          if (reset_httpd) {
@@ -352,7 +1057,7 @@ index d10edd4..af7c50a 100644
          }
          if (mux_to_file) {
              mux_renderer_stop();
-@@ -3280,6 +3321,7 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3280,6 +3387,7 @@ int start_uxplay (int argc, char *argv[]) {
          stop_dnssd();
      }
      cleanup();

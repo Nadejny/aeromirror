@@ -156,6 +156,24 @@ ownership. This is a focused correction to the typed-`TEARDOWN` path; it does
 not complete the unchecked DNS-SD/BLE re-publication work below or claim
 automatic reconnection.
 
+The 0.12.8 candidate addresses a separate false presentation handoff observed
+after a longer feedback gap. HTTP feedback recovery and a still-visible cached
+renderer HWND are not evidence that a new frame was displayed. The candidate
+correlates one recovery epoch with the current core PID and managed mirroring
+session, treats push/PTS/sink markers as diagnostics, and accepts
+only a fresh Direct3D 11 present-path proof for automatic fade. Missing proof
+keeps continuity visible and changes waiting text to reconnect guidance. This
+does not yet repair the underlying half-open transport, decoder, sink, or clock
+condition that may leave long-gap video frozen.
+
+The 0.12.9 candidate adds a second, strictly bounded managed idle-discovery
+allowance. After the existing first ten-minute renewal, a later Windows unlock
+may consume one final refresh only after cooldown and only while core, socket,
+discovery-marker, physical-IPv4, mirroring, client-grace, restart, and network
+guards are safe. This mitigates one missing-after-idle report but does not prove
+its cause, preserve a port across process replacement, or replace the native
+same-port re-publication work below.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -164,8 +182,17 @@ automatic reconnection.
 - [ ] Include stable error codes and a short user-safe explanation with every
   failure event.
 - [x] Add a compact native capability and feedback-recovered marker so the
-  transient continuity view can close without guessing on legacy cores; the
-  current shell schedules its local deadline at four seconds.
+  shell can distinguish acknowledged control recovery from an active gap; the
+  current shell schedules its local deadline at four seconds. This marker no
+  longer serves as displayed-frame evidence for handoff.
+- [x] Implement and automatically verify current-PID/session/recovery-epoch
+  presentation proof for continuity handoff. Feedback, appsrc push/PTS, sink
+  probes, renderer visibility, cached HWND, and pixel sampling cannot authorize
+  fade; physical recovered-frame evidence remains a separate pending gate.
+- [ ] Diagnose and correct the underlying longer-gap frozen-video path only
+  after socket lifetime, RTP input, appsrc flow, sink PTS, and presentation
+  evidence identify the boundary. Do not hot-replace a half-open socket, rebase
+  timestamps, or auto-reset the receiver without parser/crypto/physical tests.
 - [ ] Add graceful commands such as `shutdown`, `refreshDiscovery`, and
   `getStatus`; do not use process presence or renderer-window discovery as a
   substitute for readiness.
@@ -173,6 +200,18 @@ automatic reconnection.
   HTTP reset, then emit an acknowledged ready marker. Refactor the current
   registration ownership first so unregister/register cannot reuse freed
   service-name or hardware-address storage.
+- [x] Add one managed final post-renewal SessionUnlock refresh with cooldown,
+  readiness/client/network guards, a strict per-idle limit, and activity
+  re-arming; keep it documented as a mitigation rather than root-cause proof.
+- [ ] Physically validate the long-idle/unlock mitigation on Windows 10 and 11,
+  retain first-tap iPhone browse/request evidence, and isolate whether the
+  original absence was DNS-SD, BLE, Bonjour service state, iOS browse cache,
+  socket/port publication, or another lifecycle boundary.
+- [ ] Reproduce the reported Windows 10 first-install-only-after-reboot symptom
+  on a clean VM. Retain pre-reboot Setup/receiver logs, Bonjour service state,
+  pending-reboot indicators, firewall/network state, and the effect of a
+  receiver stop/start. Do not add a generic reboot prompt or machine-wide
+  Bonjour mutation without a proven prerequisite and rollback design.
 - [ ] Give every core launch and AirPlay session a correlation ID so shell and
   native logs can be matched.
 - [ ] Define protocol version negotiation so an older shell can fail safely
@@ -282,6 +321,13 @@ AirPlay feature bits as a mirror-only negotiation experiment. Its effect on
 direct-in-Photos startup and inner canvas sizing is physically pending. It
 does not provide a content rectangle or justify crop/zoom heuristics.
 
+Version 0.12.9 settings schema 12 adds a default-off A/B that temporarily lets
+only the exact recorded ambiguous Photos/media canvas drive the outer window,
+similar to the older wide-window presentation. It does not promote that canvas
+to device orientation, persist an automatic provisional landscape, modify the
+native stream, or enlarge inner media. Its value is specifically to separate
+an outer-window regression from the still-unsolved encoded-inner-canvas case.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
@@ -291,6 +337,12 @@ does not provide a content rectangle or justify crop/zoom heuristics.
 - [x] Prevent the exact replayed Photos-first `3840x2160 aux=0x0` canvas from
   becoming the device baseline or replacing a valid saved placement before a
   trustworthy frame or explicit user action exists.
+- [x] Add the schema-12 default-off exact-canvas outer-window A/B without a
+  native restart, trusted-orientation promotion, or provisional-placement save.
+- [ ] Run the same photo/video with the schema-12 A/B off and on, measure outer
+  client bounds and inner visible content separately, and retain direct-Photos
+  startup/session-stability evidence. Do not call a wider outer window an
+  inner-content fix.
 - [ ] Resolve sessions that start with only a generic media canvas and no early
   phone-shaped marker, without guessing that the canvas is the physical device
   ratio.
@@ -298,6 +350,10 @@ does not provide a content rectangle or justify crop/zoom heuristics.
 - [ ] Expose a trustworthy content rectangle/crop signal or validate a
   conservative pixel-analysis design for Photos canvases that contain their
   own encoded black bars; do not crop real dark content by guesswork.
+- [ ] Emit the exact display-capability response selected for each new session
+  and retain a physical HEVC 4K-versus-1080p Photos A/B. Treat that marker as
+  negotiation evidence only; feature bits remain unchanged, and neither preset
+  is a fix unless the visible inner-media measurement improves repeatedly.
 - [ ] Resize or letterbox the viewer without cropping content, repeatedly
   shrinking the window, or creating a resize feedback loop.
 - [ ] Respect iPhone orientation lock: AeroMirror should follow the stream
@@ -331,11 +387,22 @@ D3D11 default reach UxPlay instead of being silently replaced by the wrapper's
 persisted Qt preference. Physical actual-sink and Photos transition evidence
 is still required.
 
+The 0.12.8 candidate adds recovery-stage telemetry around video push, target
+PTS/sink observation, and the Direct3D 11 present path. Only the correlated
+present proof is presentation-ready; earlier markers locate a stall but cannot
+close continuity. Direct3D 12 and other advanced sinks require an equivalent
+reviewed proof before they can use automatic handoff. Interactive `-vsync no`
+deliberately skips synchronized PTS/Present proof in this candidate and retains
+reconnect guidance.
+
 - [x] Remove the aggressive 50 ms audio-buffer request from the Interactive
   profile while keeping Balanced as the default.
 - [x] Pin both decoder and video sink for explicit Direct3D 11/12 comparisons.
 - [ ] Add bounded frame-pacing, decoder QoS/drop, packet-jitter, and render-time
   telemetry that does not contain mirrored content.
+- [ ] Retain physical evidence that a correlated D3D11 present marker coincides
+  with real recovered video after both short and longer gaps; a successful
+  appsrc push or matching PTS is not sufficient acceptance.
 - [ ] Benchmark Balanced and Interactive on identical local-network conditions
   across Windows 10/11 and representative GPUs before changing the default.
 - [ ] Embed or parent a native D3D surface behind a versioned local IPC contract

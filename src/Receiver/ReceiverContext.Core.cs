@@ -21,6 +21,10 @@ namespace AirPlayReceiverMvp
     internal sealed partial class ReceiverContext
     {
         private const int FeedbackGapPlaceholderSeconds = 4;
+        private const int FeedbackVideoRecoveryWaitSeconds = 3;
+        private const int IdleDiscoveryFirstRenewalMinutes = 10;
+        private const int IdleDiscoveryUnlockRetryCooldownMinutes = 10;
+        private const int IdleDiscoveryRenewalLimit = 2;
 
         private enum LostConnectionRecoveryAction
         {
@@ -28,6 +32,13 @@ namespace AirPlayReceiverMvp
             RestartStalledSession,
             PreserveNativeRecovery,
             PreserveLegacyRecovery
+        }
+
+        private enum SessionUnlockDiscoveryAction
+        {
+            None,
+            RetryLater,
+            Refresh
         }
 
         public void StartCore()
@@ -413,6 +424,7 @@ namespace AirPlayReceiverMvp
                     "AirPlay authentication progress");
 
             ObserveClientFeedbackHealth(processId, line);
+            ObserveRecoveredVideoPresentation(processId, line);
 
             Match chosenDeviceId = Regex.Match(
                 line,
@@ -429,7 +441,6 @@ namespace AirPlayReceiverMvp
             {
                 if (HandleMirroringStartedMaintenance(processId))
                 {
-                    Interlocked.Increment(ref mirrorSessionGeneration);
                     lock (videoSizeSync)
                     {
                         pendingVideoSize = Size.Empty;
@@ -639,7 +650,8 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks,
-                    now.AddMinutes(10).Ticks);
+                    now.AddMinutes(
+                        GetIdleDiscoveryRenewalDelayMinutes(0)).Ticks);
             }
 
             Log("Incoming AirPlay client activity observed; " +
@@ -654,6 +666,7 @@ namespace AirPlayReceiverMvp
         private bool HandleMirroringStartedMaintenance(int processId)
         {
             bool canceledDeferredRestart;
+            bool feedbackRecoverySuperseded;
             lock (postSessionMaintenanceSync)
             {
                 if (Interlocked.CompareExchange(
@@ -667,23 +680,62 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref lostConnectionRecoveryDueTicks, 0);
                 ResetLostConnectionHttpResetAttempt();
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
+                feedbackRecoverySuperseded =
+                    Interlocked.CompareExchange(
+                        ref feedbackGapPlaceholderActive, 0, 0) == 1;
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
-                Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
+                ResetFeedbackVideoRecoveryWaitLocked();
+                int sessionGeneration = Interlocked.Increment(
+                    ref mirrorSessionGeneration);
                 Interlocked.Exchange(ref mirrorSessionActive, 1);
-                QueueLostConnectionRendererHandoff();
+                if (feedbackRecoverySuperseded)
+                {
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryPending, 1);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryPid, processId);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryEpoch, 0);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryGapSeconds, 0);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoverySessionGeneration,
+                        sessionGeneration);
+                    Interlocked.Exchange(
+                        ref feedbackVideoMirrorStartArmExpected, 1);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryWaitDueTicks,
+                        DateTime.UtcNow.AddSeconds(
+                            FeedbackVideoRecoveryWaitSeconds).Ticks);
+                    QueueLostConnectionRecoveredWait();
+                }
+                else
+                {
+                    Interlocked.Exchange(
+                        ref feedbackGapPlaceholderActive, 0);
+                    QueueLostConnectionRendererHandoff();
+                }
                 canceledDeferredRestart = Interlocked.Exchange(
                     ref mirrorSessionEndedPending, 0) == 1;
                 Interlocked.Exchange(ref mirrorSessionEndedDueTicks, 0);
                 Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 0);
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks,
-                    DateTime.UtcNow.AddMinutes(10).Ticks);
+                    DateTime.UtcNow.AddMinutes(
+                        GetIdleDiscoveryRenewalDelayMinutes(0)).Ticks);
             }
             if (canceledDeferredRestart)
                 Log("Mirroring started; pending post-session settings " +
                     "maintenance was canceled and remains deferred until " +
                     "this session ends.");
+            if (feedbackRecoverySuperseded)
+            {
+                Log("A new mirroring start superseded a same-session feedback " +
+                    "recovery before presentation proof; continuity will wait " +
+                    "for a new mirror-start presentation challenge instead of " +
+                    "trusting the stale renderer window.");
+            }
             return true;
         }
 
@@ -729,6 +781,7 @@ namespace AirPlayReceiverMvp
                     return;
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
+                ResetFeedbackVideoRecoveryWaitLocked();
                 if (!abnormalLossRecoveryPending)
                 {
                     closeTransientFeedbackPlaceholder = Interlocked.Exchange(
@@ -755,7 +808,8 @@ namespace AirPlayReceiverMvp
                 {
                     Interlocked.Exchange(
                         ref idleDiscoveryRenewalDueTicks,
-                        now.AddMinutes(10).Ticks);
+                        now.AddMinutes(
+                            GetIdleDiscoveryRenewalDelayMinutes(0)).Ticks);
                 }
                 if (IsSettingsRestartDeferred)
                 {
@@ -814,7 +868,13 @@ namespace AirPlayReceiverMvp
 
                     if (Interlocked.CompareExchange(
                             ref feedbackGapEpisodeActive, 1, 0) == 0)
+                    {
                         Interlocked.Increment(ref feedbackGapEpisodeCount);
+                        ResetFeedbackVideoRecoveryWaitLocked();
+                        if (Interlocked.CompareExchange(
+                                ref feedbackGapPlaceholderActive, 0, 0) == 1)
+                            QueueLostConnectionPlaceholder();
+                    }
                     UpdateMaximum(
                         ref feedbackGapLongestSeconds, warningSeconds);
                     if (Interlocked.CompareExchange(
@@ -853,8 +913,9 @@ namespace AirPlayReceiverMvp
             int recoveredGapSeconds = ParseClientFeedbackRecoverySeconds(line);
             if (recoveredGapSeconds <= 0)
                 return;
+            int recoveredEpoch = ParseClientFeedbackRecoveryEpoch(line);
 
-            bool closePlaceholder = false;
+            bool waitForVideo = false;
             lock (postSessionMaintenanceSync)
             {
                 if (Interlocked.CompareExchange(
@@ -867,14 +928,48 @@ namespace AirPlayReceiverMvp
                     ref feedbackGapLongestSeconds, recoveredGapSeconds);
                 Interlocked.Exchange(ref feedbackGapEpisodeActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
-                closePlaceholder = Interlocked.Exchange(
-                    ref feedbackGapPlaceholderActive, 0) == 1;
-                if (closePlaceholder)
-                    QueueLostConnectionRendererHandoff();
+                waitForVideo = Interlocked.CompareExchange(
+                    ref feedbackGapPlaceholderActive, 0, 0) == 1;
+                if (waitForVideo)
+                {
+                    Interlocked.Exchange(
+                        ref feedbackVideoMirrorStartArmExpected, 0);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryPending, 1);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryPid, processId);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryEpoch, recoveredEpoch);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryGapSeconds,
+                        recoveredGapSeconds);
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoverySessionGeneration,
+                        Interlocked.CompareExchange(
+                            ref mirrorSessionGeneration, 0, 0));
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryWaitDueTicks,
+                        DateTime.UtcNow.AddSeconds(
+                            FeedbackVideoRecoveryWaitSeconds).Ticks);
+                    QueueLostConnectionRecoveredWait();
+                }
+                else
+                {
+                    ResetFeedbackVideoRecoveryWaitLocked();
+                }
             }
             Log("AirPlay client feedback resumed after a " +
                 recoveredGapSeconds + "-second gap; the existing " +
-                "mirroring session remains active.");
+                "mirroring session remains active" +
+                (waitForVideo
+                    ? recoveredEpoch > 0
+                        ? "; continuity will wait for matching D3D11 " +
+                            "presentation proof for recovery epoch " +
+                            recoveredEpoch + "."
+                        : "; this core supplied no presentation epoch, so " +
+                            "continuity will remain visible and offer manual " +
+                            "reconnect guidance."
+                    : "."));
         }
 
         private void HandleFeedbackGapPlaceholderTimer()
@@ -893,6 +988,209 @@ namespace AirPlayReceiverMvp
                     "frame while the existing session is still allowed " +
                     "to recover.");
             }
+        }
+
+        private void ObserveRecoveredVideoPresentation(
+            int processId, string line)
+        {
+            if (Regex.IsMatch(
+                    line ?? "",
+                    @"^AEROMIRROR_VIDEO_PRESENT_PROOF_READY " +
+                        @"codec=(?:h264|h265) videosink=d3d11videosink$",
+                    RegexOptions.IgnoreCase |
+                        RegexOptions.CultureInvariant))
+            {
+                lock (postSessionMaintenanceSync)
+                {
+                    if (Interlocked.CompareExchange(
+                            ref activeCorePid, 0, 0) != processId)
+                        return;
+                    Interlocked.Exchange(
+                        ref feedbackVideoPresentProofPid, processId);
+                    Interlocked.Exchange(
+                        ref feedbackVideoPresentProofReady, 1);
+                }
+                return;
+            }
+
+            int armedEpoch;
+            if (TryParseVideoPresentArmed(line, out armedEpoch))
+            {
+                bool armed = false;
+                int armedSessionGeneration = 0;
+                lock (postSessionMaintenanceSync)
+                {
+                    int sessionGeneration = Interlocked.CompareExchange(
+                        ref mirrorSessionGeneration, 0, 0);
+                    if (Interlocked.CompareExchange(
+                            ref activeCorePid, 0, 0) == processId &&
+                        IsMirrorSessionActive &&
+                        Interlocked.CompareExchange(
+                            ref feedbackVideoPresentProofReady, 0, 0) == 1 &&
+                        Interlocked.CompareExchange(
+                            ref feedbackVideoPresentProofPid, 0, 0) ==
+                            processId &&
+                        Interlocked.CompareExchange(
+                            ref feedbackGapPlaceholderActive, 0, 0) == 1 &&
+                        Interlocked.CompareExchange(
+                            ref feedbackVideoRecoveryPending, 0, 0) == 1 &&
+                        Interlocked.CompareExchange(
+                            ref feedbackVideoRecoveryPid, 0, 0) == processId &&
+                        Interlocked.CompareExchange(
+                            ref feedbackVideoRecoverySessionGeneration,
+                            0, 0) == sessionGeneration &&
+                        Interlocked.CompareExchange(
+                            ref feedbackVideoMirrorStartArmExpected,
+                            0, 0) == 1 &&
+                        Interlocked.CompareExchange(
+                            ref lostConnectionRecoveryPending, 0, 0) == 0)
+                    {
+                        Interlocked.Exchange(
+                            ref feedbackVideoRecoveryEpoch, armedEpoch);
+                        Interlocked.Exchange(
+                            ref feedbackVideoMirrorStartArmExpected, 0);
+                        Interlocked.Exchange(
+                            ref feedbackVideoRecoveryGapSeconds, 0);
+                        Interlocked.Exchange(
+                            ref feedbackVideoRecoveryWaitDueTicks,
+                            DateTime.UtcNow.AddSeconds(
+                                FeedbackVideoRecoveryWaitSeconds).Ticks);
+                        QueueLostConnectionRecoveredWait();
+                        armed = true;
+                        armedSessionGeneration = sessionGeneration;
+                    }
+                }
+                Log(armed
+                    ? "Accepted mirror-start D3D11 presentation challenge " +
+                        armedEpoch + " for core " + processId +
+                        ", session " + armedSessionGeneration + "."
+                    : "Ignored stale or unmatched mirror-start D3D11 " +
+                        "presentation challenge " + armedEpoch +
+                        " for core " + processId + ".");
+                return;
+            }
+
+            int epoch;
+            int gapSeconds;
+            int ptsDeltaMilliseconds;
+            if (!TryParseVideoPresentReady(
+                    line, out epoch, out gapSeconds,
+                    out ptsDeltaMilliseconds))
+                return;
+
+            bool accepted = false;
+            int acceptedSessionGeneration = 0;
+            lock (postSessionMaintenanceSync)
+            {
+                int sessionGeneration = Interlocked.CompareExchange(
+                    ref mirrorSessionGeneration, 0, 0);
+                if (Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) == processId &&
+                    IsMirrorSessionActive &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 0, 0) == 0 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackGapPlaceholderActive, 0, 0) == 1 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoPresentProofReady, 0, 0) == 1 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoPresentProofPid, 0, 0) == processId &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryPending, 0, 0) == 1 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryPid, 0, 0) == processId &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryEpoch, 0, 0) == epoch &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryGapSeconds, 0, 0) ==
+                        gapSeconds &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoverySessionGeneration, 0, 0) ==
+                        sessionGeneration &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionFeedbackHandoffPending, 0, 0) == 0)
+                {
+                    Interlocked.Exchange(
+                        ref feedbackVideoRecoveryWaitDueTicks, 0);
+                    QueueLostConnectionFeedbackRendererHandoff(
+                        processId, sessionGeneration, epoch);
+                    accepted = true;
+                    acceptedSessionGeneration = sessionGeneration;
+                }
+            }
+
+            Log(accepted
+                ? "Fresh video reached D3D11 Present for recovery epoch " +
+                    epoch + " (gap=" + gapSeconds + "s, pts delta=" +
+                    ptsDeltaMilliseconds +
+                    "ms, core=" + processId + ", session=" +
+                    acceptedSessionGeneration +
+                    "); beginning the continuity handoff."
+                : "Ignored D3D11 Present proof for stale or unmatched " +
+                    "recovery epoch " + epoch + " (gap=" + gapSeconds +
+                    "s, core=" + processId + ").");
+        }
+
+        private void HandleFeedbackVideoRecoveryWaitTimer()
+        {
+            bool showReconnectHint = false;
+            lock (postSessionMaintenanceSync)
+            {
+                long dueTicks = Interlocked.Read(
+                    ref feedbackVideoRecoveryWaitDueTicks);
+                if (dueTicks <= 0 || DateTime.UtcNow.Ticks < dueTicks)
+                    return;
+
+                Interlocked.Exchange(
+                    ref feedbackVideoRecoveryWaitDueTicks, 0);
+                int processId = Interlocked.CompareExchange(
+                    ref feedbackVideoRecoveryPid, 0, 0);
+                int sessionGeneration = Interlocked.CompareExchange(
+                    ref feedbackVideoRecoverySessionGeneration, 0, 0);
+                showReconnectHint =
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryPending, 0, 0) == 1 &&
+                    processId > 0 &&
+                    Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) == processId &&
+                    IsMirrorSessionActive &&
+                    Interlocked.CompareExchange(
+                        ref mirrorSessionGeneration, 0, 0) ==
+                        sessionGeneration &&
+                    Interlocked.CompareExchange(
+                        ref feedbackGapPlaceholderActive, 0, 0) == 1;
+                if (showReconnectHint)
+                {
+                    Interlocked.Increment(
+                        ref feedbackVideoRecoveryHintCount);
+                    QueueLostConnectionReconnectHint();
+                }
+                else
+                {
+                    ResetFeedbackVideoRecoveryWaitLocked();
+                }
+            }
+            if (showReconnectHint)
+            {
+                Log("AirPlay control traffic recovered, but no matching " +
+                    "D3D11 Present proof arrived within " +
+                    FeedbackVideoRecoveryWaitSeconds +
+                    " seconds; continuity remains visible with manual " +
+                    "Screen Mirroring reconnect guidance.");
+            }
+        }
+
+        private void ResetFeedbackVideoRecoveryWaitLocked()
+        {
+            Interlocked.Exchange(ref feedbackVideoRecoveryPending, 0);
+            Interlocked.Exchange(ref feedbackVideoRecoveryPid, 0);
+            Interlocked.Exchange(ref feedbackVideoRecoveryEpoch, 0);
+            Interlocked.Exchange(ref feedbackVideoRecoveryGapSeconds, 0);
+            Interlocked.Exchange(
+                ref feedbackVideoRecoverySessionGeneration, 0);
+            Interlocked.Exchange(
+                ref feedbackVideoMirrorStartArmExpected, 0);
+            Interlocked.Exchange(ref feedbackVideoRecoveryWaitDueTicks, 0);
         }
 
         private bool TryQueueDueFeedbackGapPlaceholderLocked(long nowTicks)
@@ -952,9 +1250,57 @@ namespace AirPlayReceiverMvp
         {
             Match match = Regex.Match(
                 line ?? "",
-                @"^AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=(\d+)$",
+                @"^AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=(\d+)" +
+                    @"(?: epoch=\d+)?$",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             return ParseBoundedFeedbackGap(match);
+        }
+
+        private static int ParseClientFeedbackRecoveryEpoch(string line)
+        {
+            Match match = Regex.Match(
+                line ?? "",
+                @"^AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=\d+ " +
+                    @"epoch=(\d+)$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            int epoch;
+            return match.Success &&
+                int.TryParse(match.Groups[1].Value, out epoch) && epoch > 0
+                    ? epoch : 0;
+        }
+
+        private static bool TryParseVideoPresentReady(
+            string line, out int epoch, out int gapSeconds,
+            out int ptsDeltaMilliseconds)
+        {
+            epoch = 0;
+            gapSeconds = 0;
+            ptsDeltaMilliseconds = 0;
+            Match match = Regex.Match(
+                line ?? "",
+                @"^AEROMIRROR_VIDEO_PRESENT_READY epoch=(\d+) " +
+                    @"gap_seconds=(\d+) proof=d3d11-present " +
+                    @"pts_delta_ms=(-?\d+)$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return match.Success &&
+                int.TryParse(match.Groups[1].Value, out epoch) &&
+                int.TryParse(match.Groups[2].Value, out gapSeconds) &&
+                int.TryParse(
+                    match.Groups[3].Value, out ptsDeltaMilliseconds) &&
+                epoch > 0 && gapSeconds >= 0 && gapSeconds <= 3600;
+        }
+
+        private static bool TryParseVideoPresentArmed(
+            string line, out int epoch)
+        {
+            epoch = 0;
+            Match match = Regex.Match(
+                line ?? "",
+                @"^AEROMIRROR_VIDEO_PRESENT_ARMED " +
+                    @"reason=mirror-start epoch=(\d+)$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return match.Success &&
+                int.TryParse(match.Groups[1].Value, out epoch) && epoch > 0;
         }
 
         private static int ParseBoundedFeedbackGap(Match match)
@@ -1132,6 +1478,7 @@ namespace AirPlayReceiverMvp
                     ref lostConnectionHttpResetStatus, 0);
                 Interlocked.Exchange(
                     ref lostConnectionHttpResetPort, 0);
+                ResetFeedbackVideoRecoveryWaitLocked();
                 Interlocked.Exchange(ref lostConnectionRecoveryPending, 1);
                 QueueLostConnectionPlaceholder();
                 Log("UxPlay reported a " + marker + "; waiting three seconds " +
@@ -1156,6 +1503,9 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(ref feedbackGapPlaceholderActive, 0);
                 Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
                 Interlocked.Exchange(ref feedbackHealthMarkersReady, 0);
+                Interlocked.Exchange(ref feedbackVideoPresentProofReady, 0);
+                Interlocked.Exchange(ref feedbackVideoPresentProofPid, 0);
+                ResetFeedbackVideoRecoveryWaitLocked();
                 Interlocked.Exchange(ref coreClientActivityReadyPending, 0);
                 Interlocked.Exchange(ref clientActivityGraceDueTicks, 0);
                 Interlocked.Exchange(ref physicalNetworkRestartDeferred, 0);
@@ -1197,24 +1547,36 @@ namespace AirPlayReceiverMvp
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks,
                     IsCoreRunning
-                        ? DateTime.UtcNow.AddMinutes(10).Ticks
+                        ? DateTime.UtcNow.AddMinutes(
+                            GetIdleDiscoveryRenewalDelayMinutes(0)).Ticks
                         : 0);
             }
+        }
+
+        private static int GetIdleDiscoveryRenewalDelayMinutes(
+            int completedRenewals)
+        {
+            if (completedRenewals != 0)
+                return 0;
+            return IdleDiscoveryFirstRenewalMinutes;
         }
 
         private void ArmIdleDiscoveryRenewalIfAvailable()
         {
             lock (postSessionMaintenanceSync)
             {
-                if (Interlocked.CompareExchange(
-                        ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+                int completedRenewals = Interlocked.CompareExchange(
+                    ref idleDiscoveryRenewalUsed, 0, 0);
+                int delayMinutes = GetIdleDiscoveryRenewalDelayMinutes(
+                    completedRenewals);
+                if (delayMinutes <= 0)
                 {
                     Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
                     return;
                 }
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks,
-                    DateTime.UtcNow.AddMinutes(10).Ticks);
+                    DateTime.UtcNow.AddMinutes(delayMinutes).Ticks);
             }
         }
 
@@ -1311,27 +1673,168 @@ namespace AirPlayReceiverMvp
 
                 long idleDueTicks = Interlocked.Read(
                     ref idleDiscoveryRenewalDueTicks);
+                int completedRenewals = Interlocked.CompareExchange(
+                    ref idleDiscoveryRenewalUsed, 0, 0);
                 if (idleDueTicks <= 0 || now.Ticks < idleDueTicks ||
                     IsMirrorSessionActive ||
-                    Interlocked.CompareExchange(
-                        ref idleDiscoveryRenewalUsed, 0, 0) != 0)
+                    completedRenewals != 0)
                     return;
 
                 if ((now - lastAutomaticDiscoveryRefreshUtc).TotalMinutes < 2)
                 {
+                    int delayMinutes = GetIdleDiscoveryRenewalDelayMinutes(
+                        completedRenewals);
                     Interlocked.Exchange(
                         ref idleDiscoveryRenewalDueTicks,
-                        now.AddMinutes(10).Ticks);
+                        delayMinutes > 0
+                            ? now.AddMinutes(delayMinutes).Ticks
+                            : 0);
                     return;
                 }
 
-                Interlocked.Exchange(ref idleDiscoveryRenewalUsed, 1);
+                Interlocked.Increment(ref idleDiscoveryRenewalUsed);
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks, 0);
-                Log("Renewing idle AirPlay discovery after ten minutes without " +
-                    "a mirroring session.");
+                Log("Renewing idle AirPlay discovery after ten minutes " +
+                    "without a mirroring session.");
                 lastAutomaticDiscoveryRefreshUtc = now;
                 ScheduleRestart("idle discovery renewal", false, 1200);
+            }
+        }
+
+        private static SessionUnlockDiscoveryAction
+            EvaluateSessionUnlockDiscoveryRefresh(
+            int completedRenewals,
+            bool coreRunning,
+            bool readinessCheckIdle,
+            bool localDiscoveryReady,
+            bool physicalNetworkReady,
+            bool restartBusy,
+            bool mirrorActive,
+            long clientGraceDueTicks,
+            long nowTicks,
+            DateTime lastRefreshUtc,
+            DateTime nowUtc,
+            out long nextDueTicks,
+            out int nextCompletedRenewals)
+        {
+            nextDueTicks = 0;
+            nextCompletedRenewals = completedRenewals;
+            if (completedRenewals != 1 || !coreRunning || mirrorActive ||
+                (clientGraceDueTicks > 0 && clientGraceDueTicks > nowTicks) ||
+                lastRefreshUtc == DateTime.MinValue)
+                return SessionUnlockDiscoveryAction.None;
+
+            if (!readinessCheckIdle || !localDiscoveryReady ||
+                !physicalNetworkReady || restartBusy)
+            {
+                nextDueTicks = nowUtc.AddSeconds(5).Ticks;
+                return SessionUnlockDiscoveryAction.RetryLater;
+            }
+
+            DateTime cooldownDue = lastRefreshUtc.AddMinutes(
+                IdleDiscoveryUnlockRetryCooldownMinutes);
+            if (nowUtc < cooldownDue)
+            {
+                nextDueTicks = cooldownDue.Ticks;
+                return SessionUnlockDiscoveryAction.RetryLater;
+            }
+
+            nextCompletedRenewals = IdleDiscoveryRenewalLimit;
+            return SessionUnlockDiscoveryAction.Refresh;
+        }
+
+        private void HandleSessionUnlockDiscoveryRefresh()
+        {
+            if (Interlocked.CompareExchange(
+                    ref sessionUnlockDiscoveryRefreshPending, 0, 0) != 1)
+                return;
+            long dueTicks = Interlocked.Read(
+                ref sessionUnlockDiscoveryRefreshDueTicks);
+            DateTime now = DateTime.UtcNow;
+            if (dueTicks > 0 && now.Ticks < dueTicks)
+                return;
+
+            lock (postSessionMaintenanceSync)
+            {
+                if (Interlocked.CompareExchange(
+                        ref sessionUnlockDiscoveryRefreshPending, 0, 0) != 1)
+                    return;
+
+                // SessionSwitch is serialized by the same lock. Re-read the
+                // deadline after entering it so a newer unlock cannot lose its
+                // two-second network-settle window to an older due timer pass.
+                dueTicks = Interlocked.Read(
+                    ref sessionUnlockDiscoveryRefreshDueTicks);
+                now = DateTime.UtcNow;
+                if (dueTicks > 0 && now.Ticks < dueTicks)
+                    return;
+
+                bool restartBusy = restartPending ||
+                    Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1 ||
+                    Interlocked.CompareExchange(
+                        ref networkRefreshRunning, 0, 0) == 1 ||
+                    Interlocked.CompareExchange(
+                        ref networkRefreshPending, 0, 0) == 1;
+                bool socketsReady = Interlocked.CompareExchange(
+                        ref coreSocketsReady, 0, 0) == 1 &&
+                    now.Ticks >= Interlocked.Read(
+                        ref coreSocketsReadyDueTicks);
+                int dnsSdStatus = Interlocked.CompareExchange(
+                    ref coreDnsSdStatus, 0, 0);
+                int bleStatus = Interlocked.CompareExchange(
+                    ref coreBleStatus, 0, 0);
+                bool localDiscoveryReady = socketsReady &&
+                    (dnsSdStatus == 1 || bleStatus == 1);
+                bool physicalNetworkReady = networkProfileKnown &&
+                    FirstNumericIpv4(physicalNetworkAddresses).Length > 0;
+                long nextDueTicks;
+                int nextCompletedRenewals;
+                SessionUnlockDiscoveryAction action =
+                    EvaluateSessionUnlockDiscoveryRefresh(
+                        Interlocked.CompareExchange(
+                            ref idleDiscoveryRenewalUsed, 0, 0),
+                        IsCoreRunning,
+                        !coreReadyPending,
+                        localDiscoveryReady,
+                        physicalNetworkReady,
+                        restartBusy,
+                        IsMirrorSessionActive,
+                        Interlocked.Read(ref clientActivityGraceDueTicks),
+                        now.Ticks,
+                        lastAutomaticDiscoveryRefreshUtc,
+                        now,
+                        out nextDueTicks,
+                        out nextCompletedRenewals);
+                if (action == SessionUnlockDiscoveryAction.RetryLater)
+                {
+                    Interlocked.Exchange(
+                        ref sessionUnlockDiscoveryRefreshDueTicks,
+                        nextDueTicks);
+                    return;
+                }
+
+                Interlocked.Exchange(
+                    ref sessionUnlockDiscoveryRefreshPending, 0);
+                Interlocked.Exchange(
+                    ref sessionUnlockDiscoveryRefreshDueTicks, 0);
+                if (action != SessionUnlockDiscoveryAction.Refresh)
+                {
+                    return;
+                }
+
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalUsed,
+                    nextCompletedRenewals);
+                Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
+                lastAutomaticDiscoveryRefreshUtc = now;
+                Log("Windows session unlocked after prolonged AirPlay idle; " +
+                    "local sockets, at least one local discovery marker, and " +
+                    "the cached physical IPv4 are ready, so the final bounded " +
+                    "discovery re-registration will run.");
+                ScheduleRestart(
+                    "session-unlock discovery refresh", false, 1200);
             }
         }
 
@@ -2034,9 +2537,11 @@ namespace AirPlayReceiverMvp
               }
             }
             HandleFeedbackGapPlaceholderTimer();
+            HandleFeedbackVideoRecoveryWaitTimer();
             HandleLostConnectionPlaceholder();
             HandleLostConnectionRecovery();
             HandleCoreDiscoveryRecovery();
+            HandleSessionUnlockDiscoveryRefresh();
             HandleAutomaticDiscoveryMaintenance();
             ApplyTopMost();
             ApplyLostConnectionPlaceholderPolicy();
@@ -2134,6 +2639,21 @@ namespace AirPlayReceiverMvp
             if (wasPending == 0 || previousDueTicks <= 0 ||
                 dueTicks < previousDueTicks)
                 Interlocked.Exchange(ref networkRefreshDueTicks, dueTicks);
+        }
+
+        private void OnSessionSwitch(
+            object sender, SessionSwitchEventArgs e)
+        {
+            if (e == null || e.Reason != SessionSwitchReason.SessionUnlock)
+                return;
+            lock (postSessionMaintenanceSync)
+            {
+                Interlocked.Exchange(
+                    ref sessionUnlockDiscoveryRefreshDueTicks,
+                    DateTime.UtcNow.AddSeconds(2).Ticks);
+                Interlocked.Exchange(
+                    ref sessionUnlockDiscoveryRefreshPending, 1);
+            }
         }
     }
 }

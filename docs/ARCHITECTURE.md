@@ -86,12 +86,41 @@ The current shell depends on these native integration behaviors:
    not erase that newer grace or allow deferred settings/network maintenance
    to interrupt the new handshake.
 8. A patched core announces `AEROMIRROR_FEEDBACK_HEALTH_READY` and emits
-   `AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=<n>` when periodic client
-   feedback resumes. Only after that capability marker may the shell use the
-   native three-second warning to arm a four-second local continuity deadline.
-   Recovery before the deadline cancels it; acknowledged later recovery queues
-   the existing renderer handoff without ending the active session. A legacy
-   core is excluded because it cannot provide the recovery acknowledgement.
+   `AEROMIRROR_CLIENT_FEEDBACK_RECOVERED gap_seconds=<n> epoch=<e>` when
+   periodic client feedback resumes. Only after that capability marker may the
+   shell use the native three-second warning to arm a four-second local
+   continuity deadline. Recovery before the deadline cancels it. Recovery after
+   the view appears changes the UI to connection-restored/waiting state but is
+   control-health evidence only: it cannot authorize renderer handoff.
+   Recovery-scoped `AEROMIRROR_VIDEO_PUSH_RECOVERED`/
+   `AEROMIRROR_VIDEO_PUSH_PENDING` appsrc flow/PTS and
+   `AEROMIRROR_VIDEO_SINK_RECOVERED` exact-PTS markers are diagnostic stages.
+   Only `AEROMIRROR_VIDEO_PRESENT_READY epoch=<e> gap_seconds=<n>
+   proof=d3d11-present pts_delta_ms=<d>` from the reviewed Direct3D 11
+   swap-chain present path can authorize fade, and the shell accepts it only
+   from the current core PID, current managed mirror-session generation,
+   currently armed epoch, and exact expected reason/gap. A feedback challenge
+   keeps its positive recovered gap; only an accepted mirror-start challenge
+   expects zero and restarts the three-second proof wait. A matching
+   `AEROMIRROR_VIDEO_PRESENT_PROOF_READY codec=<h264|h265>
+   videosink=d3d11videosink` capability marker from that current PID is also
+   required. A
+   repeated mirroring-start marker within that same feedback-gap recovery
+   cannot bypass the proof gate. Manual Screen Mirroring reselection may arm a
+   new presentation epoch with `AEROMIRROR_VIDEO_PRESENT_ARMED
+   reason=mirror-start epoch=<e>`, but that marker is accepted only when the
+   managed session is explicitly expecting a mirror-start challenge. The
+   mirror-start marker alone still leaves
+   continuity visible until matching D3D11 present proof arrives. A
+   legacy core, Direct3D 12 or another advanced sink, stale
+   process/session/epoch, visible cached HWND, or media-path diagnostic cannot
+   use the handoff shortcut.
+
+   The proof hook also requires synchronized video. Interactive `-vsync no`
+   sets the sink path to `sync=false`, so the native renderer deliberately does
+   not attach the PTS probe/Present proof capability. That path keeps the
+   reconnect guidance; it cannot reinterpret an unsynchronized Present or push
+   marker as equivalent evidence.
 9. Native HTTP startup emits `AEROMIRROR_HTTP_READY stage=initial port=<n>` or
    an explicit failed marker. Fatal internal reset emits reset readiness only
    after binding the exact original advertised port. The shell accepts markers
@@ -136,6 +165,34 @@ versioned bidirectional IPC protocol. Compatibility code still supports a
 legacy core without those markers, but explicit failure of both DNS-SD and BLE
 must never produce a false ready state.
 
+## Managed discovery maintenance
+
+Normal discovery maintenance remains bounded around real activity. A physical
+network change can refresh the receiver, a completed lost-client cleanup can
+preserve the same native process and HTTP port, and an idle receiver has one
+managed ten-minute renewal. A high-level AirPlay request, PIN activity, or a
+new mirroring start establishes grace and re-arms that normal idle sequence so
+stale maintenance cannot interrupt a handshake.
+
+The 0.12.9 candidate adds one final managed fallback tied to Windows
+`SessionUnlock`. It is eligible only after the first ten-minute idle renewal
+has completed and its separate ten-minute cooldown has elapsed. Evaluation
+requires the core to be running, its readiness check to be idle, listening
+sockets to be ready, at least one DNS-SD/BLE discovery marker to be positive,
+a cached numeric physical IPv4 to be available, no active mirroring or client
+grace, and no restart/network refresh already in progress. A temporarily false
+readiness guard defers evaluation in bounded timer passes; an ineligible state
+cancels it. Consuming the second allowance prevents repeated unlock events from
+creating a restart loop.
+
+This is a symptom mitigation, not discovery readiness IPC or root-cause proof.
+The full-process refresh may obtain another AirPlay port; it does not establish
+stable-port re-publication, mutate native registration ownership in place, or
+force an iPhone to invalidate a cached browse result. Bonjour remains an
+external machine-wide service. The managed shell observes its status but the
+0.12.9 candidate does not start, stop, repair, uninstall, or otherwise mutate
+that service.
+
 ## Renderer-window fitting
 
 Renderer-window discovery is still a heuristic Win32 boundary. When a new
@@ -155,6 +212,16 @@ later phone-shaped `998x2160 aux=1421x0` marker can establish portrait in the
 same session. The observed real-landscape `3840x1776 aux=0x192` signature and
 ordinary nonmatching 16:9 streams remain eligible, so the narrow rule does not
 turn auxiliary values into general orientation metadata.
+
+Settings schema 12 adds a conservative, default-off A/B for that exact
+ambiguous Photos/media signature. When enabled, the raw canvas may temporarily
+become the automatic outer-window fit target, approximating the earlier wide
+window behavior. It still cannot seed `deviceFrameVideoSize`, become an
+authoritative orientation event, or persist an automatic provisional
+landscape. Disabling the option re-evaluates the already debounced frame on the
+next supervision pass without restarting the core. The setting changes no
+native arguments, advertised feature bits, negotiation, decoded pixels, crop,
+or zoom; inner media can remain letterboxed and small.
 
 Later sizes whose normalized aspect matches within `0.03` are authoritative
 rotation events, while other ratios retain the learned device orientation.
@@ -204,10 +271,12 @@ expose explicit stream, orientation, and content-layout events.
 
 Settings schema 11 makes Direct3D 11 the managed stability default. Loading a
 legacy profile migrates only `Renderer=auto` to `d3d11`; an explicit `d3d12`
-choice is retained. Unknown renderer values normalize to D3D11. The shell pins
-both the codec-family decoder and matching video sink for Direct3D 11 or 12,
-and raw advanced UxPlay arguments remain later on the command line so an
-experienced tester can make an explicit diagnostic override.
+choice is retained. Unknown renderer values normalize to D3D11. Schema 12 adds
+the independent default-off Photos/media outer-window A/B and preserves the
+schema-11 renderer migration as a separate step. The shell pins both the
+codec-family decoder and matching video sink for Direct3D 11 or 12, and raw
+advanced UxPlay arguments remain later on the command line so an experienced
+tester can make an explicit diagnostic override.
 
 The headless wrapper treats the `--uxplay` vector as authoritative. It does not
 strip `-vs` or `-fs` and does not inject its persisted Qt renderer/fullscreen
@@ -251,13 +320,31 @@ second renderer. A native three-second feedback warning may schedule it for a
 four-second local deadline only after the patched core has announced
 recovery-marker capability. If feedback recovers earlier, the pending view is
 canceled. If it is already visible, acknowledged feedback or a replacement
-connection changes the text to connection-restored/waiting-for-image and queues
-the existing renderer handoff without restarting the active session.
+connection changes the text to connection-restored/waiting-for-image without
+claiming that video presentation resumed.
+
+For the 0.12.8 same-session feedback-gap path, the shell arms one presentation-
+proof epoch for the current core PID and managed mirror-session generation.
+Successful appsrc push, the target PTS reaching the sink probe,
+renderer-window visibility, and cached pixel observations remain
+diagnostics only. The view
+starts its short nonblocking fade only after the same epoch reports a fresh
+Direct3D 11 swap-chain present from a core that announced the exact capability.
+If no accepted proof arrives during the bounded three-second wait, the view
+remains and changes to explicit Screen Mirroring
+reconnect guidance. A new loss cancels an in-progress fade and invalidates the
+previous epoch. This contract intentionally avoids an automatic process reset, hot
+replacement of a half-open video socket, or media-clock rebasing.
+`pts_delta_ms` remains instrumentation for the first matching post-recovery
+frame; it is not permission to adjust the clock or dismiss continuity by
+itself.
 
 A confirmed fatal loss retains continuity through cleanup and a reconnect
 handshake. A protocol-start marker alone is insufficient to close it: the
-placeholder stays until a real renderer exists and has been positioned, then
-hands off with a short nonblocking opacity fade. While visible, it is inserted
+placeholder stays until a real replacement renderer exists and has been
+positioned, then hands off with a short nonblocking opacity fade. This fatal
+replacement-session path is separate from the same-session feedback epoch
+above. While visible, it is inserted
 immediately above the external renderer without activation or an implicit
 permanent topmost policy. After fatal cleanup it replaces generic waiting text
 with an explicit instruction to select the named receiver again in iPhone

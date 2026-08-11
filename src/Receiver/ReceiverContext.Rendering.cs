@@ -22,6 +22,8 @@ namespace AirPlayReceiverMvp
     {
         private const double ProvisionalIPhoneAspect = 9.0 / 19.5;
         private const double DeviceFrameAspectTolerance = 0.03;
+        private bool followPhotosMediaCanvasSettingObserved;
+        private bool observedFollowPhotosMediaCanvas;
 
         private void InstallRendererMoveSizeHook(int processId)
         {
@@ -720,15 +722,28 @@ namespace AirPlayReceiverMvp
             bool ambiguousMediaCanvas;
             Size videoSize = GetStableVideoSize(
                 out videoSizeGeneration, out ambiguousMediaCanvas);
+            bool followPhotosMediaCanvasSettingChanged =
+                ObserveFollowPhotosMediaCanvasSettingChange();
             bool orientationAuthoritative;
             bool suppressionChanged;
             Size automaticVideoSize = ResolveAutomaticVideoSize(
                 videoSize, ambiguousMediaCanvas,
                 out orientationAuthoritative,
                 out suppressionChanged);
+            bool provisionalMediaCanvasFit = ambiguousMediaCanvas &&
+                settings.FollowPhotosMediaCanvas;
             int automaticOrientation = VideoOrientation(automaticVideoSize);
-            int orientation = orientationAuthoritative
+            int orientation = orientationAuthoritative ||
+                    provisionalMediaCanvasFit
                 ? automaticOrientation : 0;
+            if (followPhotosMediaCanvasSettingChanged &&
+                videoSizeWindow == window)
+            {
+                // Re-evaluate the already debounced frame immediately when
+                // the A/B option changes; no core restart or new geometry
+                // marker is required.
+                exactVideoSizeFitGeneration = -1;
+            }
             if (suppressionChanged)
             {
                 Log("Retained the current renderer orientation for non-device " +
@@ -757,20 +772,16 @@ namespace AirPlayReceiverMvp
                             ? -1 : videoSizeGeneration;
                         appliedVideoOrientation = automaticOrientation != 0
                             ? automaticOrientation : GetWindowOrientation(window);
-                        Log("Applied initial renderer window fit" +
-                            VideoSizeLogSuffix(automaticVideoSize) + ".");
-                        if (!automaticVideoSize.IsEmpty)
-                        {
-                            MarkStreamWindowPlacementPersistable(window);
-                            QueueStreamWindowPlacementSave(window, 250);
-                        }
-                        else
-                        {
-                            // A provisional fit must not replace a previously
-                            // valid placement before the stream exposes a
-                            // trustworthy device-frame orientation.
-                            ClearPendingStreamWindowPlacementSave();
-                        }
+                        Log(provisionalMediaCanvasFit
+                            ? "Applied a temporary renderer window fit for " +
+                                "the Photos/media canvas " +
+                                automaticVideoSize.Width + "x" +
+                                automaticVideoSize.Height + "."
+                            : "Applied initial renderer window fit" +
+                                VideoSizeLogSuffix(automaticVideoSize) + ".");
+                        UpdateStreamWindowPlacementAfterAutomaticFit(
+                            window, automaticVideoSize,
+                            provisionalMediaCanvasFit);
                     }
                 }
                 else if (videoSizeWindow == window &&
@@ -784,16 +795,22 @@ namespace AirPlayReceiverMvp
                         ClearPendingManualRendererFit();
                         exactVideoSizeFitGeneration = videoSizeGeneration;
                         appliedVideoOrientation = automaticOrientation;
-                        Log("Refined renderer window fit for the first exact " +
-                            "device-frame size " +
-                            automaticVideoSize.Width + "x" +
-                            automaticVideoSize.Height + ".");
-                        MarkStreamWindowPlacementPersistable(window);
-                        QueueStreamWindowPlacementSave(window, 250);
+                        Log(provisionalMediaCanvasFit
+                            ? "Temporarily fitted the renderer window to " +
+                                "the debounced Photos/media canvas " +
+                                automaticVideoSize.Width + "x" +
+                                automaticVideoSize.Height + "."
+                            : "Refined renderer window fit for the first " +
+                                "exact device-frame size " +
+                                automaticVideoSize.Width + "x" +
+                                automaticVideoSize.Height + ".");
+                        UpdateStreamWindowPlacementAfterAutomaticFit(
+                            window, automaticVideoSize,
+                            provisionalMediaCanvasFit);
                     }
                 }
                 else if (videoSizeWindow == window &&
-                    orientationAuthoritative &&
+                    (orientationAuthoritative || provisionalMediaCanvasFit) &&
                     orientation != 0 &&
                     appliedVideoOrientation != 0 &&
                     orientation != appliedVideoOrientation)
@@ -803,13 +820,20 @@ namespace AirPlayReceiverMvp
                     {
                         ClearPendingManualRendererFit();
                         appliedVideoOrientation = orientation;
-                        Log("Adapted renderer window to " +
-                            (orientation == 1 ? "portrait" : "landscape") +
-                            " device frame " +
-                            automaticVideoSize.Width + "x" +
-                            automaticVideoSize.Height + ".");
-                        MarkStreamWindowPlacementPersistable(window);
-                        QueueStreamWindowPlacementSave(window, 250);
+                        Log(provisionalMediaCanvasFit
+                            ? "Temporarily adapted the renderer window to " +
+                                "the landscape Photos/media canvas " +
+                                automaticVideoSize.Width + "x" +
+                                automaticVideoSize.Height + "."
+                            : "Adapted renderer window to " +
+                                (orientation == 1
+                                    ? "portrait" : "landscape") +
+                                " device frame " +
+                                automaticVideoSize.Width + "x" +
+                                automaticVideoSize.Height + ".");
+                        UpdateStreamWindowPlacementAfterAutomaticFit(
+                            window, automaticVideoSize,
+                            provisionalMediaCanvasFit);
                     }
                 }
                 else if (appliedVideoOrientation == 0 && orientation != 0)
@@ -822,6 +846,46 @@ namespace AirPlayReceiverMvp
             SavePendingStreamWindowPlacement(window);
             RememberRendererBounds(window);
             CompleteLostConnectionRendererHandoff();
+        }
+
+        private bool ObserveFollowPhotosMediaCanvasSettingChange()
+        {
+            bool current = settings.FollowPhotosMediaCanvas;
+            if (!followPhotosMediaCanvasSettingObserved)
+            {
+                followPhotosMediaCanvasSettingObserved = true;
+                observedFollowPhotosMediaCanvas = current;
+                return false;
+            }
+            if (observedFollowPhotosMediaCanvas == current)
+                return false;
+            observedFollowPhotosMediaCanvas = current;
+            return true;
+        }
+
+        private void UpdateStreamWindowPlacementAfterAutomaticFit(
+            IntPtr window, Size videoSize, bool provisionalMediaCanvasFit)
+        {
+            if (provisionalMediaCanvasFit)
+            {
+                // Automatic Photos/media landscape is an A/B presentation,
+                // not a trusted device placement. Do not let it overwrite the
+                // saved user position. An explicit move/resize will mark the
+                // resulting placement as user-owned through the normal hook.
+                ClearPendingStreamWindowPlacementSave();
+                ClearStreamWindowPlacementPersistence(window);
+                return;
+            }
+            if (!videoSize.IsEmpty)
+            {
+                MarkStreamWindowPlacementPersistable(window);
+                QueueStreamWindowPlacementSave(window, 250);
+                return;
+            }
+
+            // A fallback fit must not replace a previously valid placement
+            // before the stream exposes a trustworthy device-frame shape.
+            ClearPendingStreamWindowPlacementSave();
         }
 
         private static bool ShouldApplyRendererWindowPolicy(
@@ -958,6 +1022,14 @@ namespace AirPlayReceiverMvp
 
                 if (ambiguousMediaCanvas)
                 {
+                    if (settings.FollowPhotosMediaCanvas)
+                    {
+                        // Return the raw canvas only as a temporary shell-window
+                        // target. It deliberately does not become the trusted
+                        // device-frame baseline used by later rotations.
+                        lastSuppressedVideoSize = Size.Empty;
+                        return videoSize;
+                    }
                     suppressionChanged =
                         lastSuppressedVideoSize != videoSize;
                     lastSuppressedVideoSize = videoSize;

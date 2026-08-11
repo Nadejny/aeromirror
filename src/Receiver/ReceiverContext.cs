@@ -89,6 +89,9 @@ namespace AirPlayReceiverMvp
         private long idleDiscoveryRenewalDueTicks;
         private int idleDiscoveryRenewalUsed;
         private DateTime lastAutomaticDiscoveryRefreshUtc = DateTime.MinValue;
+        private int sessionUnlockDiscoveryRefreshPending;
+        private long sessionUnlockDiscoveryRefreshDueTicks;
+        private bool sessionSwitchSubscribed;
         private readonly object videoSizeSync = new object();
         private Size pendingVideoSize = Size.Empty;
         private DateTime pendingVideoSizeDueUtc = DateTime.MinValue;
@@ -136,6 +139,17 @@ namespace AirPlayReceiverMvp
         private int feedbackGapLongestSeconds;
         private int feedbackGapPlaceholderActive;
         private int feedbackHealthMarkersReady;
+        private int feedbackVideoPresentProofReady;
+        private int feedbackVideoPresentProofPid;
+        private int feedbackVideoRecoveryPending;
+        private int feedbackVideoRecoveryPid;
+        private int feedbackVideoRecoveryEpoch;
+        private int feedbackVideoRecoveryGapSeconds;
+        private int feedbackVideoRecoverySessionGeneration;
+        private int feedbackVideoMirrorStartArmExpected;
+        private long feedbackVideoRecoveryWaitDueTicks;
+        private int feedbackVideoRecoveryCompletedCount;
+        private int feedbackVideoRecoveryHintCount;
         private bool startAfterNetworkCheck;
         private int discoveryRefreshAfterNetworkCheck;
         private bool resumeAfterSafeNetwork;
@@ -211,6 +225,16 @@ namespace AirPlayReceiverMvp
             monitorTimer.Tick += delegate { MonitorCore(); };
             monitorTimer.Start();
             NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+            try
+            {
+                SystemEvents.SessionSwitch += OnSessionSwitch;
+                sessionSwitchSubscribed = true;
+            }
+            catch (Exception ex)
+            {
+                Log("Windows session-unlock discovery maintenance is " +
+                    "unavailable: " + ex.Message);
+            }
 
             Log("=== AeroMirror session started ===");
             Log("Shell version " +

@@ -213,6 +213,12 @@ namespace AirPlayReceiverMvp
             CloseLostConnectionPlaceholder();
             monitorTimer.Stop();
             NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
+            if (sessionSwitchSubscribed)
+            {
+                try { SystemEvents.SessionSwitch -= OnSessionSwitch; }
+                catch { }
+                sessionSwitchSubscribed = false;
+            }
             restartPending = false;
             restartAfterStop = false;
             if (Interlocked.CompareExchange(

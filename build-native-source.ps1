@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.7"
+    [string]$Version = "0.12.9"
 )
 
 $ErrorActionPreference = "Stop"
@@ -185,6 +185,7 @@ $expectedLibModified = @(
     " M lib/raop_handlers.h",
     " M lib/raop_rtp_mirror.c",
     " M renderers/video_renderer.c",
+    " M renderers/video_renderer.h",
     " M uxplay.cpp"
 )
 $libStatusDifferences = @(
@@ -243,6 +244,7 @@ try {
         "lib/raop_handlers.h" `
         "lib/raop_rtp_mirror.c" `
         "renderers/video_renderer.c" `
+        "renderers/video_renderer.h" `
         "uxplay.cpp"
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to generate the current libuxplay source diff."
@@ -323,6 +325,7 @@ try {
         "lib\raop_handlers.h",
         "lib\raop_rtp_mirror.c",
         "renderers\video_renderer.c",
+        "renderers\video_renderer.h",
         "uxplay.cpp"
     )) {
         Copy-Item -LiteralPath (Join-Path $libuxplay $relative) `

@@ -20,7 +20,8 @@ namespace AirPlayReceiverMvp
 {
     internal sealed class AppSettings
     {
-        internal const int CurrentSettingsVersion = 11;
+        private const int RendererStabilitySettingsVersion = 11;
+        internal const int CurrentSettingsVersion = 12;
 
         public int SettingsVersion = CurrentSettingsVersion;
         public string ReceiverName = Environment.MachineName;
@@ -37,6 +38,7 @@ namespace AirPlayReceiverMvp
         public bool StartMinimized = true;
         public bool CloseToTray = true;
         public bool AutoFitWindow = true;
+        public bool FollowPhotosMediaCanvas = false;
         public bool AlwaysOnTop = false;
         public bool ShowStreamInTaskbar = true;
         public bool Notify = true;
@@ -166,6 +168,7 @@ namespace AirPlayReceiverMvp
                 StartMinimized = StartMinimized,
                 CloseToTray = CloseToTray,
                 AutoFitWindow = AutoFitWindow,
+                FollowPhotosMediaCanvas = FollowPhotosMediaCanvas,
                 AlwaysOnTop = AlwaysOnTop,
                 ShowStreamInTaskbar = ShowStreamInTaskbar,
                 Notify = Notify,
@@ -226,6 +229,10 @@ namespace AirPlayReceiverMvp
                         break;
                     case "AutoFitWindow":
                         if (bool.TryParse(value, out flag)) settings.AutoFitWindow = flag;
+                        break;
+                    case "FollowPhotosMediaCanvas":
+                        if (bool.TryParse(value, out flag))
+                            settings.FollowPhotosMediaCanvas = flag;
                         break;
                     case "AlwaysOnTop":
                         if (bool.TryParse(value, out flag)) settings.AlwaysOnTop = flag;
@@ -318,6 +325,7 @@ namespace AirPlayReceiverMvp
                 settings.ClearStreamWindowPlacement();
             }
             MigrateRendererStabilityDefault(settings);
+            MigratePhotosMediaCanvasDefault(settings);
             settings.NormalizePersistedValues();
             return settings;
         }
@@ -326,7 +334,7 @@ namespace AirPlayReceiverMvp
             AppSettings settings)
         {
             if (settings == null ||
-                settings.SettingsVersion >= CurrentSettingsVersion)
+                settings.SettingsVersion >= RendererStabilitySettingsVersion)
                 return;
 
             if (string.Equals(
@@ -336,6 +344,21 @@ namespace AirPlayReceiverMvp
             {
                 settings.Renderer = "d3d11";
             }
+            settings.SettingsVersion = RendererStabilitySettingsVersion;
+        }
+
+        internal static void MigratePhotosMediaCanvasDefault(
+            AppSettings settings)
+        {
+            if (settings == null ||
+                settings.SettingsVersion >= CurrentSettingsVersion)
+                return;
+
+            // Following the wide Photos presentation canvas changes only the
+            // shell window and is intentionally opt-in for every existing
+            // profile. Unknown or malformed persisted values also retain the
+            // field initializer's conservative false value.
+            settings.FollowPhotosMediaCanvas = false;
             settings.SettingsVersion = CurrentSettingsVersion;
         }
 
@@ -359,6 +382,7 @@ namespace AirPlayReceiverMvp
                 "StartMinimized=" + StartMinimized,
                 "CloseToTray=" + CloseToTray,
                 "AutoFitWindow=" + AutoFitWindow,
+                "FollowPhotosMediaCanvas=" + FollowPhotosMediaCanvas,
                 "AlwaysOnTop=" + AlwaysOnTop,
                 "ShowStreamInTaskbar=" + ShowStreamInTaskbar,
                 "Notify=" + Notify,

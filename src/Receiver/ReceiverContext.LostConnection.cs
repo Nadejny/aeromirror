@@ -28,12 +28,19 @@ namespace AirPlayReceiverMvp
         private int lostConnectionLostStatePending;
         private int lostConnectionReconnectHintPending;
         private int lostConnectionRecoveredStatePending;
+        private long lostConnectionContinuityToken;
+        private int lostConnectionFeedbackHandoffPending;
+        private long lostConnectionFeedbackHandoffToken;
+        private int lostConnectionFeedbackHandoffPid;
+        private int lostConnectionFeedbackHandoffSessionGeneration;
+        private int lostConnectionFeedbackHandoffEpoch;
         private long feedbackGapPlaceholderDueTicks;
         private Rectangle lastRendererBounds = Rectangle.Empty;
         private LostConnectionForm lostConnectionForm;
 
         private void QueueLostConnectionPlaceholder()
         {
+            InvalidateLostConnectionRendererHandoff();
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 1);
             Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
@@ -46,6 +53,7 @@ namespace AirPlayReceiverMvp
 
         private void QueueLostConnectionPlaceholderClose()
         {
+            InvalidateLostConnectionRendererHandoff();
             Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
             Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
@@ -58,6 +66,7 @@ namespace AirPlayReceiverMvp
 
         private void QueueLostConnectionRendererHandoff()
         {
+            InvalidateLostConnectionRendererHandoff();
             Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
             Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
@@ -66,12 +75,58 @@ namespace AirPlayReceiverMvp
             Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 1);
         }
 
+        private void QueueLostConnectionRecoveredWait()
+        {
+            InvalidateLostConnectionRendererHandoff();
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
+            Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
+            Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 1);
+        }
+
         private void QueueLostConnectionReconnectHint()
         {
+            InvalidateLostConnectionRendererHandoff();
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
             Interlocked.Exchange(
                 ref lostConnectionRecoveredStatePending, 0);
             Interlocked.Exchange(ref lostConnectionReconnectHintPending, 1);
+        }
+
+        private void QueueLostConnectionFeedbackRendererHandoff(
+            int processId, int sessionGeneration, int epoch)
+        {
+            long continuityToken = Interlocked.Read(
+                ref lostConnectionContinuityToken);
+            Interlocked.Exchange(
+                ref lostConnectionFeedbackHandoffToken, continuityToken);
+            Interlocked.Exchange(
+                ref lostConnectionFeedbackHandoffPid, processId);
+            Interlocked.Exchange(
+                ref lostConnectionFeedbackHandoffSessionGeneration,
+                sessionGeneration);
+            Interlocked.Exchange(
+                ref lostConnectionFeedbackHandoffEpoch, epoch);
+            Interlocked.Exchange(ref lostConnectionFeedbackHandoffPending, 1);
+            Interlocked.Exchange(ref feedbackGapPlaceholderDueTicks, 0);
+            Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
+            Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
+            Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
+            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 1);
+            Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 1);
+        }
+
+        private void InvalidateLostConnectionRendererHandoff()
+        {
+            Interlocked.Increment(ref lostConnectionContinuityToken);
+            Interlocked.Exchange(ref lostConnectionFeedbackHandoffPending, 0);
+            Interlocked.Exchange(ref lostConnectionFeedbackHandoffToken, 0);
+            Interlocked.Exchange(ref lostConnectionFeedbackHandoffPid, 0);
+            Interlocked.Exchange(
+                ref lostConnectionFeedbackHandoffSessionGeneration, 0);
+            Interlocked.Exchange(ref lostConnectionFeedbackHandoffEpoch, 0);
         }
 
         private void RememberRendererBounds(IntPtr window)
@@ -396,8 +451,25 @@ namespace AirPlayReceiverMvp
 
         private void CompleteLostConnectionRendererHandoff()
         {
-            if (Interlocked.CompareExchange(
-                    ref lostConnectionRendererHandoffPending, 0, 0) != 1)
+            if (Interlocked.Exchange(
+                    ref lostConnectionRendererHandoffPending, 0) != 1)
+                return;
+
+            bool feedbackHandoff = Interlocked.CompareExchange(
+                ref lostConnectionFeedbackHandoffPending, 0, 0) == 1;
+            long continuityToken = feedbackHandoff
+                ? Interlocked.Read(ref lostConnectionFeedbackHandoffToken)
+                : Interlocked.Read(ref lostConnectionContinuityToken);
+            int feedbackPid = Interlocked.CompareExchange(
+                ref lostConnectionFeedbackHandoffPid, 0, 0);
+            int feedbackSessionGeneration = Interlocked.CompareExchange(
+                ref lostConnectionFeedbackHandoffSessionGeneration, 0, 0);
+            int feedbackEpoch = Interlocked.CompareExchange(
+                ref lostConnectionFeedbackHandoffEpoch, 0, 0);
+
+            if (feedbackHandoff && !IsFeedbackRendererHandoffCurrent(
+                    continuityToken, feedbackPid,
+                    feedbackSessionGeneration, feedbackEpoch))
                 return;
 
             bool placeholderVisible = lostConnectionForm != null &&
@@ -406,23 +478,29 @@ namespace AirPlayReceiverMvp
                 ref lostConnectionPlaceholderShowPending, 0, 0) == 1;
             if (!IsMirrorSessionActive)
             {
-                Interlocked.Exchange(
-                    ref lostConnectionRendererHandoffPending, 0);
                 Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
                 return;
             }
             if (!placeholderVisible && !placeholderQueued)
             {
-                Interlocked.Exchange(
-                    ref lostConnectionRendererHandoffPending, 0);
                 Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
                 Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
+                if (feedbackHandoff)
+                {
+                    TryCompleteFeedbackRendererHandoff(
+                        continuityToken, feedbackPid,
+                        feedbackSessionGeneration, feedbackEpoch);
+                }
                 return;
             }
 
             if (!placeholderVisible)
             {
+                if (feedbackHandoff && !TryCompleteFeedbackRendererHandoff(
+                        continuityToken, feedbackPid,
+                        feedbackSessionGeneration, feedbackEpoch))
+                    return;
                 Log("Mirroring renderer is visible and positioned; canceled " +
                     "the queued lost-connection placeholder before display.");
                 QueueLostConnectionPlaceholderClose();
@@ -431,7 +509,6 @@ namespace AirPlayReceiverMvp
             }
 
             LostConnectionForm placeholder = lostConnectionForm;
-            Interlocked.Exchange(ref lostConnectionRendererHandoffPending, 0);
             Interlocked.Exchange(ref lostConnectionLostStatePending, 0);
             Interlocked.Exchange(ref lostConnectionReconnectHintPending, 0);
             Interlocked.Exchange(ref lostConnectionRecoveredStatePending, 0);
@@ -439,12 +516,29 @@ namespace AirPlayReceiverMvp
             Interlocked.Exchange(ref lostConnectionPlaceholderClosePending, 0);
             IntPtr rendererWindow;
             TryGetRendererWindow(out rendererWindow);
+            /* A fresh proof can arrive before an older fade observes its
+             * invalidation on the next 20 ms tick. Cancel it synchronously on
+             * the UI thread so the one-shot fresh proof is not consumed. */
+            placeholder.CancelRendererHandoff();
             if (!placeholder.BeginRendererHandoff(
                 rendererWindow,
                 delegate
                 {
                     if (!ReferenceEquals(lostConnectionForm, placeholder))
                         return;
+                    bool current = feedbackHandoff
+                        ? TryCompleteFeedbackRendererHandoff(
+                            continuityToken, feedbackPid,
+                            feedbackSessionGeneration, feedbackEpoch)
+                        : Interlocked.Read(
+                            ref lostConnectionContinuityToken) ==
+                            continuityToken;
+                    if (!current)
+                    {
+                        placeholder.Opacity = 1.0;
+                        HandleLostConnectionPlaceholder();
+                        return;
+                    }
                     Log("Renderer handoff fade completed; closing the " +
                         "lost-connection placeholder.");
                     CloseLostConnectionPlaceholder();
@@ -452,12 +546,98 @@ namespace AirPlayReceiverMvp
                 delegate
                 {
                     return Interlocked.CompareExchange(
-                        ref lostConnectionPlaceholderShowPending, 0, 0) == 1;
+                            ref lostConnectionPlaceholderShowPending, 0, 0) ==
+                            1 ||
+                        Interlocked.Read(ref lostConnectionContinuityToken) !=
+                            continuityToken ||
+                        (feedbackHandoff &&
+                            !IsFeedbackRendererHandoffCurrent(
+                                continuityToken, feedbackPid,
+                                feedbackSessionGeneration, feedbackEpoch));
                 }))
+            {
+                bool stillCurrent = feedbackHandoff
+                    ? IsFeedbackRendererHandoffCurrent(
+                        continuityToken, feedbackPid,
+                        feedbackSessionGeneration, feedbackEpoch)
+                    : Interlocked.Read(
+                        ref lostConnectionContinuityToken) == continuityToken;
+                if (stillCurrent)
+                {
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRendererHandoffPending, 1, 0);
+                }
                 return;
+            }
 
             Log("Mirroring renderer is visible and positioned; beginning " +
                 "the lost-connection handoff fade.");
+        }
+
+        private bool IsFeedbackRendererHandoffCurrent(
+            long continuityToken, int processId,
+            int sessionGeneration, int epoch)
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                return Interlocked.Read(ref lostConnectionContinuityToken) ==
+                        continuityToken &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionFeedbackHandoffPending, 0, 0) == 1 &&
+                    Interlocked.Read(ref lostConnectionFeedbackHandoffToken) ==
+                        continuityToken &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionFeedbackHandoffPid, 0, 0) ==
+                        processId &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionFeedbackHandoffSessionGeneration,
+                        0, 0) == sessionGeneration &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionFeedbackHandoffEpoch, 0, 0) == epoch &&
+                    Interlocked.CompareExchange(
+                        ref activeCorePid, 0, 0) == processId &&
+                    IsMirrorSessionActive &&
+                    Interlocked.CompareExchange(
+                        ref mirrorSessionGeneration, 0, 0) ==
+                        sessionGeneration &&
+                    Interlocked.CompareExchange(
+                        ref feedbackGapPlaceholderActive, 0, 0) == 1 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackGapEpisodeActive, 0, 0) == 0 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryPending, 0, 0) == 1 &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryPid, 0, 0) == processId &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoverySessionGeneration, 0, 0) ==
+                        sessionGeneration &&
+                    Interlocked.CompareExchange(
+                        ref feedbackVideoRecoveryEpoch, 0, 0) == epoch &&
+                    Interlocked.CompareExchange(
+                        ref lostConnectionRecoveryPending, 0, 0) == 0;
+            }
+        }
+
+        private bool TryCompleteFeedbackRendererHandoff(
+            long continuityToken, int processId,
+            int sessionGeneration, int epoch)
+        {
+            lock (postSessionMaintenanceSync)
+            {
+                if (!IsFeedbackRendererHandoffCurrent(
+                        continuityToken, processId,
+                        sessionGeneration, epoch))
+                    return false;
+
+                Interlocked.Exchange(
+                    ref lostConnectionFeedbackHandoffPending, 0);
+                Interlocked.Exchange(
+                    ref feedbackGapPlaceholderActive, 0);
+                ResetFeedbackVideoRecoveryWaitLocked();
+                Interlocked.Increment(
+                    ref feedbackVideoRecoveryCompletedCount);
+                return true;
+            }
         }
 
         private void CloseLostConnectionPlaceholder()
