@@ -26,7 +26,8 @@ in place.
 - Patched files: `src/airplayworker.cpp`, `src/main.cpp`,
   `src/mainwindow.cpp`, `src/mainwindow.h`,
   `libuxplay/lib/dnssd.c`, `libuxplay/lib/dnssd.h`,
-  `libuxplay/lib/http_handlers.h`, `libuxplay/lib/raop_handlers.h`,
+  `libuxplay/lib/http_handlers.h`, `libuxplay/lib/raop.h`,
+  `libuxplay/lib/raop_handlers.h`,
   `libuxplay/lib/raop_rtp_mirror.c`,
   `libuxplay/renderers/video_renderer.c`,
   `libuxplay/renderers/video_renderer.h`, `libuxplay/uxplay.cpp`, and
@@ -52,7 +53,7 @@ in place.
 - Engineering build/staging GStreamer input: 1.28.5. It is not the
   redistributed-runtime version recorded above.
 - Resulting patched executable SHA-256:
-  `AD59F33907980122551458E5B97CE600D6AB8DBFF923B7BEE5EB30A26F521698`
+  `5A6C8AEBC381F6090AD87CBB622A370B1BA0F29923B387C72C2AE07D78605F36`
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.
@@ -71,6 +72,17 @@ cannot restore the advertised port, and logs typed RTSP `TEARDOWN` as
 client-managed instead of forcing the whole connection closed from the server.
 The upstream `Connection: close` response header remains unchanged; the
 hotfix removes only AeroMirror 0.12.6's additional server-side disconnect flag.
+The 0.12.14 diagnostic candidate also emits one fixed, numeric,
+content-free media-health summary every two seconds during an active mirror
+session. It separates mirror VCL/config/action ingress, appsrc flow, sink and
+Direct3D 11 Present progress, timestamp retries, monotonic ages, and pipeline
+state under session/geometry generations. The classifier is observational: it
+does not reset, resume, reconnect, crop, map pixels, or otherwise alter the
+pipeline. Video timestamp retries now derive each candidate from the same
+immutable remote timestamp through a signed, clock-epoch-protected offset;
+audio retains an independent checked mapping. These source and arithmetic
+properties are regression-tested, while the original physical frozen-frame
+symptom remains unverified until a new-device log is captured.
 Unsupported photo, slideshow, and photo-preload feature bits are no
 longer advertised by this screen-mirroring-focused receiver. The
 shell uses the backward-compatible video-size marker to adapt the renderer

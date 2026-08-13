@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.13"
+    [string]$Version = "0.12.14"
 )
 
 $ErrorActionPreference = "Stop"
@@ -184,6 +184,7 @@ $expectedLibModified = @(
     " M lib/dnssd.c",
     " M lib/dnssd.h",
     " M lib/http_handlers.h",
+    " M lib/raop.h",
     " M lib/raop_handlers.h",
     " M lib/raop_rtp_mirror.c",
     " M renderers/video_renderer.c",
@@ -246,6 +247,7 @@ try {
         "lib/dnssd.c" `
         "lib/dnssd.h" `
         "lib/http_handlers.h" `
+        "lib/raop.h" `
         "lib/raop_handlers.h" `
         "lib/raop_rtp_mirror.c" `
         "renderers/video_renderer.c" `
@@ -330,6 +332,7 @@ try {
         "lib\dnssd.c",
         "lib\dnssd.h",
         "lib\http_handlers.h",
+        "lib\raop.h",
         "lib\raop_handlers.h",
         "lib\raop_rtp_mirror.c",
         "renderers\video_renderer.c",

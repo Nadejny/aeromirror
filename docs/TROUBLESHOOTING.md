@@ -162,6 +162,12 @@ Depending on the review build, the log may include:
 - the raw AirPlay geometry header, including an auxiliary width/height pair
   that is diagnostic only and is not a validated crop, pixel-aspect-ratio, or
   rotation field;
+- for 0.12.14, one `AEROMIRROR_VIDEO_HEALTH` record every two seconds while
+  mirroring is active. Its session/geometry, interval deltas, ages, flow/state,
+  PTS counters, pause/resume state, proof availability, and `class` locate a
+  stage boundary; no single line or `class=healthy` proves visible motion or a
+  root cause. These records contain no media payload or pixels, but surrounding
+  log lines still require normal privacy review;
 - the actual GStreamer decoder/video sink selected at pipeline creation, plus
   renderer, pipeline warnings, and errors.
 
@@ -190,7 +196,7 @@ Please include:
   generation, PID/ports before and after it, every iPhone browse attempt, and
   whether the first tap reached Windows before using **Restart discovery**;
 - when testing **Restart discovery**, record the replacement PID, ports, fresh
-  DNS-SD/BLE startup, and iPhone result. In 0.12.13 this button deliberately
+  DNS-SD/BLE startup, and iPhone result. Starting with 0.12.13 this button deliberately
   remains the strong full-process path rather than the narrow automatic DNS-SD
   command;
 - for the Windows 10 reboot symptom, whether the machine/VM had ever contained
@@ -228,6 +234,10 @@ Please include:
   do not treat feedback recovery, mirror-start, or `flow=ok` as proof that
   Windows displayed a fresh frame; `gap_seconds=0` is expected only for the
   matching mirror-start re-arm, not for ordinary feedback recovery;
+- for a 0.12.14 frozen-last-frame run, keep the complete health sequence from
+  mirror start through iPhone Stop and note the visible freeze time. Several
+  consecutive interval deltas and ages are required to identify the stalled
+  stage;
 - the reviewed and masked `receiver.log`.
 
 Avoid posting only “it crashed.” A timestamp plus the distinction between the

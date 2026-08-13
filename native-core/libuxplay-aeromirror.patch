@@ -681,6 +681,51 @@ index 7984be8..866bfc1 100644
      plist_dict_set_item(r_node, "features", features_node);
  
      plist_t mac_address_node = plist_new_string(hw_addr);
+diff --git a/lib/raop.h b/lib/raop.h
+index fcc3fe9..2984082 100644
+--- a/lib/raop.h
++++ b/lib/raop.h
+@@ -68,6 +68,32 @@ typedef enum reset_type_e {
+     RESET_TYPE_RTP_TO_HLS_TEARDOWN
+ } reset_type_t;
+ 
++typedef enum mirror_packet_action_e {
++    MIRROR_PACKET_ACTION_NONE = 0,
++    MIRROR_PACKET_ACTION_PAUSE = 1,
++    MIRROR_PACKET_ACTION_RESUME = 2
++} mirror_packet_action_t;
++
++typedef enum mirror_config_result_e {
++    MIRROR_CONFIG_RESULT_NONE = 0,
++    MIRROR_CONFIG_RESULT_PENDING = 1,
++    MIRROR_CONFIG_RESULT_MATCH_DELIVERED = 2,
++    MIRROR_CONFIG_RESULT_MISMATCH_DISCARDED = 3
++} mirror_config_result_t;
++
++typedef struct mirror_media_diagnostic_s {
++    uint64_t geometry_generation;
++    uint64_t type0_packets;
++    uint64_t type0_bytes;
++    uint64_t type1_packets;
++    uint64_t type5_packets;
++    uint64_t invalid_packets;
++    uint8_t option;
++    mirror_packet_action_t action;
++    mirror_config_result_t config_result;
++    bool suspended;
++} mirror_media_diagnostic_t;
++
+ struct raop_callbacks_s {
+     void* cls;
+ 
+@@ -75,6 +101,7 @@ struct raop_callbacks_s {
+     void  (*video_process)(void *cls, raop_ntp_t *ntp, video_decode_struct *data);
+     void  (*video_pause)(void *cls);
+     void  (*video_resume)(void *cls);
++    void  (*mirror_media_diagnostic)(void *cls, const mirror_media_diagnostic_t *event);
+     void  (*conn_feedback) (void *cls);
+     void  (*conn_reset) (void *cls, int reason);
+     void  (*video_reset) (void *cls, reset_type_t reset_type);
 diff --git a/lib/raop_handlers.h b/lib/raop_handlers.h
 index 1aeba28..1cd698a 100644
 --- a/lib/raop_handlers.h
@@ -696,7 +741,7 @@ index 1aeba28..1cd698a 100644
      http_response_add_header(response, "Connection", "close");
    
 diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
-index 2bb4f5f..6ad69d8 100644
+index 2bb4f5f..07a8cc6 100644
 --- a/lib/raop_rtp_mirror.c
 +++ b/lib/raop_rtp_mirror.c
 @@ -22,6 +22,7 @@
@@ -721,7 +766,119 @@ index 2bb4f5f..6ad69d8 100644
  /* for MacOS, where SOL_TCP and TCP_KEEPIDLE are not defined */
  #if !defined(SOL_TCP) && defined(IPPROTO_TCP)
  #define SOL_TCP IPPROTO_TCP
-@@ -602,6 +610,17 @@ raop_rtp_mirror_thread(void *arg)
+@@ -108,9 +116,37 @@ struct raop_rtp_mirror_s {
+     unsigned short mirror_data_lport;
+ 
+      /* switch for displaying client FPS data */
+-     uint8_t show_client_FPS_data;
++    uint8_t show_client_FPS_data;
++    uint64_t geometry_generation;
++    uint64_t type0_packets;
++    uint64_t type0_bytes;
++    uint64_t type1_packets;
++    uint64_t type5_packets;
++    uint64_t invalid_packets;
+ };
+ 
++static void aeromirror_report_media_diagnostic(
++        raop_rtp_mirror_t *raop_rtp_mirror, uint8_t option,
++        mirror_packet_action_t action, mirror_config_result_t config_result,
++        bool suspended) {
++    if (!raop_rtp_mirror->callbacks.mirror_media_diagnostic) {
++        return;
++    }
++    mirror_media_diagnostic_t event = {0};
++    event.geometry_generation = raop_rtp_mirror->geometry_generation;
++    event.type0_packets = raop_rtp_mirror->type0_packets;
++    event.type0_bytes = raop_rtp_mirror->type0_bytes;
++    event.type1_packets = raop_rtp_mirror->type1_packets;
++    event.type5_packets = raop_rtp_mirror->type5_packets;
++    event.invalid_packets = raop_rtp_mirror->invalid_packets;
++    event.option = option;
++    event.action = action;
++    event.config_result = config_result;
++    event.suspended = suspended;
++    raop_rtp_mirror->callbacks.mirror_media_diagnostic(
++        raop_rtp_mirror->callbacks.cls, &event);
++}
++
+ static int
+ raop_rtp_mirror_parse_remote(raop_rtp_mirror_t *raop_rtp_mirror, const char *remote, int remotelen)
+ {
+@@ -393,6 +429,10 @@ raop_rtp_mirror_thread(void *arg)
+             switch (packet[4]) {
+             case  0x00:
+                 // Normal video data (VCL NAL)
++                raop_rtp_mirror->type0_packets++;
++                if (payload_size > 0) {
++                    raop_rtp_mirror->type0_bytes += (uint64_t) payload_size;
++                }
+ 
+                 // Conveniently, the video data is already stamped with the remote wall clock time,
+                 // so no additional clock syncing needed. The only thing odd here is that the video
+@@ -434,6 +474,11 @@ raop_rtp_mirror_thread(void *arg)
+                         free (sps_pps);
+                         sps_pps = NULL;
+                         prepend_sps_pps = false;
++                        aeromirror_report_media_diagnostic(
++                            raop_rtp_mirror, packet[6],
++                            MIRROR_PACKET_ACTION_NONE,
++                            MIRROR_CONFIG_RESULT_MISMATCH_DISCARDED,
++                            video_stream_suspended);
+                 }
+ 		
+                 if (prepend_sps_pps) {
+@@ -534,10 +579,12 @@ raop_rtp_mirror_thread(void *arg)
+                 if(!valid_data) {
+                     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "nalu marked as invalid");
+                     payload_out[0] = 1; /* mark video data as invalid h264 (failed decryption) */
++                    raop_rtp_mirror->invalid_packets++;
+                 }
+ 
+ 		
+                 payload_decrypted = NULL;
++                bool config_delivered = prepend_sps_pps;
+                 video_decode_struct video_data;
+                 video_data.is_h265 = h265_video;
+                 video_data.ntp_time_local = ntp_timestamp_local;
+@@ -554,7 +601,17 @@ raop_rtp_mirror_thread(void *arg)
+                     prepend_sps_pps =  false;
+                 }
+ 
++                aeromirror_report_media_diagnostic(
++                    raop_rtp_mirror, packet[6], MIRROR_PACKET_ACTION_NONE,
++                    MIRROR_CONFIG_RESULT_NONE,
++                    video_stream_suspended);
+                 raop_rtp_mirror->callbacks.video_process(raop_rtp_mirror->callbacks.cls, raop_rtp_mirror->ntp, &video_data);
++                if (config_delivered) {
++                    aeromirror_report_media_diagnostic(
++                        raop_rtp_mirror, packet[6], MIRROR_PACKET_ACTION_NONE,
++                        MIRROR_CONFIG_RESULT_MATCH_DELIVERED,
++                        video_stream_suspended);
++                }
+                 free(payload_out);
+                 break;
+             case 0x01:
+@@ -578,13 +635,18 @@ raop_rtp_mirror_thread(void *arg)
+                            " payload_size %d header %s ts_client = %8.6f",
+                            payload_size, packet_description, (double) ntp_timestamp_remote / SEC);
+ 
++                raop_rtp_mirror->type1_packets++;
++                raop_rtp_mirror->geometry_generation++;
++                mirror_packet_action_t packet_action = MIRROR_PACKET_ACTION_NONE;
+                 if (packet[6] == 0x56 || packet[6] == 0x5e) {
+                     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "This packet indicates video stream is stopping");
+                 }
+                 if (!video_stream_suspended && (packet[6] == 0x56 || packet[6] == 0x5e)) {
+                     video_stream_suspended = true;
++                    packet_action = MIRROR_PACKET_ACTION_PAUSE;
+                     raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
+                 } else if (video_stream_suspended && (packet[6] == 0x16 || packet[6] == 0x1e)) {
++                    packet_action = MIRROR_PACKET_ACTION_RESUME;
+                     raop_rtp_mirror->callbacks.video_resume(raop_rtp_mirror->callbacks.cls);
+                     video_stream_suspended = false;
+                 }
+@@ -602,6 +664,25 @@ raop_rtp_mirror_thread(void *arg)
                  float width = byteutils_get_float(packet, 56);
                  float height = byteutils_get_float(packet, 60);
  
@@ -735,11 +892,51 @@ index 2bb4f5f..6ad69d8 100644
 +                           aeromirror_geometry_value(unknown_h),
 +                           aeromirror_geometry_value(width),
 +                           aeromirror_geometry_value(height));
++                logger_log(raop_rtp_mirror->logger, LOGGER_INFO,
++                           "AEROMIRROR_VIDEO_DIAGNOSTIC_GEOMETRY geometry=%llu option=0x%02x action=%u suspended=%u",
++                           (unsigned long long) raop_rtp_mirror->geometry_generation,
++                           (unsigned int) packet[6], (unsigned int) packet_action,
++                           video_stream_suspended ? 1U : 0U);
++                aeromirror_report_media_diagnostic(
++                    raop_rtp_mirror, packet[6], packet_action,
++                    MIRROR_CONFIG_RESULT_NONE, video_stream_suspended);
 +
                  if (width != width_0 || height != height_0) {
                  logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror: Unexpected : data  %f,"
                             " %f != width_source = %f, height_source = %f", width_0, height_0, width_source, height_source);
-@@ -893,7 +912,6 @@ void
+@@ -762,6 +843,9 @@ raop_rtp_mirror_thread(void *arg)
+                     memcpy(sps_pps + sps_size + 8, payload + sps_size + 11, pps_size);
+                 }
+                 prepend_sps_pps = true;
++                aeromirror_report_media_diagnostic(
++                    raop_rtp_mirror, packet[6], MIRROR_PACKET_ACTION_NONE,
++                    MIRROR_CONFIG_RESULT_PENDING, video_stream_suspended);
+                 // h264codec_t h264;
+                 // h264.version = payload[0];
+                 // h264.profile_high = payload[1];
+@@ -783,6 +867,10 @@ raop_rtp_mirror_thread(void *arg)
+                 /* "old protocol" (used by AirMyPC), rest of 128-byte  packet is empty  */
+                 break;
+             case 0x05:
++                raop_rtp_mirror->type5_packets++;
++                aeromirror_report_media_diagnostic(
++                    raop_rtp_mirror, packet[6], MIRROR_PACKET_ACTION_NONE,
++                    MIRROR_CONFIG_RESULT_NONE, video_stream_suspended);
+                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "\nReceived video streaming performance info packet from client:"
+                            " payload_size %d header %s ts_raw = %llu", payload_size, packet_description, ntp_timestamp_raw);
+                 /* payloads with packet[4] = 0x05 have no timestamp, and carry video info from the client as a binary plist *
+@@ -818,6 +906,10 @@ raop_rtp_mirror_thread(void *arg)
+                 }
+                 break;
+             default:
++                raop_rtp_mirror->invalid_packets++;
++                aeromirror_report_media_diagnostic(
++                    raop_rtp_mirror, packet[6], MIRROR_PACKET_ACTION_NONE,
++                    MIRROR_CONFIG_RESULT_NONE, video_stream_suspended);
+                 logger_log(raop_rtp_mirror->logger, LOGGER_WARNING, "\nReceived unexpected TCP packet from client, "
+                            "size %d, %s ts_raw = %llu", payload_size, packet_description, ntp_timestamp_raw);
+                 break;
+@@ -893,7 +985,6 @@ void
  raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror_data_lport,
                        uint8_t show_client_FPS_data)
  {
@@ -747,17 +944,23 @@ index 2bb4f5f..6ad69d8 100644
      int use_ipv6 = 0;
  
      assert(raop_rtp_mirror);
-@@ -922,6 +940,8 @@ raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror
+@@ -922,6 +1013,14 @@ raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror
      /* Create the thread and initialize running values */
      raop_rtp_mirror->running = 1;
      raop_rtp_mirror->joined = 0;
++    raop_rtp_mirror->geometry_generation = 0;
++    raop_rtp_mirror->type0_packets = 0;
++    raop_rtp_mirror->type0_bytes = 0;
++    raop_rtp_mirror->type1_packets = 0;
++    raop_rtp_mirror->type5_packets = 0;
++    raop_rtp_mirror->invalid_packets = 0;
 +    logger_log(raop_rtp_mirror->logger, LOGGER_INFO,
 +               "raop_rtp_mirror starting mirroring");
      if (raop_rtp_mirror->callbacks.mirror_video_running) {
          raop_rtp_mirror->callbacks.mirror_video_running(raop_rtp_mirror->callbacks.cls, true);
      }
 diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
-index ea1c450..bcff89c 100644
+index ea1c450..a9006dc 100644
 --- a/renderers/video_renderer.c
 +++ b/renderers/video_renderer.c
 @@ -75,12 +75,19 @@ typedef enum {
@@ -780,7 +983,7 @@ index ea1c450..bcff89c 100644
      int id;
      char *uri;
      gboolean eos;
-@@ -101,6 +108,343 @@ static char h265[] = "h265";
+@@ -101,6 +108,411 @@ static char h265[] = "h265";
  static char hls[]  = "hls";
  static char jpeg[] = "jpeg";
  
@@ -799,6 +1002,8 @@ index ea1c450..bcff89c 100644
 +static volatile gint aeromirror_recovery_push_failure_logged_epoch = 0;
 +static volatile gint aeromirror_active_renderer_id = 0;
 +static volatile gint aeromirror_active_present_proof_ready = 0;
++static volatile gint aeromirror_health_sink_count = 0;
++static volatile gint aeromirror_health_present_count = 0;
 +static GMutex aeromirror_recovery_metadata_lock;
 +typedef struct {
 +    GstClockTime pts;
@@ -812,6 +1017,63 @@ index ea1c450..bcff89c 100644
 +static gint aeromirror_recovery_matched_slot = -1;
 +static GstClockTime aeromirror_recovery_matched_pts = GST_CLOCK_TIME_NONE;
 +static gint aeromirror_recovery_pts_delta_ms = 0;
++static GMutex aeromirror_health_lock;
++static video_renderer_health_t aeromirror_health;
++
++static guint64 aeromirror_monotonic_us() {
++    gint64 now = g_get_monotonic_time();
++    return now > 0 ? (guint64) now : 0;
++}
++
++static void aeromirror_health_reset() {
++    g_mutex_lock(&aeromirror_health_lock);
++    memset(&aeromirror_health, 0, sizeof(aeromirror_health));
++    aeromirror_health.last_flow_return = GST_FLOW_OK;
++    aeromirror_health.pipeline_state = GST_STATE_VOID_PENDING;
++    aeromirror_health.pipeline_pending_state = GST_STATE_VOID_PENDING;
++    g_atomic_int_set(&aeromirror_health_sink_count, 0);
++    g_atomic_int_set(&aeromirror_health_present_count, 0);
++    g_mutex_unlock(&aeromirror_health_lock);
++}
++
++void video_renderer_reset_health() {
++    aeromirror_health_reset();
++}
++
++static void aeromirror_health_note_input(gsize bytes) {
++    g_mutex_lock(&aeromirror_health_lock);
++    aeromirror_health.input_count++;
++    aeromirror_health.input_bytes += bytes;
++    aeromirror_health.last_input_monotonic_us = aeromirror_monotonic_us();
++    g_mutex_unlock(&aeromirror_health_lock);
++}
++
++static void aeromirror_health_note_push(GstFlowReturn flow_return) {
++    g_mutex_lock(&aeromirror_health_lock);
++    aeromirror_health.last_flow_return = (int) flow_return;
++    if (flow_return == GST_FLOW_OK) {
++        aeromirror_health.push_ok_count++;
++        aeromirror_health.last_push_ok_monotonic_us = aeromirror_monotonic_us();
++    } else {
++        aeromirror_health.push_error_count++;
++    }
++    g_mutex_unlock(&aeromirror_health_lock);
++}
++
++void video_renderer_get_health(video_renderer_health_t *health) {
++    if (!health) {
++        return;
++    }
++    g_mutex_lock(&aeromirror_health_lock);
++    *health = aeromirror_health;
++    health->sink_count = (uint64_t) (guint32)
++        g_atomic_int_get(&aeromirror_health_sink_count);
++    health->present_count = (uint64_t) (guint32)
++        g_atomic_int_get(&aeromirror_health_present_count);
++    health->present_proof_available = g_atomic_int_get(
++        &aeromirror_active_present_proof_ready);
++    g_mutex_unlock(&aeromirror_health_lock);
++}
 +
 +static void aeromirror_reset_recovery_candidates_locked() {
 +    g_atomic_int_set(&aeromirror_recovery_push_accepted_epoch, 0);
@@ -876,6 +1138,11 @@ index ea1c450..bcff89c 100644
 +static GstPadProbeReturn aeromirror_recovery_sink_probe(
 +        GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
 +    gint selected_id = GPOINTER_TO_INT(user_data);
++    if (selected_id > 0 &&
++        g_atomic_int_get(&aeromirror_active_renderer_id) == selected_id &&
++        (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)) {
++        g_atomic_int_inc(&aeromirror_health_sink_count);
++    }
 +    gint epoch = g_atomic_int_get(&aeromirror_recovery_epoch);
 +    if (!epoch || selected_id <= 0 ||
 +        g_atomic_int_get(&aeromirror_active_renderer_id) != selected_id ||
@@ -931,8 +1198,12 @@ index ea1c450..bcff89c 100644
 +    (void) videosink;
 +    (void) device;
 +    (void) render_target;
-+    if (!epoch || selected_id <= 0 ||
-+        g_atomic_int_get(&aeromirror_active_renderer_id) != selected_id ||
++    if (selected_id <= 0 ||
++        g_atomic_int_get(&aeromirror_active_renderer_id) != selected_id) {
++        return;
++    }
++    g_atomic_int_inc(&aeromirror_health_present_count);
++    if (!epoch ||
 +        g_atomic_int_get(&aeromirror_recovery_sink_epoch) != epoch) {
 +        return;
 +    }
@@ -1124,7 +1395,7 @@ index ea1c450..bcff89c 100644
  static void append_videoflip (GString *launch, const videoflip_t *flip, const videoflip_t *rot) {
      /* videoflip image transform */
      switch (*flip) {
-@@ -177,6 +521,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
+@@ -177,6 +589,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
      height_source = (unsigned short) *f_height_source;
      width = (unsigned short) *f_width;
      height = (unsigned short) *f_height;
@@ -1134,7 +1405,7 @@ index ea1c450..bcff89c 100644
      logger_log(logger, LOGGER_DEBUG, "begin video stream wxh = %dx%d; source %dx%d", width, height, width_source, height_source);
  }
  
-@@ -400,6 +747,16 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
+@@ -400,6 +815,16 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
              renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
              g_assert(renderer_type[i]->appsrc);
              g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
@@ -1151,7 +1422,7 @@ index ea1c450..bcff89c 100644
              g_string_free(launch, TRUE);
              gst_caps_unref(caps);
              gst_object_unref(clock);
-@@ -481,6 +838,10 @@ void video_renderer_resume() {
+@@ -481,6 +906,11 @@ void video_renderer_resume() {
  }
  
  void video_renderer_start() {
@@ -1159,10 +1430,29 @@ index ea1c450..bcff89c 100644
 +    video_renderer_cancel_recovery();
 +    g_atomic_int_set(&aeromirror_active_renderer_id, 0);
 +    g_atomic_int_set(&aeromirror_active_present_proof_ready, 0);
++    aeromirror_health_reset();
      GstState state;
      const gchar *state_name = NULL;
      if (hls_video) {
-@@ -617,7 +978,120 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+@@ -576,13 +1006,16 @@ void video_renderer_display_jpeg(const void *data, int *data_len) {
+         buffer = gst_buffer_new_allocate(NULL, *data_len, NULL);
+ 	g_assert(buffer != NULL);
+         gst_buffer_fill(buffer, 0, data, *data_len);
+-        gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
++        GstFlowReturn flow_return =
++            gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
++        aeromirror_health_note_push(flow_return);
+     }  
+ }
+ 
+ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time) {
+     GstBuffer *buffer = NULL;
+     GstClockTime pts = (GstClockTime) *ntp_time; /*now in nsecs */
++    aeromirror_health_note_input(data_len && *data_len > 0 ? (gsize) *data_len : 0);
+     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
+     if (sync) {
+         if (pts >= gst_video_pipeline_base_time) {
+@@ -617,7 +1050,121 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
              GST_BUFFER_PTS(buffer) = pts;
          }
          gst_buffer_fill(buffer, 0, data, *data_len);
@@ -1201,6 +1491,7 @@ index ea1c450..bcff89c 100644
 +        }
 +        GstFlowReturn flow_return =
 +            gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
++        aeromirror_health_note_push(flow_return);
 +        if (recovery_candidate && flow_return == GST_FLOW_OK &&
 +            g_atomic_int_get(&aeromirror_recovery_epoch) ==
 +                recovery_epoch) {
@@ -1284,7 +1575,7 @@ index ea1c450..bcff89c 100644
  #ifdef X_DISPLAY_FIX
          if (renderer->gst_window && !(renderer->gst_window->window) && renderer->use_x11) {
              X11_search_attempts++;
-@@ -636,6 +1110,8 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+@@ -636,6 +1183,8 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
  }
  
  void video_renderer_flush() {
@@ -1293,7 +1584,7 @@ index ea1c450..bcff89c 100644
  }
  
  void video_renderer_hls_ready() {
-@@ -652,6 +1128,9 @@ void video_renderer_hls_ready() {
+@@ -652,6 +1201,9 @@ void video_renderer_hls_ready() {
  }
  
  void video_renderer_stop() {
@@ -1303,7 +1594,7 @@ index ea1c450..bcff89c 100644
      if (renderer) {
          logger_log(logger, LOGGER_DEBUG,"video_renderer_stop");
          if (renderer->appsrc) {
-@@ -711,6 +1190,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
+@@ -711,6 +1263,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
              gst_object_unref (renderer->appsrc);
              renderer->appsrc = NULL;
          }
@@ -1311,7 +1602,7 @@ index ea1c450..bcff89c 100644
          if (renderer->textsrc) {
              gst_object_unref (renderer->textsrc);
              renderer->textsrc = NULL;
-@@ -734,6 +1214,9 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
+@@ -734,6 +1287,9 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
  }
  
  void video_renderer_destroy() {
@@ -1321,17 +1612,43 @@ index ea1c450..bcff89c 100644
      for (int i = 0; i < n_renderers; i++) {
          if (renderer_type[i]) {
              video_renderer_destroy_instance(renderer_type[i]);
-@@ -812,7 +1295,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -789,7 +1345,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+     const gchar *old_state_name = no_state, *new_state_name = no_state;
+     if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_STATE_CHANGED) {
+         GstState old_state, new_state;
+-        gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
++        GstState pending_state;
++        gst_message_parse_state_changed (message, &old_state, &new_state,
++                                         &pending_state);
+         old_state_name = gst_element_state_get_name (old_state);
+         new_state_name = gst_element_state_get_name (new_state);
+     }
+@@ -812,7 +1370,23 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
          return TRUE;
      }
  
+-    video_renderer_t *renderer = renderer_type[type];
 +    video_renderer_t *active_renderer = renderer;
-     video_renderer_t *renderer = renderer_type[type];
-+    bool aeromirror_selected_renderer = (renderer == active_renderer);
++    video_renderer_t *message_renderer = renderer_type[type];
++    bool aeromirror_selected_renderer =
++        (message_renderer == active_renderer);
++    if (aeromirror_selected_renderer &&
++        GST_MESSAGE_TYPE(message) == GST_MESSAGE_STATE_CHANGED &&
++        GST_MESSAGE_SRC(message) == GST_OBJECT(message_renderer->pipeline)) {
++        GstState diagnostic_old, diagnostic_new, diagnostic_pending;
++        gst_message_parse_state_changed(message, &diagnostic_old,
++                                        &diagnostic_new,
++                                        &diagnostic_pending);
++        g_mutex_lock(&aeromirror_health_lock);
++        aeromirror_health.pipeline_state = (int) diagnostic_new;
++        aeromirror_health.pipeline_pending_state = (int) diagnostic_pending;
++        g_mutex_unlock(&aeromirror_health_lock);
++    }
++    video_renderer_t *renderer = message_renderer;
  
      gint64 pos = -1;
      if (hls_video) {
-@@ -1009,6 +1494,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -1009,6 +1583,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
        /* unhandled message */
          break;
      }
@@ -1341,7 +1658,7 @@ index ea1c450..bcff89c 100644
      return TRUE;
  }
  
-@@ -1038,9 +1526,16 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
+@@ -1038,9 +1615,16 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
          return -1;
      }
      renderer = renderer_used;
@@ -1359,10 +1676,34 @@ index ea1c450..bcff89c 100644
          return -1;
      }
 diff --git a/renderers/video_renderer.h b/renderers/video_renderer.h
-index fd48415..30e6014 100644
+index fd48415..37c0fd6 100644
 --- a/renderers/video_renderer.h
 +++ b/renderers/video_renderer.h
-@@ -64,6 +64,10 @@ int video_renderer_cycle ();
+@@ -47,6 +47,23 @@ typedef enum videoflip_e {
+ 
+ typedef struct video_renderer_s video_renderer_t;
+ 
++typedef struct video_renderer_health_s {
++    uint64_t input_count;
++    uint64_t input_bytes;
++    uint64_t push_ok_count;
++    uint64_t push_error_count;
++    uint64_t sink_count;
++    uint64_t present_count;
++    uint64_t last_input_monotonic_us;
++    uint64_t last_push_ok_monotonic_us;
++    uint64_t last_sink_monotonic_us;
++    uint64_t last_present_monotonic_us;
++    int last_flow_return;
++    int pipeline_state;
++    int pipeline_pending_state;
++    int present_proof_available;
++} video_renderer_health_t;
++
+ void video_renderer_init (logger_t *logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char *rtp_pipeline,
+                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options,
+                           bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support,
+@@ -64,6 +81,12 @@ int video_renderer_cycle ();
  bool video_renderer_is_paused();
  bool video_renderer_eos_watch();
  uint64_t  video_renderer_render_buffer (unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time);
@@ -1370,11 +1711,18 @@ index fd48415..30e6014 100644
 +void video_renderer_cancel_recovery();
 +void video_renderer_poll_recovery_present();
 +bool video_renderer_present_proof_available();
++void video_renderer_get_health(video_renderer_health_t *health);
++void video_renderer_reset_health();
  void video_renderer_display_jpeg(const void *data, int *data_len);
  void video_renderer_flush ();
  unsigned int video_renderer_listen(void *loop, int id);
+@@ -79,4 +102,3 @@ bool video_renderer_eos_watch();
+ #endif
+ 
+ #endif //VIDEO_RENDERER_H
+-
 diff --git a/uxplay.cpp b/uxplay.cpp
-index d10edd4..d4e7ad1 100644
+index d10edd4..24049a9 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
 @@ -28,6 +28,8 @@
@@ -1386,7 +1734,15 @@ index d10edd4..d4e7ad1 100644
  #include <vector>
  #include <fstream>
  #include <sstream>
-@@ -97,6 +99,21 @@
+@@ -84,6 +86,7 @@
+ #define LOWEST_ALLOWED_PORT 1024
+ #define HIGHEST_PORT 65535
+ #define MISSED_FEEDBACK_LIMIT 15
++#define AEROMIRROR_VIDEO_HEALTH_INTERVAL_US (2 * SECOND_IN_USECS)
+ #define MIN_PASSWORD_LENGTH 4
+ #define DEFAULT_PLAYBIN_VERSION 3
+ #define BT709_FIX "capssetter caps=\"video/x-h264, colorimetry=bt709\""
+@@ -97,6 +100,21 @@
  static std::string server_name = DEFAULT_NAME;
  static bool server_name_is_utf8 = false;
  static dnssd_t *dnssd = NULL;
@@ -1408,7 +1764,7 @@ index d10edd4..d4e7ad1 100644
  static raop_t *raop = NULL;
  static logger_t *render_logger = NULL;
  static bool audio_sync = false;
-@@ -104,8 +121,8 @@ static bool video_sync = true;
+@@ -104,8 +122,8 @@ static bool video_sync = true;
  static int64_t audio_delay_alac = 0;
  static int64_t audio_delay_aac = 0;
  static bool relaunch_video = false;
@@ -1419,7 +1775,7 @@ index d10edd4..d4e7ad1 100644
  static std::string videosink = "autovideosink";
  static std::string videosink_options = "";
  static videoflip_t videoflip[2] = { NONE , NONE };
-@@ -148,7 +165,7 @@ static bool do_append_hostname = true;
+@@ -148,7 +166,7 @@ static bool do_append_hostname = true;
  static bool use_random_hw_addr = false;
  static unsigned short display[5] = {0}, tcp[3] = {0}, udp[3] = {0};
  static GMainLoop *g_loop = NULL;
@@ -1428,7 +1784,48 @@ index d10edd4..d4e7ad1 100644
  static bool debug_log = DEFAULT_DEBUG_LOG;
  static bool suppress_packet_debug_data = false;
  static int log_level = LOGGER_INFO;
-@@ -189,7 +206,12 @@ static guint progress_id = 0;
+@@ -158,7 +176,39 @@ static int nohold = 0;
+ static bool nofreeze = false;
+ static unsigned short raop_port;
+ static unsigned short airplay_port;
+-static uint64_t remote_clock_offset = 0;
++typedef struct {
++    bool initialized;
++    int64_t offset_ns;
++    uint64_t epoch;
++} aeromirror_video_clock_state_t;
++static aeromirror_video_clock_state_t aeromirror_video_clock = {false, 0, 0};
++static std::mutex aeromirror_video_clock_mutex;
++static aeromirror_video_clock_state_t aeromirror_audio_clock = {false, 0, 0};
++static std::mutex aeromirror_audio_clock_mutex;
++static std::atomic<uint64_t> aeromirror_video_clock_epoch_counter(0);
++static std::atomic<uint64_t> aeromirror_audio_clock_epoch_counter(0);
++static std::atomic<uint64_t> aeromirror_session_generation_counter(0);
++static std::atomic<uint64_t> aeromirror_active_session_generation(0);
++static std::atomic<uint64_t> aeromirror_geometry_generation(0);
++static std::atomic<uint64_t> aeromirror_type0_packets(0);
++static std::atomic<uint64_t> aeromirror_type0_bytes(0);
++static std::atomic<uint64_t> aeromirror_type1_packets(0);
++static std::atomic<uint64_t> aeromirror_type5_packets(0);
++static std::atomic<uint64_t> aeromirror_invalid_packets(0);
++static std::atomic<uint64_t> aeromirror_config_pending(0);
++static std::atomic<uint64_t> aeromirror_config_delivered(0);
++static std::atomic<uint64_t> aeromirror_config_discarded(0);
++static std::atomic<unsigned int> aeromirror_last_option(0);
++static std::atomic<unsigned int> aeromirror_last_action(0);
++static std::atomic<uint64_t> aeromirror_pause_actions(0);
++static std::atomic<uint64_t> aeromirror_resume_actions(0);
++static std::atomic<bool> aeromirror_stream_suspended(false);
++static std::atomic<gint64> aeromirror_last_ingress_us(0);
++static std::atomic<gint64> aeromirror_last_health_log_us(0);
++static std::atomic<uint64_t> aeromirror_video_ingress_generation(0);
++static std::atomic<uint64_t> aeromirror_pts_retry_count(0);
++static std::atomic<uint64_t> aeromirror_pts_correction_count(0);
++static std::atomic<uint64_t> aeromirror_pts_invalid_count(0);
+ static std::vector<std::string> allowed_clients;
+ static std::vector<std::string> blocked_clients;
+ static bool restrict_clients;
+@@ -189,7 +239,12 @@ static guint progress_id = 0;
  static guint gst_hls_position_id = 0;
  static bool preserve_connections = false;
  static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
@@ -1442,7 +1839,119 @@ index d10edd4..d4e7ad1 100644
  static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
  static bool reset_httpd = false;
  static bool monitor_progress = false;
-@@ -230,26 +252,62 @@ static float previous_hls_position = 0.0f;
+@@ -206,6 +261,111 @@ static std::string ble_filename = "";
+ static std::string rtp_pipeline = "";
+ static std::string audio_rtp_pipeline = "";
+ static GMainLoop *gmainloop = NULL;
++
++static void aeromirror_reset_video_clock(uint64_t generation) {
++    (void) generation;
++    std::lock_guard<std::mutex> guard(aeromirror_video_clock_mutex);
++    aeromirror_video_clock.initialized = false;
++    aeromirror_video_clock.offset_ns = 0;
++    aeromirror_video_clock.epoch =
++        aeromirror_video_clock_epoch_counter.fetch_add(1) + 1;
++}
++
++static void aeromirror_reset_audio_clock(uint64_t generation) {
++    (void) generation;
++    std::lock_guard<std::mutex> guard(aeromirror_audio_clock_mutex);
++    aeromirror_audio_clock.initialized = false;
++    aeromirror_audio_clock.offset_ns = 0;
++    aeromirror_audio_clock.epoch =
++        aeromirror_audio_clock_epoch_counter.fetch_add(1) + 1;
++}
++
++static bool aeromirror_add_signed_ns(uint64_t raw_remote_pts,
++                                     int64_t offset_ns,
++                                     uint64_t *candidate_pts) {
++    if (!candidate_pts) {
++        return false;
++    }
++    if (offset_ns >= 0) {
++        uint64_t positive = (uint64_t) offset_ns;
++        if (raw_remote_pts > UINT64_MAX - positive) {
++            return false;
++        }
++        *candidate_pts = raw_remote_pts + positive;
++        return true;
++    }
++    uint64_t magnitude = (uint64_t) (-(offset_ns + 1)) + 1;
++    if (raw_remote_pts < magnitude) {
++        return false;
++    }
++    *candidate_pts = raw_remote_pts - magnitude;
++    return true;
++}
++
++static uint64_t aeromirror_age_ms(gint64 now_us, uint64_t then_us) {
++    if (!then_us || now_us <= 0 || (uint64_t) now_us <= then_us) {
++        return then_us ? 0 : UINT64_MAX;
++    }
++    return ((uint64_t) now_us - then_us) / 1000U;
++}
++
++static const char *aeromirror_health_classification(
++        uint64_t ingress_delta, uint64_t input_delta, uint64_t push_delta,
++        uint64_t push_error_delta,
++        uint64_t sink_delta, uint64_t present_delta, bool suspended,
++        bool present_proof_available, bool starting, bool pipeline_reset) {
++    if (starting) return "starting";
++    if (pipeline_reset) return "pipeline-reset";
++    if (suspended) return "client-paused";
++    if (!ingress_delta) return "no-vcl";
++    if (!input_delta) return "pre-appsrc";
++    if (push_error_delta && !push_delta) return "appsrc-error";
++    if (!push_delta) return "pre-appsrc";
++    if (!present_proof_available) return "unavailable";
++    if (!sink_delta) return "decoder-stall";
++    if (!present_delta) return "present-stall";
++    return "healthy";
++}
++
++extern "C" void mirror_media_diagnostic(
++        void *cls, const mirror_media_diagnostic_t *event) {
++    (void) cls;
++    if (!event || !aeromirror_active_session_generation.load()) {
++        return;
++    }
++    aeromirror_geometry_generation.store(event->geometry_generation);
++    uint64_t previous_type0 = aeromirror_type0_packets.exchange(
++        event->type0_packets);
++    aeromirror_type0_bytes.store(event->type0_bytes);
++    uint64_t previous_type1 = aeromirror_type1_packets.exchange(
++        event->type1_packets);
++    aeromirror_type5_packets.store(event->type5_packets);
++    aeromirror_invalid_packets.store(event->invalid_packets);
++    if (event->type1_packets > previous_type1 ||
++        event->action != MIRROR_PACKET_ACTION_NONE) {
++        aeromirror_last_option.store((unsigned int) event->option);
++    }
++    if (event->action != MIRROR_PACKET_ACTION_NONE) {
++        aeromirror_last_action.store((unsigned int) event->action);
++    }
++    if (event->action == MIRROR_PACKET_ACTION_PAUSE) {
++        aeromirror_pause_actions.fetch_add(1);
++    } else if (event->action == MIRROR_PACKET_ACTION_RESUME) {
++        aeromirror_resume_actions.fetch_add(1);
++    }
++    aeromirror_stream_suspended.store(event->suspended);
++    if (event->config_result == MIRROR_CONFIG_RESULT_PENDING) {
++        aeromirror_config_pending.fetch_add(1);
++    } else if (event->config_result == MIRROR_CONFIG_RESULT_MATCH_DELIVERED) {
++        aeromirror_config_delivered.fetch_add(1);
++    } else if (event->config_result == MIRROR_CONFIG_RESULT_MISMATCH_DISCARDED) {
++        aeromirror_config_discarded.fetch_add(1);
++    }
++    if (event->type0_packets > previous_type0) {
++        aeromirror_last_ingress_us.store(g_get_monotonic_time());
++        aeromirror_video_ingress_generation.fetch_add(1);
++    }
++}
+ static bool mux_to_file = false;
+ static std::string mux_filename = "recording";
+ 
+@@ -230,33 +390,86 @@ static float previous_hls_position = 0.0f;
  
  /* logging */
  
@@ -1485,9 +1994,9 @@ index d10edd4..d4e7ad1 100644
 +    line[length] = '\0';
 +    fwrite(line, 1, length, stdout);
 +    fflush(stdout);
-+    va_end(vargs);
-+}
-+
+     va_end(vargs);
+ }
+ 
 +/* Discovery markers are a machine-readable line protocol embedded in
 + * ordinary UxPlay stdout.  Audio progress uses a carriage return without a
 + * newline, so every protocol write begins with a newline and emits the whole
@@ -1499,17 +2008,17 @@ index d10edd4..d4e7ad1 100644
 +    va_list vargs;
 +    va_start(vargs, format);
 +    int body_length = vsnprintf(line + 1, sizeof(line) - 2, format, vargs);
-     va_end(vargs);
++    va_end(vargs);
 +    size_t length = 1 + (size_t) std::max(0, std::min(
 +        body_length, (int) sizeof(line) - 3));
 +    line[length++] = '\n';
 +    line[length] = '\0';
 +    fwrite(line, 1, length, stdout);
 +    fflush(stdout);
- }
- 
++}
++
  #define LOGD(...) log(LOGGER_DEBUG, __VA_ARGS__)
-@@ -257,6 +315,23 @@ static void log(int level, const char* format, ...) {
+ #define LOGI(...) log(LOGGER_INFO, __VA_ARGS__)
  #define LOGW(...) log(LOGGER_WARNING, __VA_ARGS__)
  #define LOGE(...) log(LOGGER_ERR, __VA_ARGS__)
  
@@ -1533,7 +2042,7 @@ index d10edd4..d4e7ad1 100644
  #ifdef DBUS
  static void dbus_screensaver_inhibiter(bool inhibit) {
      g_assert(inhibit != dbus_last_message);
-@@ -535,8 +610,12 @@ static void dump_video_to_file(unsigned char *data, int datalen) {
+@@ -535,8 +748,12 @@ static void dump_video_to_file(unsigned char *data, int datalen) {
  }
  
  static gboolean feedback_callback(gpointer loop) {
@@ -1548,7 +2057,7 @@ index d10edd4..d4e7ad1 100644
              LOGI("***ERROR lost connection with client (network problem?)");
              LOGI("   Interval since last client feedback request exceeds limit of %u seconds", missed_feedback_limit);
              LOGI("   Sometimes the network connection may recover after a longer delay:\n"
-@@ -549,12 +628,17 @@ static gboolean feedback_callback(gpointer loop) {
+@@ -549,12 +766,153 @@ static gboolean feedback_callback(gpointer loop) {
              full_video_reset = true;
              g_main_loop_quit((GMainLoop *) loop);
              return TRUE;
@@ -1563,6 +2072,142 @@ index d10edd4..d4e7ad1 100644
 -        missed_feedback = 0;
 +        missed_feedback.store(0);
 +    }
++    static uint64_t previous_ingress_generation = 0;
++    static uint64_t previous_session_generation = 0;
++    static uint64_t previous_input_count = 0;
++    static uint64_t previous_push_ok_count = 0;
++    static uint64_t previous_sink_count = 0;
++    static uint64_t previous_present_count = 0;
++    static uint64_t previous_push_error_count = 0;
++    static uint64_t observed_sink_count = 0;
++    static uint64_t observed_present_count = 0;
++    static uint64_t observed_sink_us = 0;
++    static uint64_t observed_present_us = 0;
++    gint64 health_now_us = g_get_monotonic_time();
++    if (aeromirror_active_session_generation.load() &&
++        health_now_us > 0 &&
++        health_now_us - aeromirror_last_health_log_us.load() >=
++            AEROMIRROR_VIDEO_HEALTH_INTERVAL_US) {
++        video_renderer_health_t health = {0};
++        video_renderer_get_health(&health);
++        uint64_t session_generation =
++            aeromirror_active_session_generation.load();
++        uint64_t ingress_generation =
++            aeromirror_video_ingress_generation.load();
++        bool new_session = session_generation != previous_session_generation;
++        bool pipeline_reset = !new_session &&
++            (health.input_count < previous_input_count ||
++             health.push_ok_count < previous_push_ok_count ||
++             health.push_error_count < previous_push_error_count ||
++             health.sink_count < previous_sink_count ||
++             health.present_count < previous_present_count);
++        if (new_session || pipeline_reset) {
++            previous_session_generation = session_generation;
++            previous_ingress_generation = ingress_generation;
++            previous_input_count = health.input_count;
++            previous_push_ok_count = health.push_ok_count;
++            previous_push_error_count = health.push_error_count;
++            previous_sink_count = health.sink_count;
++            previous_present_count = health.present_count;
++            observed_sink_count = health.sink_count;
++            observed_present_count = health.present_count;
++            observed_sink_us = health.sink_count ? (uint64_t) health_now_us : 0;
++            observed_present_us = health.present_count ? (uint64_t) health_now_us : 0;
++        }
++        uint64_t ingress_delta = (new_session || pipeline_reset) ? 0 :
++            ingress_generation - previous_ingress_generation;
++        uint64_t input_delta = (new_session || pipeline_reset) ? 0 :
++            health.input_count - previous_input_count;
++        uint64_t push_delta = (new_session || pipeline_reset) ? 0 :
++            health.push_ok_count - previous_push_ok_count;
++        uint64_t push_error_delta = (new_session || pipeline_reset) ? 0 :
++            health.push_error_count - previous_push_error_count;
++        uint64_t sink_delta = (new_session || pipeline_reset) ? 0 :
++            health.sink_count - previous_sink_count;
++        uint64_t present_delta = (new_session || pipeline_reset) ? 0 :
++            health.present_count - previous_present_count;
++        if (!new_session && health.sink_count > observed_sink_count) {
++            observed_sink_count = health.sink_count;
++            observed_sink_us = (uint64_t) health_now_us;
++        }
++        if (!new_session && health.present_count > observed_present_count) {
++            observed_present_count = health.present_count;
++            observed_present_us = (uint64_t) health_now_us;
++        }
++        uint64_t geometry_generation = aeromirror_geometry_generation.load();
++        uint64_t type0_packets = aeromirror_type0_packets.load();
++        uint64_t type0_bytes = aeromirror_type0_bytes.load();
++        uint64_t type1_packets = aeromirror_type1_packets.load();
++        uint64_t type5_packets = aeromirror_type5_packets.load();
++        uint64_t invalid_packets = aeromirror_invalid_packets.load();
++        uint64_t config_pending = aeromirror_config_pending.load();
++        uint64_t config_delivered = aeromirror_config_delivered.load();
++        uint64_t config_discarded = aeromirror_config_discarded.load();
++        uint64_t pause_actions = aeromirror_pause_actions.load();
++        uint64_t resume_actions = aeromirror_resume_actions.load();
++        unsigned int last_option = aeromirror_last_option.load();
++        unsigned int last_action = aeromirror_last_action.load();
++        bool stream_suspended = aeromirror_stream_suspended.load();
++        uint64_t pts_retry_count = aeromirror_pts_retry_count.load();
++        uint64_t pts_correction_count =
++            aeromirror_pts_correction_count.load();
++        uint64_t pts_invalid_count = aeromirror_pts_invalid_count.load();
++        gint64 last_ingress_us = aeromirror_last_ingress_us.load();
++        if (!session_generation ||
++            aeromirror_active_session_generation.load() !=
++                session_generation) {
++            return TRUE;
++        }
++        LOGI("AEROMIRROR_VIDEO_HEALTH session=%" PRIu64 " geometry=%" PRIu64
++             " vcl=%" PRIu64 " vcl_bytes=%" PRIu64 " type1=%" PRIu64
++             " type5=%" PRIu64 " invalid=%" PRIu64
++             " config_pending=%" PRIu64 " config_delivered=%" PRIu64
++             " config_discarded=%" PRIu64 " pause=%" PRIu64
++             " resume=%" PRIu64 " option=%u action=%u suspended=%u"
++             " input=%" PRIu64 " push_ok=%" PRIu64 " push_error=%" PRIu64
++             " sink=%" PRIu64 " present=%" PRIu64
++             " d_vcl=%" PRIu64 " d_input=%" PRIu64
++             " d_push_ok=%" PRIu64 " d_push_error=%" PRIu64
++             " d_sink=%" PRIu64 " d_present=%" PRIu64
++             " pts_retry=%" PRIu64 " pts_correction=%" PRIu64
++             " pts_invalid=%" PRIu64
++             " ingress_age_ms=%" PRIu64 " input_age_ms=%" PRIu64
++             " push_age_ms=%" PRIu64 " sink_age_ms=%" PRIu64
++             " present_age_ms=%" PRIu64 " flow=%d state=%d pending=%d proof=%u class=%s",
++             session_generation,
++             geometry_generation, type0_packets, type0_bytes, type1_packets,
++             type5_packets, invalid_packets, config_pending,
++             config_delivered, config_discarded, pause_actions,
++             resume_actions, last_option, last_action,
++             stream_suspended ? 1U : 0U,
++             health.input_count, health.push_ok_count, health.push_error_count,
++             health.sink_count, health.present_count,
++             ingress_delta, input_delta, push_delta, push_error_delta,
++             sink_delta, present_delta,
++             pts_retry_count, pts_correction_count, pts_invalid_count,
++             aeromirror_age_ms(health_now_us,
++                 (uint64_t) std::max((gint64) 0, last_ingress_us)),
++             aeromirror_age_ms(health_now_us, health.last_input_monotonic_us),
++             aeromirror_age_ms(health_now_us, health.last_push_ok_monotonic_us),
++             aeromirror_age_ms(health_now_us, observed_sink_us),
++             aeromirror_age_ms(health_now_us, observed_present_us),
++             health.last_flow_return, health.pipeline_state,
++             health.pipeline_pending_state,
++             health.present_proof_available ? 1U : 0U,
++             aeromirror_health_classification(ingress_delta, input_delta,
++                                              push_delta, push_error_delta,
++                                              sink_delta, present_delta,
++                                              stream_suspended,
++                                              health.present_proof_available != 0,
++                                              new_session, pipeline_reset));
++        previous_ingress_generation = ingress_generation;
++        previous_input_count = health.input_count;
++        previous_push_ok_count = health.push_ok_count;
++        previous_push_error_count = health.push_error_count;
++        previous_sink_count = health.sink_count;
++        previous_present_count = health.present_count;
++        aeromirror_last_health_log_us.store(health_now_us);
++    }
 +    if (poll_recovery_present) {
 +        std::lock_guard<std::mutex> present_guard(
 +            video_present_arm_mutex);
@@ -1570,7 +2215,7 @@ index d10edd4..d4e7ad1 100644
      }
      return TRUE;
  }
-@@ -676,6 +760,15 @@ static void main_loop()  {
+@@ -676,6 +1034,15 @@ static void main_loop()  {
      //GMainLoop *loop = g_main_loop_new(NULL,FALSE);
      g_loop = g_main_loop_new(NULL, FALSE);
      GMainLoop *loop = g_loop;
@@ -1586,7 +2231,7 @@ index d10edd4..d4e7ad1 100644
      relaunch_video = false;
      monitor_progress = false;
      reset_loop = false;
-@@ -721,8 +814,12 @@ static void main_loop()  {
+@@ -721,8 +1088,12 @@ static void main_loop()  {
          }
      }
  
@@ -1600,7 +2245,7 @@ index d10edd4..d4e7ad1 100644
      guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
  
  #ifdef _WIN32
-@@ -735,7 +832,9 @@ static void main_loop()  {
+@@ -735,7 +1106,9 @@ static void main_loop()  {
      guint sigint_watch_id = g_unix_signal_add(SIGINT, (GSourceFunc) sigint_callback, (gpointer) loop);
      guint sighup_watch_id = g_unix_signal_add(SIGHUP, (GSourceFunc) sigint_callback, (gpointer) loop);
  #endif
@@ -1611,7 +2256,7 @@ index d10edd4..d4e7ad1 100644
  
  #ifdef _WIN32
      gmainloop = NULL;
-@@ -759,6 +858,11 @@ static void main_loop()  {
+@@ -759,6 +1132,11 @@ static void main_loop()  {
      if (progress_id > 0) g_source_remove(progress_id);
      if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
      if (feedback_watch_id > 0) g_source_remove(feedback_watch_id);
@@ -1623,7 +2268,7 @@ index d10edd4..d4e7ad1 100644
      g_main_loop_unref(loop);
  }    
  
-@@ -1917,40 +2021,11 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
+@@ -1917,40 +2295,11 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
  }
  
  static int register_dnssd() {
@@ -1667,7 +2312,7 @@ index d10edd4..d4e7ad1 100644
      }
  
      LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
-@@ -1960,8 +2035,21 @@ static int register_dnssd() {
+@@ -1960,8 +2309,21 @@ static int register_dnssd() {
  
  static void unregister_dnssd() {
      if (dnssd) {
@@ -1691,7 +2336,7 @@ index d10edd4..d4e7ad1 100644
      }
      return;
  }
-@@ -1971,6 +2059,7 @@ static void stop_dnssd() {
+@@ -1971,6 +2333,7 @@ static void stop_dnssd() {
          unregister_dnssd();
          dnssd_destroy(dnssd);
          dnssd = NULL;
@@ -1699,7 +2344,7 @@ index d10edd4..d4e7ad1 100644
  	return;
      }	
  }
-@@ -1993,17 +2082,27 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -1993,17 +2356,27 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
          return 1;
      }
  
@@ -1729,7 +2374,7 @@ index d10edd4..d4e7ad1 100644
      dnssd_set_airplay_features(dnssd,  6, 1); // 
      dnssd_set_airplay_features(dnssd,  7, 1); // mirroring supported
  
-@@ -2013,7 +2112,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -2013,7 +2386,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
      dnssd_set_airplay_features(dnssd, 11, 1); // audio packet redundancy supported
  
      dnssd_set_airplay_features(dnssd, 12, 1); // FaiPlay secure auth supported 
@@ -1738,7 +2383,7 @@ index d10edd4..d4e7ad1 100644
      dnssd_set_airplay_features(dnssd, 14, 1); // Authentication bit 4:  FairPlay authentication
      dnssd_set_airplay_features(dnssd, 15, 1); // Metadata bit 1 support:   Artwork 
  
-@@ -2089,9 +2188,249 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -2089,9 +2462,249 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
  
      /* bit 27 of Features determines whether the AirPlay2 client-pairing protocol will be used (1) or not (0) */
      dnssd_set_airplay_features(dnssd, 27, (int) setup_legacy_pairing);
@@ -1988,7 +2633,39 @@ index d10edd4..d4e7ad1 100644
  static bool check_client(char *deviceid) {
      bool ret = false;
      int list =  allowed_clients.size();
-@@ -2229,16 +2568,22 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
+@@ -2143,7 +2756,10 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
+             close_window = false;  // we already closed the window
+         }
+         preserve_connections = false; //we already closed all other connections
+-        remote_clock_offset = 0;
++        aeromirror_reset_video_clock(
++            aeromirror_active_session_generation.load());
++        aeromirror_reset_audio_clock(
++            aeromirror_active_session_generation.load());
+         relaunch_video = true;
+         break;
+     case RESET_TYPE_RTP_TO_HLS_TEARDOWN:
+@@ -2154,7 +2770,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
+         if (use_video) {
+             video_renderer_stop();
+         }
+-        remote_clock_offset = 0;
++        aeromirror_reset_video_clock(
++            aeromirror_active_session_generation.load());
+         relaunch_video = true;
+         break;
+     case RESET_TYPE_HLS_SHUTDOWN:
+@@ -2168,7 +2785,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
+         }
+         raop_remove_hls_connections(raop);
+         preserve_connections = true;
+-        remote_clock_offset = 0;
++        aeromirror_reset_video_clock(
++            aeromirror_active_session_generation.load());
+         relaunch_video = true;
+         break;
+     case RESET_TYPE_ON_VIDEO_PLAY:
+@@ -2229,17 +2847,26 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
  }
  
  extern "C" void conn_init (void *cls) {
@@ -2004,6 +2681,7 @@ index d10edd4..d4e7ad1 100644
 -    open_connections--;
 -    LOGD("Open connections: %i", open_connections);
 -    if (open_connections == 0) {
+-        remote_clock_offset = 0;
 +    unsigned int previous_count = open_connections.load();
 +    while (previous_count > 0 &&
 +           !open_connections.compare_exchange_weak(
@@ -2013,10 +2691,14 @@ index d10edd4..d4e7ad1 100644
 +        previous_count > 0 ? previous_count - 1 : 0;
 +    LOGD("Open connections: %u", connection_count);
 +    if (connection_count == 0) {
-         remote_clock_offset = 0;
++        aeromirror_reset_video_clock(
++            aeromirror_active_session_generation.load());
++        aeromirror_reset_audio_clock(
++            aeromirror_active_session_generation.load());
          if (use_audio) {
              audio_renderer_stop();
-@@ -2254,10 +2599,32 @@ extern "C" void conn_destroy (void *cls) {
+         }
+@@ -2254,10 +2881,32 @@ extern "C" void conn_destroy (void *cls) {
  
  extern "C" void conn_feedback (void *cls) {
      /* received client heartbeat signal: connection still exists */
@@ -2050,11 +2732,96 @@ index d10edd4..d4e7ad1 100644
      switch (reason) {
      case 1:
          LOGI("*** ERROR lost connection with client (network problem?)");
-@@ -2349,7 +2716,25 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
+@@ -2306,11 +2955,28 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
+         mux_renderer_push_audio(data->data, data->data_len, data->ntp_time_remote);
+     }
+     if (use_audio) {
+-        if (!remote_clock_offset) {
+-            uint64_t local_time = (data->ntp_time_local ? data->ntp_time_local : get_local_time());
+-            remote_clock_offset = local_time - data->ntp_time_remote;
++        int64_t audio_offset = 0;
++        {
++            std::lock_guard<std::mutex> guard(aeromirror_audio_clock_mutex);
++            if (!aeromirror_audio_clock.initialized) {
++                uint64_t audio_local_time = data->ntp_time_local
++                    ? data->ntp_time_local : get_local_time();
++                __int128 difference = (__int128) audio_local_time -
++                                      (__int128) data->ntp_time_remote;
++                if (difference > INT64_MAX) difference = INT64_MAX;
++                if (difference < INT64_MIN) difference = INT64_MIN;
++                aeromirror_audio_clock.offset_ns = (int64_t) difference;
++                aeromirror_audio_clock.initialized = true;
++            }
++            audio_offset = aeromirror_audio_clock.offset_ns;
+         }
+-        data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
++        uint64_t mapped_audio_pts = 0;
++        if (!aeromirror_add_signed_ns(data->ntp_time_remote, audio_offset,
++                                      &mapped_audio_pts)) {
++            mapped_audio_pts = data->ntp_time_local
++                ? data->ntp_time_local : get_local_time();
++        }
++        data->ntp_time_remote = mapped_audio_pts;
+         switch (data->ct) {
+         case 2:
+             /* for progress monitor (ALAC audio only) */
+@@ -2341,32 +3007,153 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
+         mux_renderer_push_video(data->data, data->data_len, data->ntp_time_remote);
+     }
+     if (use_video) {
+-        if (!remote_clock_offset) {
+-            uint64_t local_time = (data->ntp_time_local ? data->ntp_time_local : get_local_time());
+-            remote_clock_offset = local_time - data->ntp_time_remote;
++        const uint64_t raw_remote_pts = data->ntp_time_remote;
++        const uint64_t active_generation =
++            aeromirror_active_session_generation.load();
++        if (!active_generation) {
++            return;
++        }
++        uint64_t callback_clock_epoch = 0;
++        {
++            std::lock_guard<std::mutex> guard(
++                aeromirror_video_clock_mutex);
++            callback_clock_epoch = aeromirror_video_clock.epoch;
+         }
+         int count = 0;
          uint64_t pts_mismatch = 0;
          do {
-             data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
+-            data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
 -            pts_mismatch = video_renderer_render_buffer(data->data, &(data->data_len), &(data->nal_count), &(data->ntp_time_remote));
++            if (aeromirror_active_session_generation.load() !=
++                active_generation) {
++                break;
++            }
++            int64_t offset_snapshot = 0;
++            uint64_t generation_snapshot = 0;
++            {
++                std::lock_guard<std::mutex> guard(
++                    aeromirror_video_clock_mutex);
++                if (aeromirror_active_session_generation.load() !=
++                        active_generation ||
++                    aeromirror_video_clock.epoch != callback_clock_epoch) {
++                    break;
++                }
++                if (!aeromirror_video_clock.initialized) {
++                    uint64_t local_time = data->ntp_time_local
++                        ? data->ntp_time_local : get_local_time();
++                    __int128 difference = (__int128) local_time -
++                                          (__int128) raw_remote_pts;
++                    if (difference > INT64_MAX) difference = INT64_MAX;
++                    if (difference < INT64_MIN) difference = INT64_MIN;
++                    aeromirror_video_clock.offset_ns = (int64_t) difference;
++                    aeromirror_video_clock.initialized = true;
++                }
++                offset_snapshot = aeromirror_video_clock.offset_ns;
++                generation_snapshot = callback_clock_epoch;
++            }
++            uint64_t candidate_pts = 0;
++            if (!aeromirror_add_signed_ns(raw_remote_pts, offset_snapshot,
++                                          &candidate_pts)) {
++                aeromirror_pts_invalid_count.fetch_add(1);
++                break;
++            }
 +            if (data->data && data->data_len > 0 && !data->data[0] &&
 +                video_renderer_present_proof_available()) {
 +                std::lock_guard<std::mutex> present_guard(
@@ -2071,13 +2838,34 @@ index d10edd4..d4e7ad1 100644
 +                    video_renderer_arm_recovery(present_epoch, 0);
 +                }
 +            }
++            if (aeromirror_active_session_generation.load() !=
++                active_generation) {
++                break;
++            }
 +            pts_mismatch = video_renderer_render_buffer(
 +                data->data, &(data->data_len), &(data->nal_count),
-+                &(data->ntp_time_remote));
++                &candidate_pts);
              if (pts_mismatch) {
-                 LOGI("adjust timestamps by %8.6f secs", (double) pts_mismatch / SECOND_IN_NSECS);
-                 remote_clock_offset += pts_mismatch;
-@@ -2359,14 +2744,25 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
+-                LOGI("adjust timestamps by %8.6f secs", (double) pts_mismatch / SECOND_IN_NSECS);
+-                remote_clock_offset += pts_mismatch;
++                aeromirror_pts_retry_count.fetch_add(1);
++                std::lock_guard<std::mutex> guard(
++                    aeromirror_video_clock_mutex);
++                if (aeromirror_video_clock.epoch == generation_snapshot) {
++                    if (aeromirror_active_session_generation.load() !=
++                        active_generation) {
++                        break;
++                    }
++                    __int128 corrected = (__int128)
++                        aeromirror_video_clock.offset_ns +
++                        (__int128) pts_mismatch;
++                    if (corrected > INT64_MAX) corrected = INT64_MAX;
++                    aeromirror_video_clock.offset_ns = (int64_t) corrected;
++                    aeromirror_pts_correction_count.fetch_add(1);
++                }
+             }
+             count++;
+         } while (pts_mismatch && count < 10);
      }
  }
  
@@ -2094,10 +2882,45 @@ index d10edd4..d4e7ad1 100644
 -}
  #endif
 +    if (is_running) {
++        aeromirror_active_session_generation.store(0);
++        uint64_t generation =
++            aeromirror_session_generation_counter.fetch_add(1) + 1;
++        if (!generation) {
++            generation =
++                aeromirror_session_generation_counter.fetch_add(1) + 1;
++        }
++        aeromirror_geometry_generation.store(0);
++        aeromirror_type0_packets.store(0);
++        aeromirror_type0_bytes.store(0);
++        aeromirror_type1_packets.store(0);
++        aeromirror_type5_packets.store(0);
++        aeromirror_invalid_packets.store(0);
++        aeromirror_config_pending.store(0);
++        aeromirror_config_delivered.store(0);
++        aeromirror_config_discarded.store(0);
++        aeromirror_pause_actions.store(0);
++        aeromirror_resume_actions.store(0);
++        aeromirror_last_option.store(0);
++        aeromirror_last_action.store(0);
++        aeromirror_stream_suspended.store(false);
++        aeromirror_last_ingress_us.store(0);
++        aeromirror_video_ingress_generation.store(0);
++        aeromirror_pts_retry_count.store(0);
++        aeromirror_pts_correction_count.store(0);
++        aeromirror_pts_invalid_count.store(0);
++        aeromirror_last_health_log_us.store(0);
++        aeromirror_reset_video_clock(generation);
++        aeromirror_reset_audio_clock(generation);
++        video_renderer_reset_health();
++        aeromirror_active_session_generation.store(generation);
 +        std::lock_guard<std::mutex> present_guard(
 +            video_present_arm_mutex);
 +        mirror_start_present_arm_requested.store(true);
 +    } else {
++        uint64_t stopped_generation =
++            aeromirror_active_session_generation.exchange(0);
++        aeromirror_reset_video_clock(stopped_generation + 1);
++        aeromirror_reset_audio_clock(stopped_generation + 1);
 +        std::lock_guard<std::mutex> present_guard(
 +            video_present_arm_mutex);
 +        mirror_start_present_arm_requested.store(false);
@@ -2107,7 +2930,15 @@ index d10edd4..d4e7ad1 100644
  
  extern "C" void video_pause (void *cls) {
      if (use_video) {
-@@ -2716,9 +3112,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+@@ -2700,6 +3487,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+     raop_cbs.video_flush = video_flush;
+     raop_cbs.video_pause = video_pause;
+     raop_cbs.video_resume = video_resume;
++    raop_cbs.mirror_media_diagnostic = mirror_media_diagnostic;
+     raop_cbs.audio_set_client_volume = audio_set_client_volume;
+     raop_cbs.audio_set_volume = audio_set_volume;
+     raop_cbs.audio_get_format = audio_get_format;
+@@ -2716,9 +3504,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
      raop_cbs.export_dacp = export_dacp;
      raop_cbs.video_reset = video_reset;
      raop_cbs.video_set_codec = video_set_codec;
@@ -2117,7 +2948,7 @@ index d10edd4..d4e7ad1 100644
      raop_cbs.on_video_play = on_video_play;
      raop_cbs.on_video_scrub = on_video_scrub;
      raop_cbs.on_video_rate = on_video_rate;
-@@ -2759,8 +3153,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+@@ -2759,8 +3545,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
      raop_set_udp_ports(raop, udp);
  
      raop_port = raop_get_port(raop);
@@ -2133,7 +2964,7 @@ index d10edd4..d4e7ad1 100644
  
      /* use raop_port for airplay_port (instead of tcp[2]) */
      airplay_port = raop_port;
-@@ -3208,6 +3608,7 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3208,6 +4000,7 @@ int start_uxplay (int argc, char *argv[]) {
      if (start_raop_server(display, tcp, udp, debug_log)) {
          stop_dnssd();
          cleanup();
@@ -2141,7 +2972,7 @@ index d10edd4..d4e7ad1 100644
      }
  
      if (lang.length() > 1) {
-@@ -3266,9 +3667,20 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3266,9 +4059,20 @@ int start_uxplay (int argc, char *argv[]) {
              video_renderer_start();
          }
          if (reset_httpd) {
@@ -2164,7 +2995,7 @@ index d10edd4..d4e7ad1 100644
          }
          if (mux_to_file) {
              mux_renderer_stop();
-@@ -3280,15 +3692,34 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3280,15 +4084,34 @@ int start_uxplay (int argc, char *argv[]) {
          stop_dnssd();
      }
      cleanup();

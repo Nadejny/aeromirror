@@ -41,6 +41,20 @@ loop resets. The unchanged BLE helper remains a separate legacy/diagnostic
 path; physical IPv4 changes still use a full receiver restart so its advertised
 address cannot become stale.
 
+The 0.12.14 diagnostic candidate adds a passive,
+content-free `AEROMIRROR_VIDEO_HEALTH` summary at a two-second cadence while a
+mirror session is active. Its numeric counters distinguish mirror ingress,
+codec configuration, appsrc flow, decoder/sink progress, and Direct3D 11
+presentation proof; session and geometry generations keep adjacent reports
+correlated. It records pause/resume options and timestamp retry outcomes but
+does not inspect pixels, media payloads, paths, titles, or artwork, and it does
+not trigger pause, resume, pipeline reset, crop, or reconnect actions. The same
+slice remaps every video retry from one immutable remote timestamp using a
+signed, epoch-protected clock offset, and preserves a separate checked audio
+clock mapping. This makes the historical cumulative future-PTS retry defect a
+code-level fix, but it is not evidence that the reported physical frozen-frame
+case is fixed; that remains blocked on a device test with the new health lines.
+
 The receiver's shared AirPlay identity is canonicalized to at most 50 UTF-8
 bytes at a complete character boundary. This keeps the six-byte-MAC RAOP label
 (`MAC@name`) within Bonjour's 63-byte service-label limit while AirPlay, RAOP,

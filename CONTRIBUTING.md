@@ -38,6 +38,11 @@ Open one GitHub issue per problem and include:
   showed connection lost, waiting for image, the Screen Mirroring reconnect
   hint, or faded before the picture actually resumed; retain the log from the
   first feedback warning through any manual reselection and final image/hint;
+- for a 0.12.14 frozen-last-frame report, keep the complete
+  `AEROMIRROR_VIDEO_HEALTH` sequence from mirror start through iPhone Stop and
+  note the visible freeze time. Do not trim the report to one classifier line:
+  interval deltas and ages across several records are required to locate the
+  stalled stage;
 - for layout issues, the phone orientation and the app/media being displayed;
   for Photos also retain the ordered raw/encoded geometry, whether a phone-
   shaped frame preceded or followed the exact media signature, and measure the
@@ -49,7 +54,7 @@ Open one GitHub issue per problem and include:
   not a clean Bonjour reproduction.
 - if a receiver name is changed, state whether AeroMirror displayed a
   normalization notice and report only its input/effective UTF-8 byte counts,
-  not the private name itself. Version 0.12.13 limits the effective name to 50
+  not the private name itself. Version 0.12.13 and later limit the effective name to 50
   UTF-8 bytes so `device-ID@name` remains a valid Bonjour label.
 
 Screenshots or a short screen recording are welcome when they do not expose

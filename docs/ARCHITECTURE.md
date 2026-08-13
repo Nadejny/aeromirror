@@ -161,6 +161,18 @@ The current shell depends on these native integration behaviors:
     I/O, and device-removal failures. Mute supplies only `-a`; advanced UxPlay
     arguments are appended later and can deliberately override the managed
     sink. Errors outside that property remain native media-pipeline behavior.
+13. The 0.12.14 diagnostic core keeps a core-lifetime mirror-session generation
+    and emits one content-free `AEROMIRROR_VIDEO_HEALTH` summary every two
+    seconds while mirroring is active. Numeric counters and monotonic ages
+    separate VCL/configuration ingress, appsrc flow, decoded-sink buffers, and
+    Direct3D 11 Present progress; pause/resume options, pipeline state, and
+    timestamp retry outcomes remain observational evidence. The classifier has
+    no authority to pause, resume, reset, reconnect, crop, or inspect pixels.
+    Video retry mapping uses one immutable remote timestamp with a signed,
+    checked offset guarded by the active session and clock epoch. Audio and
+    video own independent checked clock state. The legacy geometry marker stays
+    unchanged; additional option/action evidence uses a separate diagnostic
+    marker.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to

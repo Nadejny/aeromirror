@@ -95,11 +95,13 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. For the frozen local 0.12.13 candidate, use
-[`releases/0.12.13/TEST_PLAN.md`](releases/0.12.13/TEST_PLAN.md). It has no tag,
-public asset, or `BUILD_REPORT.md`; its failed physical media-liveness row now
-blocks publication. Corrective code receives a newer version rather than
-replacing 0.12.13. The
+passes. The frozen local 0.12.13 candidate remains failed internal history and
+must not be relabelled or silently replaced. For the current internal 0.12.14
+media-liveness diagnostic candidate, use
+[`releases/0.12.14/TEST_PLAN.md`](releases/0.12.14/TEST_PLAN.md). Its exact local
+payload, Setup, embedded-input equality, and all three Setup self-checks pass,
+but it has no tag, public asset, public installer, or `BUILD_REPORT.md`;
+installed/physical acceptance and the normal publication gates remain pending. The
 untagged 0.12.10, 0.12.11, and 0.12.12 candidates remain local history and their
 artifacts are not relabelled. Public `v0.12.9` stays the immutable normal latest release, with exact evidence under
 `releases/0.12.9/`. Published 0.12.7 evidence and historical 0.11 plans remain

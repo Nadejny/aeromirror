@@ -205,6 +205,14 @@ physical IPv4 change remain full restarts because the separate BLE helper is
 unchanged. This is local-registration evidence, not continuous iPhone browse
 attestation or an AWDL implementation.
 
+The local 0.12.14 candidate starts the media-liveness audit with one confirmed
+source correction and passive evidence. Every video retry now starts from the
+same immutable remote timestamp rather than compounding a previously mapped
+value. A fixed two-second, content-free health summary separates VCL/config
+ingress, appsrc, decode/sink, and Direct3D 11 Present progress without taking
+recovery action. Physical frozen-frame reproduction and the exact causal stage
+remain pending.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -220,10 +228,12 @@ attestation or an AWDL implementation.
   presentation proof for continuity handoff. Feedback, appsrc push/PTS, sink
   probes, renderer visibility, cached HWND, and pixel sampling cannot authorize
   fade; physical recovered-frame evidence remains a separate pending gate.
+- [x] Add bounded session-correlated VCL/config, appsrc, sink, Present, and
+  timestamp progress evidence without content logging or automatic recovery.
 - [ ] Diagnose and correct the underlying longer-gap frozen-video path only
-  after socket lifetime, RTP input, appsrc flow, sink PTS, and presentation
-  evidence identify the boundary. Do not hot-replace a half-open socket, rebase
-  timestamps, or auto-reset the receiver without parser/crypto/physical tests.
+  after the new physical trace identifies the boundary. Do not hot-replace a
+  half-open socket or auto-reset the receiver without parser/crypto/physical
+  tests.
 - [x] Add a narrow version-1 `refresh-discovery` command with request,
   generation, PID, RAOP-port, and AirPlay-port correlation; keep it transitional
   redirected stdin/framed stdout rather than presenting it as the complete IPC
@@ -285,6 +295,11 @@ first; do not combine a broad rewrite with Photos, AWDL, or viewer UI changes.
 - [ ] Audit cross-thread and callback safety: owner-context rules, atomics and
   lock ordering, callback-after-free risk, stop/join ordering, process-lifetime
   state that must reset, and commands admitted during internal loop recovery.
+- [ ] Fix the confirmed natural mirror-worker exit/join gap: a worker can set
+  `running=false` before its callback tail is joined, allowing a restart wedge,
+  leaked thread handle, or a narrow destroy/tail lifetime race. Add explicit
+  join ownership plus natural-exit, socket-loss, rapid-restart, and
+  unsupported-codec tests in a focused patch.
 - [ ] Audit protocol/error semantics against the pinned upstream source:
   request parsing, authentication/pairing, connection ownership, `TEARDOWN`,
   partial HTTP/reset failure, retry/backoff, media bus errors, and distinctions

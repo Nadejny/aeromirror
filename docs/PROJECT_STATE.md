@@ -6,7 +6,58 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current local candidate — 0.12.13
+## Current local candidate — 0.12.14
+
+- Status: internal pretag media-liveness diagnostic candidate. Two independent
+  clean compatible native builds, an extracted prepared-source rebuild,
+  patch/provenance, runtime/loader, live redirected-pipe, and complete receiver
+  resilience gates pass. The exact 13-entry local payload, packaged-shell
+  resilience, Setup embedded-input equality, and all three Setup self-checks
+  pass. Version/default, documentation-link, strict-UTF-8, no-added-BOM,
+  stale-claim, diff, and stable-input gates pass. Installed update, physical
+  Windows/iPhone, exact-tag, GitHub Release, and public re-download gates remain
+  pending.
+- Source targets app/Setup `0.12.14`, Windows PE/file `0.12.14.0`, Setup
+  comparison 0.12.14, and exactly five release-script defaults. Public
+  `v0.12.9` remains the immutable normal latest review Release. Internal
+  0.12.10–0.12.13 history is not tagged, reconstructed, or relabelled.
+- Confirmed correction: every video retry derives from one immutable raw remote
+  timestamp through a signed, overflow-checked mapping. Session and clock-epoch
+  validation rejects stale corrections, while audio and video use independent
+  clock state. This fixes a cumulative retry defect in source; it does not prove
+  that the defect caused the reporter's frozen frame.
+- Diagnostic change: an active mirror session emits one fixed, numeric,
+  content-free `AEROMIRROR_VIDEO_HEALTH` summary every two seconds. Session and
+  geometry generations correlate VCL/config/action ingress, appsrc input/flow,
+  sink and Direct3D 11 Present progress, timestamp outcomes, pipeline states,
+  monotonic ages, and per-interval deltas. The legacy managed geometry line is
+  unchanged.
+- Scope boundary: the classifier is observational. It logs no pixels, payloads,
+  artwork, titles, paths, or URLs and performs no automatic pause/resume, reset,
+  restart, reconnect, crop, pixel analysis, or other recovery action.
+- Native evidence: two clean builds and the extracted prepared-source rebuild
+  reproduce SHA-256
+  `5A6C8AEBC381F6090AD87CBB622A370B1BA0F29923B387C72C2AE07D78605F36`;
+  reviewed libuxplay patch SHA-256 is
+  `4B2AAF2C8B48BD3B993940011678DD25919C16788E1B061D733469463D4217EE`.
+- Physical status: no 0.12.14 device run has occurred. The 0.12.13 evidence
+  remains the last physical result: one H.265 frame appeared, then the last
+  picture froze while the process, RTSP/control session, and mirror parser
+  stayed alive; iPhone Stop still ended the PC session immediately. Therefore
+  freeze correction, root cause, and real media recovery remain pending.
+- Audit status: this is the first focused defect/diagnostic slice from the
+  broader native-core audit, not completion of that audit. A separate P1 gap in
+  natural mirror-worker exit/join ordering is the first follow-up; it is not
+  fixed here. Photos inner-content/crop, Camera orientation, physical idle
+  discovery, BLE in-process refresh, AWDL/peer-to-peer AirPlay, and AirDrop also
+  remain separate.
+- Immediate next step: install the verified local 0.12.14 candidate only when
+  ready to run the physical plan in
+  `docs/releases/0.12.14/TEST_PLAN.md`. Do not publish or add
+  `BUILD_REPORT.md` before separate package, device, tag, authorization, and
+  public-asset gates.
+
+## Prior frozen internal candidate — 0.12.13
 
 - Status: verified local pretag persistent-discovery candidate. Two
   clean official native builds, an extracted prepared-source rebuild, loader,

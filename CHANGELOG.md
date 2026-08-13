@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.12.14 — media-liveness diagnostic candidate
+
+### Candidate scope
+
+- Video timestamp retries now derive every presentation candidate from the
+  same immutable remote timestamp through a signed, overflow-checked offset.
+  Session and clock-epoch guards prevent an old callback from correcting a
+  newly reset video clock, and audio/video mappings no longer share mutable
+  offset state. This corrects a confirmed cumulative-retry source defect; it
+  does not yet prove that defect caused the physically reported frozen frame.
+- An active mirror session now emits one passive, numeric, content-free
+  `AEROMIRROR_VIDEO_HEALTH` summary every two seconds. Session/geometry
+  generations correlate VCL and codec configuration ingress, pause/resume
+  options, appsrc flow, decoded-sink progress, Direct3D 11 Present progress,
+  timestamp outcomes, monotonic ages, and per-interval deltas.
+- The health classifier distinguishes starting, reset, client-paused, no-VCL,
+  pre-appsrc, appsrc-error, unavailable proof, decoder-stall, present-stall,
+  and healthy observations. It does not inspect pixels or media payloads and
+  does not reset, resume, reconnect, crop, or otherwise recover a pipeline.
+- The managed-compatible geometry line is unchanged. A separate diagnostic
+  geometry record carries option/action/suspension evidence.
+
+### Compatibility and verification status
+
+- Two clean compatible native builds and an extracted prepared-source rebuild
+  reproduce core SHA-256
+  `5A6C8AEBC381F6090AD87CBB622A370B1BA0F29923B387C72C2AE07D78605F36`.
+  The reviewed libuxplay patch SHA-256 is
+  `4B2AAF2C8B48BD3B993940011678DD25919C16788E1B061D733469463D4217EE`.
+- Patch/provenance, runtime/loader, live redirected-pipe, and complete receiver
+  resilience checks pass. The tests cover immutable retry arithmetic, signed
+  bounds, stale epochs, separate audio/video clocks, fixed health cadence and
+  schema, privacy/passivity, media-stage ordering, and legacy geometry.
+- Source targets app/Setup `0.12.14`, PE/file `0.12.14.0`, Setup comparison
+  0.12.14, and exactly five 0.12.14 release-script defaults.
+- The exact 13-entry local payload, resilience against its packaged shell,
+  Setup embedded payload/provenance equality, and all three waited Setup
+  verification modes pass. Shell, Setup, and core are x64; version and five-
+  default, link, UTF-8/no-BOM, diff, and stable-input gates pass.
+- The 0.12.13 candidate remains frozen internal history after its physical
+  last-frame freeze. Version 0.12.14 is also internal and pretag; installed
+  update, physical Windows/iPhone acceptance, tag, GitHub Release, and public
+  re-download remain pending. There is no 0.12.14
+  `BUILD_REPORT.md`; public `v0.12.9` remains the immutable normal latest.
+- This candidate does not claim that the physical freeze is fixed or its root
+  cause is proven. It adds no automatic media recovery, Photos content
+  rectangle/crop, Camera-orientation fix, discovery/AWDL/AirDrop change, full
+  native-core audit completion, or correction for the separate natural mirror
+  worker exit/join P1 lifecycle gap.
+
 ## 0.12.13 — persistent LAN discovery candidate
 
 ### Candidate scope

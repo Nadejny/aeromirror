@@ -34,6 +34,15 @@ Bluetooth beacon helper, upstream revisions, dependencies, and their licenses
 are unchanged; a physical IPv4 change still follows the full-restart path so
 the separate helper receives the new address.
 
+The 0.12.14 diagnostic patch extends the modified libuxplay
+source set with `lib/raop.h` callback metadata, passive two-second numeric video
+health summaries, and a signed epoch-protected timestamp mapper. The summaries
+contain counters, ages, pipeline enums, and session/geometry generations only;
+they contain no pixels, payloads, artwork, titles, file paths, or network URLs,
+and they perform no automatic recovery. The immutable video-PTS retry change is
+covered by source and arithmetic regressions, but no claim is made here that it
+resolves the separately observed physical frozen-frame symptom.
+
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
 asset directly from GitHub and verifies it before extraction:

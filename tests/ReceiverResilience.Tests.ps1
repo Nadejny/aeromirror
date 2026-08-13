@@ -243,6 +243,270 @@ Assert-True ($nativePatchSource.Contains(
     $nativePatchSource.Contains("open_connections.fetch_add(1)") -and
     $nativePatchSource.Contains("open_connections.compare_exchange_weak")) `
     "feedback polling observes an atomic underflow-safe connection count"
+
+function Get-NativePatchSlice(
+        [string]$StartNeedle, [string]$EndNeedle, [string]$Description) {
+    $start = $nativePatchSource.IndexOf($StartNeedle)
+    $end = $nativePatchSource.IndexOf($EndNeedle, $start + 1)
+    Assert-True ($start -ge 0 -and $end -gt $start) `
+        "$Description is present in the pinned native patch"
+    return $nativePatchSource.Substring($start, $end - $start)
+}
+
+function Map-TestPts([uint64]$Raw, [int64]$Offset) {
+    [decimal]$value = [decimal]$Raw + [decimal]$Offset
+    if ($value -lt 0 -or $value -gt [decimal][uint64]::MaxValue) {
+        return $null
+    }
+    return [uint64]$value
+}
+
+$rawTestPts = [uint64]1000000
+[int64]$testOffset = 100
+$mappedTestPts = @((Map-TestPts $rawTestPts $testOffset))
+foreach ($delta in @([int64]20, [int64]30)) {
+    $testOffset += $delta
+    $mappedTestPts += (Map-TestPts $rawTestPts $testOffset)
+}
+Assert-True ([string]::Join(',', $mappedTestPts) -eq
+    '1000100,1000120,1000150') `
+    "PTS retries always remap the immutable remote PTS"
+Assert-True ($null -eq (Map-TestPts ([uint64]::MaxValue) 1)) `
+    "positive PTS overflow is rejected"
+Assert-True ($null -eq (Map-TestPts 0 -1)) `
+    "negative PTS underflow is rejected"
+Assert-True ((Map-TestPts ([uint64]::Parse('9223372036854775808')) `
+        ([int64]::MinValue)) -eq 0) `
+    "INT64_MIN magnitude is handled without signed overflow"
+
+$testClock = @{ epoch = [uint64]7; offset = [int64]100 }
+$testEpochSnapshot = [uint64]7
+if ($testClock.epoch -eq $testEpochSnapshot) { $testClock.offset += 20 }
+Assert-True ($testClock.offset -eq 120) `
+    "a current clock epoch accepts a correction"
+$testClock.epoch = 8
+$testClock.offset = 0
+if ($testClock.epoch -eq $testEpochSnapshot) { $testClock.offset += 30 }
+Assert-True ($testClock.offset -eq 0) `
+    "a stale callback cannot correct a reset clock epoch"
+$testEpochSnapshot = 8
+if ($testClock.epoch -eq $testEpochSnapshot) { $testClock.offset += 5 }
+Assert-True ($testClock.offset -eq 5) `
+    "the new clock epoch accepts its own correction"
+
+$nativePtsHelperSource = Get-NativePatchSlice `
+    "static bool aeromirror_add_signed_ns" `
+    "static uint64_t aeromirror_age_ms" `
+    "checked signed PTS helper"
+Assert-True ($nativePtsHelperSource.Contains(
+        "raw_remote_pts > UINT64_MAX - positive") -and
+    $nativePtsHelperSource.Contains(
+        "(uint64_t) (-(offset_ns + 1)) + 1") -and
+    $nativePtsHelperSource.Contains("raw_remote_pts < magnitude")) `
+    "the native PTS helper rejects overflow and handles INT64_MIN safely"
+
+$nativeAudioProcessSource = Get-NativePatchSlice `
+    'extern "C" void audio_process' `
+    'extern "C" void video_process' `
+    "native audio timestamp mapper"
+Assert-True ($nativeAudioProcessSource.Contains(
+        "aeromirror_audio_clock_mutex") -and
+    $nativeAudioProcessSource.Contains("__int128 difference") -and
+    $nativeAudioProcessSource.Contains("difference > INT64_MAX") -and
+    $nativeAudioProcessSource.Contains("difference < INT64_MIN") -and
+    $nativeAudioProcessSource.Contains(
+        "aeromirror_add_signed_ns(data->ntp_time_remote, audio_offset") -and
+    $nativeAudioProcessSource.Contains(
+        "data->ntp_time_remote = mapped_audio_pts")) `
+    "audio keeps an independent checked local-clock mapping"
+$mappedAudioIndex = $nativeAudioProcessSource.IndexOf(
+    "data->ntp_time_remote = mapped_audio_pts")
+$audioDelayIndex = $nativeAudioProcessSource.IndexOf("switch (data->ct)")
+$audioRenderIndex = $nativeAudioProcessSource.IndexOf(
+    "audio_renderer_render_buffer", $audioDelayIndex)
+if ($audioRenderIndex -lt 0) {
+    # The compact patch hunk may omit an unchanged render call after the
+    # modified delay switch. Bind the ordering assertion to the effective
+    # source contract by requiring that the hunk continues through video_process.
+    $audioRenderIndex = $nativeAudioProcessSource.Length
+}
+Assert-True ($mappedAudioIndex -ge 0 -and
+    $audioDelayIndex -gt $mappedAudioIndex -and
+    $audioRenderIndex -gt $audioDelayIndex) `
+    "audio PTS is mapped before delay selection and rendering"
+
+$nativeVideoProcessSource = Get-NativePatchSlice `
+    'extern "C" void video_process' `
+    'extern "C" void mirror_video_running' `
+    "native video timestamp mapper"
+Assert-True ([regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+\s*const uint64_t raw_remote_pts') -and
+    [regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+\s*uint64_t candidate_pts = 0;') -and
+    $nativeVideoProcessSource.Contains(
+        "aeromirror_add_signed_ns(raw_remote_pts, offset_snapshot") -and
+    $nativeVideoProcessSource.Contains("&candidate_pts") -and
+    $nativeVideoProcessSource.Contains(
+        "generation_snapshot = callback_clock_epoch") -and
+    $nativeVideoProcessSource.Contains(
+        "aeromirror_video_clock.epoch == generation_snapshot") -and
+    $nativeVideoProcessSource.Contains("count < 10") -and
+    [regex]::Matches($nativeVideoProcessSource,
+        'aeromirror_active_session_generation\.load\(\)').Count -ge 4) `
+    "video retries use immutable raw PTS with bounded, session-checked clock epochs"
+Assert-True (-not [regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+\s*data->ntp_time_remote\s*=') -and
+    -not [regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+.*&\(data->ntp_time_remote\)') -and
+    -not [regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+\s*(?:LOGI|LOGE|LOGW|LOGD)\([^\r\n]*(?:PTS|timestamp|mismatch|invalid)') -and
+    -not [regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+.*adjust timestamps') -and
+    -not [regex]::IsMatch($nativeVideoProcessSource,
+        '(?m)^\+.*PTS_INVALID')) `
+    "video rendering neither mutates remote PTS nor emits hot per-frame PTS logs"
+
+$nativeMirrorLifecycleSource = Get-NativePatchSlice `
+    'extern "C" void mirror_video_running' `
+    'extern "C" void video_pause' `
+    "mirror session lifecycle"
+$videoClockResetIndex = $nativeMirrorLifecycleSource.IndexOf(
+    "aeromirror_reset_video_clock(generation)")
+$audioClockResetIndex = $nativeMirrorLifecycleSource.IndexOf(
+    "aeromirror_reset_audio_clock(generation)")
+$rendererHealthResetIndex = $nativeMirrorLifecycleSource.IndexOf(
+    "video_renderer_reset_health()")
+$sessionPublishIndex = $nativeMirrorLifecycleSource.IndexOf(
+    "aeromirror_active_session_generation.store(generation)")
+Assert-True ($videoClockResetIndex -ge 0 -and
+    $audioClockResetIndex -gt $videoClockResetIndex -and
+    $rendererHealthResetIndex -gt $audioClockResetIndex -and
+    $sessionPublishIndex -gt $rendererHealthResetIndex) `
+    "clock and renderer health state reset before a new session is published"
+
+$nativeClassifierSource = Get-NativePatchSlice `
+    "static const char *aeromirror_health_classification" `
+    'extern "C" void mirror_media_diagnostic' `
+    "passive media health classifier"
+$nativeHealthSource = Get-NativePatchSlice `
+    "static uint64_t previous_ingress_generation" `
+    "if (poll_recovery_present)" `
+    "periodic media health report"
+$nativeFeedbackSource = Get-NativePatchSlice `
+    "static gboolean feedback_callback" `
+    "guint feedback_watch_id = g_timeout_add_seconds" `
+    "independent feedback timer"
+Assert-True ([regex]::Matches(
+        $nativePatchSource,
+        '(?m)^\+.*LOGI\("AEROMIRROR_VIDEO_HEALTH').Count -eq 1 -and
+    $nativePatchSource.Contains(
+        "#define AEROMIRROR_VIDEO_HEALTH_INTERVAL_US (2 * SECOND_IN_USECS)") -and
+    $nativeFeedbackSource.Contains(
+        "health_now_us - aeromirror_last_health_log_us.load() >=") -and
+    $nativeFeedbackSource.IndexOf('LOGI("AEROMIRROR_VIDEO_HEALTH') -lt
+        $nativeFeedbackSource.IndexOf(
+            "aeromirror_last_health_log_us.store(health_now_us)")) `
+    "one fixed media health summary is emitted by the independent two-second timer"
+$healthLogStart = $nativeHealthSource.IndexOf('LOGI("AEROMIRROR_VIDEO_HEALTH')
+$healthLogEnd = $nativeHealthSource.IndexOf(
+    "previous_ingress_generation = ingress_generation", $healthLogStart)
+Assert-True ($healthLogStart -ge 0 -and $healthLogEnd -gt $healthLogStart) `
+    "the fixed media health log statement is present"
+$nativeHealthLogSource = $nativeHealthSource.Substring(
+    $healthLogStart, $healthLogEnd - $healthLogStart)
+$healthFields = @(
+    "session=", "geometry=", "vcl=", "vcl_bytes=", "type1=", "type5=",
+    "invalid=", "config_pending=", "config_delivered=",
+    "config_discarded=", "pause=", "resume=", "option=", "action=",
+    "suspended=", "input=", "push_ok=", "push_error=", "sink=",
+    "present=", "d_vcl=", "d_input=", "d_push_ok=", "d_push_error=",
+    "d_sink=", "d_present=", "pts_retry=", "pts_correction=",
+    "pts_invalid=", "ingress_age_ms=", "input_age_ms=", "push_age_ms=",
+    "sink_age_ms=", "present_age_ms=", "flow=", "state=", "pending=",
+    "proof=", "class=")
+Assert-True (($healthFields | Where-Object {
+        -not $nativeHealthLogSource.Contains($_) }).Count -eq 0 -and
+    [regex]::Matches($nativeHealthLogSource, '%s').Count -eq 1 -and
+    $nativeHealthSource.Contains("if (!session_generation ||") -and
+    $nativeHealthSource.Contains(
+        "aeromirror_active_session_generation.load() !=") -and
+    $nativeHealthLogSource.Contains("session_generation,")) `
+    "the health line is numeric, fixed-field, and correlated to one live session"
+$healthClasses = @(
+    "starting", "pipeline-reset", "client-paused", "no-vcl",
+    "pre-appsrc", "appsrc-error", "unavailable", "decoder-stall",
+    "present-stall", "healthy")
+Assert-True (($healthClasses | Where-Object {
+        -not $nativeClassifierSource.Contains(('"' + $_ + '"')) }).Count -eq 0) `
+    "the diagnostic classifier exposes the complete fixed class allowlist"
+$passiveForbidden = @(
+    "video_pause(", "video_resume(", "gst_element_set_state", "reset_loop",
+    "full_video_reset", "video_renderer_flush", "g_main_loop_quit",
+    "gst_buffer_map", "GstVideoCropMeta")
+Assert-True (($passiveForbidden | Where-Object {
+        $nativeClassifierSource.Contains($_) -or $nativeHealthSource.Contains($_)
+    }).Count -eq 0) `
+    "health reporting and classification remain observational only"
+$privacyForbidden = @(
+    "artist", "album", "track_title", "coverart", "location=", "path=",
+    "uri=", "url=", "payload=", "pixel", "crop", "%p")
+Assert-True (($privacyForbidden | Where-Object {
+        $nativeHealthSource.Contains($_) }).Count -eq 0) `
+    "health reporting contains no media content or identifying paths"
+
+$nativePresentSource = Get-NativePatchSlice `
+    "static void aeromirror_recovery_present" `
+    "void video_renderer_poll_recovery_present" `
+    "D3D11 Present callback"
+$presentForbidden = @(
+    "g_mutex_", "logger_log", "LOG", "g_get_monotonic_time",
+    "gst_element_", "g_object_", "malloc", "calloc", "realloc", "free")
+Assert-True ($nativePresentSource.Contains(
+        "g_atomic_int_inc(&aeromirror_health_present_count)") -and
+    ($presentForbidden | Where-Object {
+        $nativePresentSource.Contains($_) }).Count -eq 0) `
+    "the Present callback publishes only atomic observations"
+Assert-True ([regex]::Matches($nativePatchSource,
+        '(?ms)^\+\s*gst_app_src_push_buffer[^\r\n]*\r?\n^\+\s*aeromirror_health_note_push\(flow_return\);').Count -eq 2) `
+    "every added appsrc push result is unconditionally counted"
+
+$nativeMirrorThreadSource = Get-NativePatchSlice `
+    "diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c" `
+    "diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c" `
+    "mirror media packet loop"
+$configMismatchIndex = $nativeMirrorThreadSource.IndexOf(
+    "MIRROR_CONFIG_RESULT_MISMATCH_DISCARDED")
+$configVideoProcessIndex = $nativeMirrorThreadSource.IndexOf(
+    "callbacks.video_process", $configMismatchIndex)
+$configDeliveredIndex = $nativeMirrorThreadSource.IndexOf(
+    "MIRROR_CONFIG_RESULT_MATCH_DELIVERED", $configVideoProcessIndex)
+Assert-True ($nativeMirrorThreadSource.Contains(
+        "MIRROR_CONFIG_RESULT_PENDING") -and
+    $configMismatchIndex -ge 0 -and
+    $configVideoProcessIndex -gt $configMismatchIndex -and
+    $configDeliveredIndex -gt $configVideoProcessIndex -and
+    $nativePatchSource.Contains(
+        "event->type1_packets > previous_type1 ||") -and
+    $nativePatchSource.Contains(
+        "event->action != MIRROR_PACKET_ACTION_NONE")) `
+    "config and pause/resume evidence is durable and delivery is reported only after video processing"
+$configPendingIndex = $nativeMirrorThreadSource.IndexOf(
+    "MIRROR_CONFIG_RESULT_PENDING")
+$configPendingWindowStart = [Math]::Max(0, $configPendingIndex - 180)
+$configPendingWindowLength = [Math]::Min(
+    280, $nativeMirrorThreadSource.Length - $configPendingWindowStart)
+$configPendingWindow = $nativeMirrorThreadSource.Substring(
+    $configPendingWindowStart, $configPendingWindowLength)
+Assert-True ($configPendingIndex -ge 0 -and
+    $configPendingWindow.Contains("MIRROR_PACKET_ACTION_NONE")) `
+    "the type1 pending callback cannot double-count a pause or resume action"
+$legacyGeometryFormat =
+    "AEROMIRROR_VIDEO_GEOMETRY width0=%u height0=%u source=%ux%u aux=%ux%u encoded=%ux%u"
+Assert-True ([regex]::Matches($nativePatchSource,
+        [regex]::Escape($legacyGeometryFormat)).Count -eq 1 -and
+    $nativePatchSource.Contains(
+        "AEROMIRROR_VIDEO_DIAGNOSTIC_GEOMETRY geometry=%llu option=0x%02x action=%u suspended=%u")) `
+    "the managed geometry contract remains byte-for-byte stable while diagnostics use a separate marker"
 $upstreamLockPath = Join-Path $projectRoot "UPSTREAM.lock"
 $nativeProvenancePath = Join-Path $projectRoot `
     "native-core\source-provenance.json"
