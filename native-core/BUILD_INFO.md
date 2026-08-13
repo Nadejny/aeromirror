@@ -8,7 +8,10 @@ listener reset validation and removed unsupported photo-presentation feature
 declarations. AeroMirror 0.12.7 keeps those changes, restores client-managed
 RTSP `TEARDOWN` handling, and preserves externally supplied headless renderer
 arguments before the legacy Qt settings UI can rewrite them. AeroMirror 0.12.8
-adds epoch-correlated D3D11 presentation proof for feedback-gap recovery. The source bundle
+adds epoch-correlated D3D11 presentation proof for feedback-gap recovery.
+AeroMirror 0.12.13 adds bounded request-correlated DNS-SD pair refresh in the
+same process and on the same ports, including persistent owner-thread callback
+pumping and recovery across transient internal GLib-loop resets. The source bundle
 contains the complete upstream trees and both patches separately and applied
 in place.
 
@@ -22,10 +25,12 @@ in place.
   `libuxplay-aeromirror.patch`
 - Patched files: `src/airplayworker.cpp`, `src/main.cpp`,
   `src/mainwindow.cpp`, `src/mainwindow.h`,
+  `libuxplay/lib/dnssd.c`, `libuxplay/lib/dnssd.h`,
   `libuxplay/lib/http_handlers.h`, `libuxplay/lib/raop_handlers.h`,
   `libuxplay/lib/raop_rtp_mirror.c`,
   `libuxplay/renderers/video_renderer.c`,
-  `libuxplay/renderers/video_renderer.h`, and `libuxplay/uxplay.cpp`
+  `libuxplay/renderers/video_renderer.h`, `libuxplay/uxplay.cpp`, and
+  `libuxplay/uxplay_api.h`
 - Architecture: x64, MSYS2 UCRT64
 - Compiler recorded in the binary:
   `gcc.exe (Rev6, Built by MSYS2 project) 16.1.0`
@@ -47,7 +52,7 @@ in place.
 - Engineering build/staging GStreamer input: 1.28.5. It is not the
   redistributed-runtime version recorded above.
 - Resulting patched executable SHA-256:
-  `EB8162577689EED354C4382ACFE099665A6D9E14EED466CB4DA6CA6E087448D6`
+  `AD59F33907980122551458E5B97CE600D6AB8DBFF923B7BEE5EB30A26F521698`
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.
@@ -72,13 +77,28 @@ shell uses the backward-compatible video-size marker to adapt the renderer
 window when the iPhone changes orientation. `--beacon-ipv4` binds BLE
 discovery to the physical Wi-Fi/Ethernet IPv4 selected by the shell instead of
 letting a VPN default route choose the advertised address. The launcher also
-forwards beacon diagnostics to stdout with the `AEROMIRROR_BLE` prefix and
+keeps beacon diagnostics separate from the stdout command protocol and
 keeps receiver arguments alive for the full native startup call. Headless or
 external `--uxplay` launches now return before the wrapper removes or replaces
 `-vs`/`-fs`. The source packaging script verifies that both complete binary
 Git diffs exactly match the reviewed patches and separately pins the unchanged
 `libuxplay/renderers/audio_renderer.c`; no native audio-renderer fallback is
 part of this hotfix.
+
+DNS-SD identity and TXT storage now belong to the full `dnssd_t` lifetime,
+while each RAOP/AirPlay service-ref pair is rolled back and refreshed
+idempotently as one generation. Registration callbacks and
+`DNSServiceProcessResult` remain pumped on the owning GLib thread. The bounded
+stdin protocol reports request, generation, PID, and both unchanged ports;
+active clients defer refresh without listener teardown. The separate BLE
+helper and its pinned binary are unchanged, so a real physical IPv4 change
+still requires the shell's full-process restart path.
+
+The one stored DNS-SD receiver name is capped to 50 complete UTF-8 bytes so a
+six-byte-MAC RAOP instance (`MAC@name`) is no longer than Bonjour's 63-byte
+service-label boundary. The same canonical name is used for AirPlay, RAOP, and
+`/info`; blank input falls back to `AeroMirror`. Its protocol diagnostic logs
+only byte lengths and truncation state, never the original name.
 
 The resulting x64 PE imports `qt_version_tag_6_10`, does not import
 `qt_version_tag_6_11`, and its `--loader-test` passed with the unchanged

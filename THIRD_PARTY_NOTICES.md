@@ -26,6 +26,14 @@ not add crop, zoom, discovery repair, or a generic media-error bypass. The
 managed-only AeroMirror 0.12.9 shell changes reuse that reviewed native patch
 and core.
 
+The AeroMirror 0.12.13 patch extension adds a bounded same-process DNS-SD
+refresh protocol. It keeps the RAOP and AirPlay registrations coherent,
+processes their asynchronous Bonjour callbacks on the native owning thread,
+and preserves the listener PID and ports while repairing discovery. The
+Bluetooth beacon helper, upstream revisions, dependencies, and their licenses
+are unchanged; a physical IPv4 change still follows the full-restart path so
+the separate helper receives the new address.
+
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
 asset directly from GitHub and verifies it before extraction:

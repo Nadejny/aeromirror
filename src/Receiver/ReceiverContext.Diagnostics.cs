@@ -342,10 +342,10 @@ namespace AirPlayReceiverMvp
             }
         }
 
-        internal static void FlushLog(int timeoutMilliseconds)
+        internal static bool FlushLog(int timeoutMilliseconds)
         {
-            try { LogQueueDrained.WaitOne(timeoutMilliseconds); }
-            catch { }
+            try { return LogQueueDrained.WaitOne(timeoutMilliseconds); }
+            catch { return false; }
         }
     }
 }

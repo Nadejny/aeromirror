@@ -23,6 +23,7 @@ namespace AirPlayReceiverMvp
         private const int FeedbackGapPlaceholderSeconds = 4;
         private const int FeedbackVideoRecoveryWaitSeconds = 3;
         private const int IdleDiscoveryFirstRenewalMinutes = 10;
+        private const int IdleDiscoverySecondRenewalMinutes = 20;
         private const int IdleDiscoveryUnlockRetryCooldownMinutes = 10;
         private const int IdleDiscoveryRenewalLimit = 2;
 
@@ -39,6 +40,20 @@ namespace AirPlayReceiverMvp
             None,
             RetryLater,
             Refresh
+        }
+
+        private enum AutomaticDiscoveryRenewalAction
+        {
+            None,
+            Refresh
+        }
+
+        private enum VideoSizeCandidateAction
+        {
+            None,
+            CancelPending,
+            RetainPendingDeadline,
+            ArmPending
         }
 
         public void StartCore()
@@ -75,8 +90,9 @@ namespace AirPlayReceiverMvp
                 catch { }
                 finally
                 {
-                    coreProcess.Dispose();
-                    coreProcess = null;
+                    Process staleProcess = coreProcess;
+                    DetachCoreProcessForLifecycle(staleProcess);
+                    staleProcess.Dispose();
                     NativeMethods.CloseHandleSafe(ref coreJob);
                     coreReadyPending = false;
                     Interlocked.Exchange(ref coreSocketsReady, 0);
@@ -144,6 +160,7 @@ namespace AirPlayReceiverMvp
                 start.WindowStyle = ProcessWindowStyle.Hidden;
                 start.RedirectStandardOutput = true;
                 start.RedirectStandardError = true;
+                start.RedirectStandardInput = true;
                 start.StandardOutputEncoding = Encoding.UTF8;
                 start.StandardErrorEncoding = Encoding.UTF8;
                 var process = new Process();
@@ -161,6 +178,7 @@ namespace AirPlayReceiverMvp
                         "UxPlay could not be isolated in a Windows Job Object.");
                 int processId = process.Id;
                 Interlocked.Exchange(ref activeCorePid, processId);
+                ResetNativeDiscoveryRefreshForProcessLifecycle();
                 ResetCoreSessionTracking(true);
                 ArmIdleDiscoveryRenewalIfAvailable();
                 fittedStreamWindow = IntPtr.Zero;
@@ -190,8 +208,11 @@ namespace AirPlayReceiverMvp
                 process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 {
                     if (!string.IsNullOrWhiteSpace(e.Data))
+                    {
+                        ObserveCoreDiscoveryMarker(processId, e.Data);
                         Log("core[" + processId + "]/stderr: " +
                             RedactSensitiveText(e.Data, processPinSnapshot));
+                    }
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
@@ -215,8 +236,9 @@ namespace AirPlayReceiverMvp
                         CancelCoreOutputReads(coreProcess);
                     }
                     catch { }
-                    coreProcess.Dispose();
-                    coreProcess = null;
+                    Process failedProcess = coreProcess;
+                    DetachCoreProcessForLifecycle(failedProcess);
+                    failedProcess.Dispose();
                 }
                 NativeMethods.CloseHandleSafe(ref coreJob);
                 coreReadyPending = false;
@@ -255,7 +277,7 @@ namespace AirPlayReceiverMvp
         {
             FlushStreamWindowPlacementBeforeCoreStop();
             Process process = coreProcess;
-            coreProcess = null;
+            DetachCoreProcessForLifecycle(process);
             Interlocked.Exchange(ref activeCorePid, 0);
             ResetCoreSessionTracking(true);
             IntPtr job = coreJob;
@@ -307,7 +329,7 @@ namespace AirPlayReceiverMvp
             {
                 FlushStreamWindowPlacementBeforeCoreStop();
                 Process process = coreProcess;
-                coreProcess = null;
+                DetachCoreProcessForLifecycle(process);
                 Interlocked.Exchange(ref activeCorePid, 0);
                 ResetCoreSessionTracking(true);
                 IntPtr job = coreJob;
@@ -406,6 +428,202 @@ namespace AirPlayReceiverMvp
             BeginNetworkProfileRefresh();
         }
 
+        private bool TryRequestNativeDiscoveryRefresh(
+            string reason, bool restartOnFailure)
+        {
+            Process process = coreProcess;
+            if (process == null || !IsCoreRunning ||
+                Interlocked.CompareExchange(
+                    ref coreDiscoveryRefreshCapability, 0, 0) != 1)
+                return false;
+
+            int expectedPort = Interlocked.CompareExchange(
+                ref coreHttpPort, 0, 0);
+            if (expectedPort <= 0)
+                return false;
+
+            if (coreCommandSync == null)
+                coreCommandSync = new object();
+            lock (coreCommandSync)
+            {
+                int processId;
+                try { processId = process.Id; }
+                catch { return false; }
+                if (!object.ReferenceEquals(coreProcess, process) ||
+                    !IsCoreRunning || restartPending ||
+                    Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1 ||
+                    Interlocked.CompareExchange(
+                        ref coreDiscoveryRefreshCapability, 0, 0) != 1 ||
+                    Interlocked.CompareExchange(ref activeCorePid, 0, 0) !=
+                        processId ||
+                    Interlocked.CompareExchange(ref coreHttpPort, 0, 0) !=
+                        expectedPort)
+                    return false;
+                if (Interlocked.Read(
+                        ref coreDiscoveryRefreshPendingRequest) > 0)
+                    return true;
+                long request = Interlocked.Increment(
+                    ref coreDiscoveryRefreshRequestSequence);
+                try
+                {
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshPendingPid, processId);
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshPendingPort, expectedPort);
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshDueTicks,
+                        DateTime.UtcNow.AddSeconds(12).Ticks);
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshPhase, 0);
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshFallbackPending,
+                        restartOnFailure ? 1 : 0);
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshPendingRequest, request);
+                    Log("Native same-process discovery refresh requested; " +
+                        "request " + request + ", PID " + processId +
+                        ", AirPlay port " + expectedPort + "; reason: " +
+                        reason + ".");
+                    ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        try
+                        {
+                            if (request != Interlocked.Read(
+                                    ref coreDiscoveryRefreshPendingRequest) ||
+                                processId != Interlocked.CompareExchange(
+                                    ref activeCorePid, 0, 0))
+                                return;
+                            process.StandardInput.WriteLine(
+                                "AEROMIRROR_COMMAND refresh-discovery request=" +
+                                request);
+                            process.StandardInput.Flush();
+                        }
+                        catch (Exception ex)
+                        {
+                            Log("Native discovery command writer failed for " +
+                                "request " + request + ": " + ex.Message);
+                        }
+                    });
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Log("Native discovery command could not be written: " +
+                        ex.Message);
+                    if (request == Interlocked.Read(
+                            ref coreDiscoveryRefreshPendingRequest))
+                        ClearNativeDiscoveryRefreshRequestLocked();
+                    return false;
+                }
+            }
+        }
+
+        private void ClearNativeDiscoveryRefreshRequest()
+        {
+            if (coreCommandSync == null)
+                coreCommandSync = new object();
+            lock (coreCommandSync)
+                ClearNativeDiscoveryRefreshRequestLocked();
+        }
+
+        private void ResetNativeDiscoveryRefreshForProcessLifecycle()
+        {
+            if (coreCommandSync == null)
+                coreCommandSync = new object();
+            lock (coreCommandSync)
+            {
+                Interlocked.Exchange(
+                    ref coreDiscoveryRefreshCapability, 0);
+                ClearNativeDiscoveryRefreshRequestLocked();
+            }
+        }
+
+        private void DetachCoreProcessForLifecycle(Process expectedProcess)
+        {
+            if (coreCommandSync == null)
+                coreCommandSync = new object();
+            lock (coreCommandSync)
+            {
+                if (object.ReferenceEquals(coreProcess, expectedProcess))
+                    coreProcess = null;
+                Interlocked.Exchange(
+                    ref coreDiscoveryRefreshCapability, 0);
+                ClearNativeDiscoveryRefreshRequestLocked();
+            }
+        }
+
+        private void ClearNativeDiscoveryRefreshRequestLocked()
+        {
+            Interlocked.Exchange(ref coreDiscoveryRefreshPendingRequest, 0);
+            Interlocked.Exchange(ref coreDiscoveryRefreshPendingPid, 0);
+            Interlocked.Exchange(ref coreDiscoveryRefreshPendingPort, 0);
+            Interlocked.Exchange(ref coreDiscoveryRefreshDueTicks, 0);
+            Interlocked.Exchange(ref coreDiscoveryRefreshPhase, 0);
+            Interlocked.Exchange(ref coreDiscoveryRefreshFallbackPending, 0);
+        }
+
+        private void HandleNativeDiscoveryRefreshTimeout()
+        {
+            long request = Interlocked.Read(
+                ref coreDiscoveryRefreshPendingRequest);
+            if (request <= 0)
+                return;
+            long dueTicks = Interlocked.Read(
+                ref coreDiscoveryRefreshDueTicks);
+            DateTime now = DateTime.UtcNow;
+            if (dueTicks <= 0 || now.Ticks < dueTicks)
+                return;
+
+            lock (postSessionMaintenanceSync)
+            {
+                request = Interlocked.Read(
+                    ref coreDiscoveryRefreshPendingRequest);
+                dueTicks = Interlocked.Read(
+                    ref coreDiscoveryRefreshDueTicks);
+                if (request <= 0 || dueTicks <= 0 ||
+                    Interlocked.CompareExchange(
+                        ref coreDiscoveryRefreshPhase, 0, 0) == 1 ||
+                    now.Ticks < dueTicks)
+                    return;
+                if (ShouldDeferDisruptiveMaintenance(
+                        IsMirrorSessionActive,
+                        Interlocked.Read(ref clientActivityGraceDueTicks),
+                        now.Ticks))
+                {
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshDueTicks,
+                        now.AddSeconds(5).Ticks);
+                    return;
+                }
+
+                bool fallback = false;
+                bool claimed = false;
+                lock (coreCommandSync)
+                {
+                    if (request == Interlocked.Read(
+                            ref coreDiscoveryRefreshPendingRequest))
+                    {
+                        fallback = Interlocked.CompareExchange(
+                            ref coreDiscoveryRefreshFallbackPending,
+                            0, 0) == 1;
+                        ClearNativeDiscoveryRefreshRequestLocked();
+                        claimed = true;
+                    }
+                }
+                if (!claimed)
+                    return;
+                if (fallback && IsCoreRunning)
+                {
+                    Log("Native discovery refresh request " + request +
+                        " did not receive a correlated terminal result; " +
+                        "using the bounded legacy process-restart fallback.");
+                    ScheduleRestart(
+                        "native discovery refresh timeout", false, 500);
+                }
+            }
+        }
+
         private void ObserveCoreOutput(int processId, string line)
         {
             if (Interlocked.CompareExchange(
@@ -445,10 +663,10 @@ namespace AirPlayReceiverMvp
                     {
                         pendingVideoSize = Size.Empty;
                         pendingVideoSizeDueUtc = DateTime.MinValue;
-                        pendingVideoSizeGeneration = 0;
+                        pendingVideoSizeSequence = 0;
                         pendingVideoSizeIsAmbiguousMediaCanvas = false;
                         currentVideoSize = Size.Empty;
-                        currentVideoSizeGeneration = 0;
+                        currentVideoSizeSequence = 0;
                         currentVideoSizeIsAmbiguousMediaCanvas = false;
                         rawGeometryVideoSize = Size.Empty;
                         rawGeometryVideoSizeGeneration = 0;
@@ -564,18 +782,45 @@ namespace AirPlayReceiverMvp
                         rawGeometryVideoSize = Size.Empty;
                         rawGeometryVideoSizeGeneration = 0;
                         rawGeometryIsAmbiguousMediaCanvas = false;
+                        long geometrySequence =
+                            ++videoGeometryEventSequence;
                         if (earlyDeviceFrameVideoSize.IsEmpty &&
                             IsLikelyModernIPhoneDeviceFrame(observedVideoSize))
                         {
                             earlyDeviceFrameVideoSize = observedVideoSize;
                             capturedEarlyDeviceFrame = true;
                         }
-                        pendingVideoSize = observedVideoSize;
-                        pendingVideoSizeGeneration = sessionGeneration;
-                        pendingVideoSizeIsAmbiguousMediaCanvas =
-                            ambiguousMediaCanvas;
-                        pendingVideoSizeDueUtc =
-                            DateTime.UtcNow.AddMilliseconds(350);
+                        VideoSizeCandidateAction candidateAction =
+                            DecideVideoSizeCandidateAction(
+                                currentVideoSize,
+                                currentVideoSizeIsAmbiguousMediaCanvas,
+                                pendingVideoSize,
+                                pendingVideoSizeIsAmbiguousMediaCanvas,
+                                observedVideoSize,
+                                ambiguousMediaCanvas);
+                        if (candidateAction ==
+                            VideoSizeCandidateAction.CancelPending)
+                        {
+                            ClearPendingVideoSizeLocked();
+                        }
+                        else if (candidateAction ==
+                            VideoSizeCandidateAction.RetainPendingDeadline)
+                        {
+                            // A repeated codec-size packet proves a newer
+                            // event but must not keep moving the same stable
+                            // candidate's debounce deadline into the future.
+                            pendingVideoSizeSequence = geometrySequence;
+                        }
+                        else if (candidateAction ==
+                            VideoSizeCandidateAction.ArmPending)
+                        {
+                            pendingVideoSize = observedVideoSize;
+                            pendingVideoSizeSequence = geometrySequence;
+                            pendingVideoSizeIsAmbiguousMediaCanvas =
+                                ambiguousMediaCanvas;
+                            pendingVideoSizeDueUtc =
+                                DateTime.UtcNow.AddMilliseconds(350);
+                        }
                     }
                     if (capturedEarlyDeviceFrame)
                     {
@@ -586,6 +831,41 @@ namespace AirPlayReceiverMvp
                 }
             }
 
+        }
+
+        private static VideoSizeCandidateAction
+            DecideVideoSizeCandidateAction(
+            Size currentSize,
+            bool currentIsAmbiguousMediaCanvas,
+            Size pendingSize,
+            bool pendingIsAmbiguousMediaCanvas,
+            Size observedSize,
+            bool observedIsAmbiguousMediaCanvas)
+        {
+            bool matchesCurrent = currentSize == observedSize &&
+                currentIsAmbiguousMediaCanvas ==
+                    observedIsAmbiguousMediaCanvas;
+            if (matchesCurrent)
+            {
+                return pendingSize.IsEmpty
+                    ? VideoSizeCandidateAction.None
+                    : VideoSizeCandidateAction.CancelPending;
+            }
+
+            bool matchesPending = pendingSize == observedSize &&
+                pendingIsAmbiguousMediaCanvas ==
+                    observedIsAmbiguousMediaCanvas;
+            return matchesPending
+                ? VideoSizeCandidateAction.RetainPendingDeadline
+                : VideoSizeCandidateAction.ArmPending;
+        }
+
+        private void ClearPendingVideoSizeLocked()
+        {
+            pendingVideoSize = Size.Empty;
+            pendingVideoSizeDueUtc = DateTime.MinValue;
+            pendingVideoSizeSequence = 0;
+            pendingVideoSizeIsAmbiguousMediaCanvas = false;
         }
 
         private static bool IsIncomingAirPlayConnectionRequestMarker(
@@ -659,8 +939,8 @@ namespace AirPlayReceiverMvp
                     ? "the deferred settings restart received a new " +
                         graceSeconds + "-second grace period"
                     : "no post-session settings restart was pending") +
-                ", and one bounded idle discovery fallback was re-armed " +
-                "for ten minutes.");
+                ", and the bounded idle discovery sequence was re-armed " +
+                "with its first renewal in ten minutes.");
         }
 
         private bool HandleMirroringStartedMaintenance(int processId)
@@ -834,8 +1114,8 @@ namespace AirPlayReceiverMvp
                             "has completed."
                         : "Mirroring session cleanup completed; the receiver " +
                             "stays running and no post-session restart was " +
-                            "scheduled. The bounded ten-minute idle discovery " +
-                            "fallback remains armed.";
+                            "scheduled. The bounded idle discovery sequence " +
+                            "remains armed.";
                 }
             }
             Log(message);
@@ -1336,6 +1616,179 @@ namespace AirPlayReceiverMvp
                 bool discoveryReady = false;
                 bool discoveryDegraded = false;
                 if (line.IndexOf(
+                        "AEROMIRROR_DISCOVERY_REFRESH_CAPABILITY version=1",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Interlocked.Exchange(
+                        ref coreDiscoveryRefreshCapability, 1);
+                }
+
+                Match refreshProgress = Regex.Match(
+                    line,
+                    @"^AEROMIRROR_DISCOVERY_REFRESH_(DEFERRED|ACCEPTED)\s+" +
+                    @"request=(\d+)\s+" +
+                    @"(?:reason=\S+|next_generation=\d+)\s+pid=(\d+)\s+" +
+                    @"raop_port=(\d+)\s+airplay_port=(\d+)$",
+                    RegexOptions.CultureInvariant |
+                    RegexOptions.IgnoreCase);
+                if (refreshProgress.Success)
+                {
+                    long request;
+                    int markerPid;
+                    int raopPort;
+                    int airplayPort;
+                    if (long.TryParse(
+                            refreshProgress.Groups[2].Value, out request) &&
+                        int.TryParse(
+                            refreshProgress.Groups[3].Value, out markerPid) &&
+                        int.TryParse(
+                            refreshProgress.Groups[4].Value, out raopPort) &&
+                        int.TryParse(
+                            refreshProgress.Groups[5].Value, out airplayPort) &&
+                        request > 0)
+                    {
+                        if (coreCommandSync == null)
+                            coreCommandSync = new object();
+                        bool deferred = string.Equals(
+                            refreshProgress.Groups[1].Value, "DEFERRED",
+                            StringComparison.OrdinalIgnoreCase);
+                        bool correlated = false;
+                        bool changed = false;
+                        lock (coreCommandSync)
+                        {
+                            int expectedPid = Interlocked.CompareExchange(
+                                ref coreDiscoveryRefreshPendingPid, 0, 0);
+                            int expectedPort = Interlocked.CompareExchange(
+                                ref coreDiscoveryRefreshPendingPort, 0, 0);
+                            correlated = request == Interlocked.Read(
+                                    ref coreDiscoveryRefreshPendingRequest) &&
+                                processId == expectedPid &&
+                                markerPid == expectedPid &&
+                                raopPort == expectedPort &&
+                                airplayPort == expectedPort &&
+                                Interlocked.CompareExchange(
+                                    ref activeCorePid, 0, 0) == expectedPid &&
+                                Interlocked.CompareExchange(
+                                    ref coreHttpPort, 0, 0) == expectedPort;
+                            if (correlated)
+                            {
+                                int phase = Interlocked.CompareExchange(
+                                    ref coreDiscoveryRefreshPhase, 0, 0);
+                                if (deferred && phase < 2)
+                                {
+                                    Interlocked.Exchange(
+                                        ref coreDiscoveryRefreshPhase, 1);
+                                    Interlocked.Exchange(
+                                        ref coreDiscoveryRefreshDueTicks, 0);
+                                    changed = phase != 1;
+                                }
+                                else if (!deferred)
+                                {
+                                    Interlocked.Exchange(
+                                        ref coreDiscoveryRefreshPhase, 2);
+                                    Interlocked.Exchange(
+                                        ref coreDiscoveryRefreshDueTicks,
+                                        DateTime.UtcNow.AddSeconds(12).Ticks);
+                                    changed = phase != 2;
+                                }
+                            }
+                        }
+                        if (correlated && changed)
+                        {
+                            Log(deferred
+                                ? "Native discovery refresh request " +
+                                    request + " was deferred by the core; " +
+                                    "the legacy fallback is suspended until " +
+                                    "the unchanged process accepts it."
+                                : "Native discovery refresh request " +
+                                    request + " was accepted by the unchanged " +
+                                    "core; a fresh bounded result deadline is " +
+                                    "active.");
+                        }
+                    }
+                }
+
+                Match refreshResult = Regex.Match(
+                    line,
+                    @"^AEROMIRROR_DISCOVERY_REFRESH_(READY|FAILED)\s+" +
+                    @"request=(\d+)\s+generation=(\d+)" +
+                    @"(?:\s+error=-?\d+)?\s+pid=(\d+)\s+" +
+                    @"raop_port=(\d+)\s+airplay_port=(\d+)$",
+                    RegexOptions.CultureInvariant |
+                    RegexOptions.IgnoreCase);
+                if (refreshResult.Success)
+                {
+                    long request;
+                    int markerPid;
+                    int raopPort;
+                    int airplayPort;
+                    if (long.TryParse(
+                            refreshResult.Groups[2].Value, out request) &&
+                        int.TryParse(
+                            refreshResult.Groups[4].Value, out markerPid) &&
+                        int.TryParse(
+                            refreshResult.Groups[5].Value, out raopPort) &&
+                        int.TryParse(
+                            refreshResult.Groups[6].Value, out airplayPort) &&
+                        request > 0)
+                    {
+                        if (coreCommandSync == null)
+                            coreCommandSync = new object();
+                        int expectedPid = 0;
+                        int expectedPort = 0;
+                        bool fallback = false;
+                        bool claimed = false;
+                        lock (coreCommandSync)
+                        {
+                            expectedPid = Interlocked.CompareExchange(
+                                ref coreDiscoveryRefreshPendingPid, 0, 0);
+                            expectedPort = Interlocked.CompareExchange(
+                                ref coreDiscoveryRefreshPendingPort, 0, 0);
+                            if (request == Interlocked.Read(
+                                    ref coreDiscoveryRefreshPendingRequest) &&
+                                processId == expectedPid &&
+                                markerPid == expectedPid &&
+                                raopPort == expectedPort &&
+                                airplayPort == expectedPort &&
+                                Interlocked.CompareExchange(
+                                    ref activeCorePid, 0, 0) == expectedPid &&
+                                Interlocked.CompareExchange(
+                                    ref coreHttpPort, 0, 0) == expectedPort)
+                            {
+                                fallback = Interlocked.CompareExchange(
+                                    ref coreDiscoveryRefreshFallbackPending,
+                                    0, 0) == 1;
+                                ClearNativeDiscoveryRefreshRequestLocked();
+                                claimed = true;
+                            }
+                        }
+                        if (!claimed)
+                            return;
+                        bool ready = string.Equals(
+                            refreshResult.Groups[1].Value, "READY",
+                            StringComparison.OrdinalIgnoreCase);
+                        if (ready)
+                        {
+                            Interlocked.Exchange(ref coreDnsSdStatus, 1);
+                            CancelCoreDiscoveryRecovery(true);
+                            Log("Native discovery refresh completed in PID " +
+                                expectedPid + " on unchanged AirPlay port " +
+                                expectedPort + ".");
+                            ArmIdleDiscoveryRenewalIfAvailable();
+                        }
+                        else if (fallback && IsCoreRunning)
+                        {
+                            Log("Native discovery refresh failed or changed " +
+                                "its PID/port contract; using the bounded " +
+                                "legacy process-restart fallback.");
+                            ScheduleRestart(
+                                "native discovery refresh fallback",
+                                false, 500);
+                        }
+                    }
+                }
+
+                if (line.IndexOf(
                         "AEROMIRROR_DNSSD_READY",
                         StringComparison.OrdinalIgnoreCase) >= 0)
                 {
@@ -1515,15 +1968,14 @@ namespace AirPlayReceiverMvp
             }
             Interlocked.Exchange(ref coreDnsSdStatus, 0);
             Interlocked.Exchange(ref coreBleStatus, 0);
+            ResetNativeDiscoveryRefreshForProcessLifecycle();
             CancelCoreDiscoveryRecovery(false);
             lock (videoSizeSync)
             {
-                pendingVideoSize = Size.Empty;
-                pendingVideoSizeDueUtc = DateTime.MinValue;
-                pendingVideoSizeGeneration = 0;
-                pendingVideoSizeIsAmbiguousMediaCanvas = false;
+                videoGeometryEventSequence = 0;
+                ClearPendingVideoSizeLocked();
                 currentVideoSize = Size.Empty;
-                currentVideoSizeGeneration = 0;
+                currentVideoSizeSequence = 0;
                 currentVideoSizeIsAmbiguousMediaCanvas = false;
                 rawGeometryVideoSize = Size.Empty;
                 rawGeometryVideoSizeGeneration = 0;
@@ -1535,7 +1987,9 @@ namespace AirPlayReceiverMvp
             Interlocked.Exchange(ref mirrorSessionGeneration, 0);
             videoSizeWindow = IntPtr.Zero;
             initialFitPendingWindow = IntPtr.Zero;
-            exactVideoSizeFitGeneration = -1;
+            exactVideoSizeFitSequence = -1;
+            appliedVideoFitSize = Size.Empty;
+            appliedVideoFitTargetKind = RendererFitTargetKind.None;
             appliedVideoOrientation = 0;
         }
 
@@ -1556,9 +2010,11 @@ namespace AirPlayReceiverMvp
         private static int GetIdleDiscoveryRenewalDelayMinutes(
             int completedRenewals)
         {
-            if (completedRenewals != 0)
-                return 0;
-            return IdleDiscoveryFirstRenewalMinutes;
+            if (completedRenewals == 0)
+                return IdleDiscoveryFirstRenewalMinutes;
+            if (completedRenewals == 1)
+                return IdleDiscoverySecondRenewalMinutes;
+            return 0;
         }
 
         private void ArmIdleDiscoveryRenewalIfAvailable()
@@ -1585,6 +2041,49 @@ namespace AirPlayReceiverMvp
         {
             return mirrorActive ||
                 (clientGraceDueTicks > 0 && nowTicks < clientGraceDueTicks);
+        }
+
+        private static AutomaticDiscoveryRenewalAction
+            EvaluateAutomaticDiscoveryRenewal(
+            int completedRenewals,
+            long dueTicks,
+            bool mirrorActive,
+            long clientGraceDueTicks,
+            long nowTicks,
+            DateTime lastRefreshUtc,
+            DateTime nowUtc,
+            out long nextDueTicks,
+            out int nextCompletedRenewals)
+        {
+            nextDueTicks = dueTicks;
+            nextCompletedRenewals = completedRenewals;
+            if (dueTicks <= 0 || nowTicks < dueTicks)
+                return AutomaticDiscoveryRenewalAction.None;
+
+            if (completedRenewals < 0 ||
+                completedRenewals >= IdleDiscoveryRenewalLimit)
+            {
+                nextDueTicks = 0;
+                return AutomaticDiscoveryRenewalAction.None;
+            }
+
+            if (ShouldDeferDisruptiveMaintenance(
+                    mirrorActive, clientGraceDueTicks, nowTicks))
+                return AutomaticDiscoveryRenewalAction.None;
+
+            if ((nowUtc - lastRefreshUtc).TotalMinutes < 2)
+            {
+                int delayMinutes = GetIdleDiscoveryRenewalDelayMinutes(
+                    completedRenewals);
+                nextDueTicks = delayMinutes > 0
+                    ? nowUtc.AddMinutes(delayMinutes).Ticks
+                    : 0;
+                return AutomaticDiscoveryRenewalAction.None;
+            }
+
+            nextCompletedRenewals = completedRenewals + 1;
+            nextDueTicks = 0;
+            return AutomaticDiscoveryRenewalAction.Refresh;
         }
 
         private void HandlePhysicalNetworkChangeMaintenance()
@@ -1675,30 +2174,38 @@ namespace AirPlayReceiverMvp
                     ref idleDiscoveryRenewalDueTicks);
                 int completedRenewals = Interlocked.CompareExchange(
                     ref idleDiscoveryRenewalUsed, 0, 0);
-                if (idleDueTicks <= 0 || now.Ticks < idleDueTicks ||
-                    IsMirrorSessionActive ||
-                    completedRenewals != 0)
+                long nextDueTicks;
+                int nextCompletedRenewals;
+                AutomaticDiscoveryRenewalAction action =
+                    EvaluateAutomaticDiscoveryRenewal(
+                        completedRenewals,
+                        idleDueTicks,
+                        IsMirrorSessionActive,
+                        Interlocked.Read(ref clientActivityGraceDueTicks),
+                        now.Ticks,
+                        lastAutomaticDiscoveryRefreshUtc,
+                        now,
+                        out nextDueTicks,
+                        out nextCompletedRenewals);
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalDueTicks, nextDueTicks);
+                if (action != AutomaticDiscoveryRenewalAction.Refresh)
                     return;
 
-                if ((now - lastAutomaticDiscoveryRefreshUtc).TotalMinutes < 2)
-                {
-                    int delayMinutes = GetIdleDiscoveryRenewalDelayMinutes(
-                        completedRenewals);
-                    Interlocked.Exchange(
-                        ref idleDiscoveryRenewalDueTicks,
-                        delayMinutes > 0
-                            ? now.AddMinutes(delayMinutes).Ticks
-                            : 0);
-                    return;
-                }
-
-                Interlocked.Increment(ref idleDiscoveryRenewalUsed);
+                Interlocked.Exchange(
+                    ref idleDiscoveryRenewalUsed, nextCompletedRenewals);
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks, 0);
-                Log("Renewing idle AirPlay discovery after ten minutes " +
-                    "without a mirroring session.");
+                Log("Renewing idle AirPlay discovery (" +
+                    nextCompletedRenewals + "/" +
+                    IdleDiscoveryRenewalLimit + ") after prolonged " +
+                    "inactivity without a mirroring session.");
                 lastAutomaticDiscoveryRefreshUtc = now;
-                ScheduleRestart("idle discovery renewal", false, 1200);
+                if (!TryRequestNativeDiscoveryRefresh(
+                        "idle discovery renewal", true))
+                {
+                    ScheduleRestart("idle discovery renewal", false, 1200);
+                }
             }
         }
 
@@ -1833,8 +2340,12 @@ namespace AirPlayReceiverMvp
                     "local sockets, at least one local discovery marker, and " +
                     "the cached physical IPv4 are ready, so the final bounded " +
                     "discovery re-registration will run.");
-                ScheduleRestart(
-                    "session-unlock discovery refresh", false, 1200);
+                if (!TryRequestNativeDiscoveryRefresh(
+                        "session-unlock discovery refresh", true))
+                {
+                    ScheduleRestart(
+                        "session-unlock discovery refresh", false, 1200);
+                }
             }
         }
 
@@ -1986,8 +2497,13 @@ namespace AirPlayReceiverMvp
                 {
                     Log("DNS-SD and BLE discovery both remained degraded; " +
                         "performing the single shared automatic recovery.");
-                    ScheduleRestart(
-                        "native discovery registration recovery", false, 1200);
+                    if (!TryRequestNativeDiscoveryRefresh(
+                            "native discovery registration recovery", true))
+                    {
+                        ScheduleRestart(
+                            "native discovery registration recovery",
+                            false, 1200);
+                    }
                     return;
                 }
 
@@ -2012,8 +2528,8 @@ namespace AirPlayReceiverMvp
         public string BuildUxPlayArguments()
         {
             var parts = new List<string>();
-            string name = string.IsNullOrWhiteSpace(settings.ReceiverName)
-                ? Environment.MachineName : settings.ReceiverName.Trim();
+            string name = AppSettings.NormalizeReceiverNameForDiscovery(
+                settings.ReceiverName);
             parts.Add("-n");
             parts.Add(QuoteArgument(name));
             parts.Add("-nh");
@@ -2540,6 +3056,7 @@ namespace AirPlayReceiverMvp
             HandleFeedbackVideoRecoveryWaitTimer();
             HandleLostConnectionPlaceholder();
             HandleLostConnectionRecovery();
+            HandleNativeDiscoveryRefreshTimeout();
             HandleCoreDiscoveryRecovery();
             HandleSessionUnlockDiscoveryRefresh();
             HandleAutomaticDiscoveryMaintenance();
@@ -2577,7 +3094,7 @@ namespace AirPlayReceiverMvp
                 {
                     rapidExitCount++;
                 }
-                coreProcess = null;
+                DetachCoreProcessForLifecycle(exitedProcess);
                 Interlocked.Exchange(ref activeCorePid, 0);
                 ResetCoreSessionTracking(true);
                 coreReadyPending = false;

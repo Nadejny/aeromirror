@@ -133,3 +133,19 @@ transfer. It still requires explicit acceptance, safe destination and filename
 rules, transfer limits, quarantine policy, and physical-device tests. This
 decision defines the architecture boundary; it does not commit 0.12.4 or 1.0
 to either transfer implementation.
+
+## D-011 — Keep unpublished candidate numbers as internal history
+
+**Status:** accepted
+
+A version number identifies the exact source and artifact candidate that was
+built and tested, even when that candidate is never published. Superseded
+internal candidates are recorded in the changelog and versioned plans but do
+not receive reconstructed tags, draft Releases, prereleases, or relabelled
+assets. The next public Release may therefore skip one or more patch numbers.
+
+Do not rename a later candidate to fill a public numbering gap. Doing so would
+collide with existing local artifacts, invalidate provenance and test evidence,
+and make numeric update comparisons wrong for machines already running an
+intermediate build. A corrective change after a frozen candidate always gets a
+newer version; a published tag and its assets remain immutable under D-004.

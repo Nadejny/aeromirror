@@ -1,10 +1,245 @@
 # Project state
 
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 
 This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
+
+## Current local candidate — 0.12.13
+
+- Status: verified local pretag persistent-discovery candidate. Two
+  clean official native builds, an extracted prepared-source rebuild, loader,
+  four real redirected-pipe cases, exact patch/provenance/process-lifetime
+  audits, a fresh managed x64 build, the complete resilience suite, frozen-
+  source independent review, native-source, exact thin-payload, packaged-shell,
+  Setup/lifecycle, architecture/version/default, all 59 source-Markdown local
+  links, strict-UTF-8/no-added-BOM, diff, and release-input fingerprint gates
+  passed with no blocker in the persistent-discovery scope. The later full
+  native media audit found the separate P1 items recorded below. The focused
+  post-evidence payload/
+  Setup rebuild also passes. Installed update, physical-device, exact-tag,
+  GitHub Release, and public re-download gates remain pending.
+- Local app/Setup source version is `0.12.13`; Windows PE/file source version is
+  `0.12.13.0`. Setup's comparison version and exactly five release-script
+  defaults target 0.12.13. Public `v0.12.9` remains the immutable normal latest
+  review release; 0.12.10–0.12.12 remain untagged local history.
+- Normal automatic idle, eligible Windows-unlock, and persistent native
+  discovery-health maintenance now prefer a request-correlated in-process
+  refresh of the paired `_raop._tcp` and `_airplay._tcp` records. Current-
+  generation callbacks must complete for both before ready. Success preserves
+  the operating-system PID and both listener ports.
+- DNS-SD identity/TXT data now has service lifetime, each partial pair rolls
+  back before retry, Bonjour callbacks run on the owner GLib context, and
+  retries use bounded 1, 2, 5, 10, and 30 second delays. Active connection/PIN,
+  audio/video clients, or mirroring defer the operation without listener
+  teardown.
+- A narrow version-1 redirected-stdin/framed-stdout protocol carries exact
+  request, generation, PID, RAOP port, and AirPlay port. The managed shell
+  publishes pending state before writing, revalidates process identity, and
+  rejects stale, malformed, wrong-PID, wrong-port, or phase-regressing output.
+  Unsupported, rejected, timed-out, or repeated failed refreshes retain the
+  existing bounded full-process fallback.
+- **Restart discovery** remains a full process restart after the latest
+  physical-network check so it refreshes both DNS-SD and the separate BLE
+  helper. A real physical IPv4 change also remains a full restart because BLE
+  receives its advertised address at startup. BLE output is now complete-line
+  stderr framing; unexpected start/exit is reported once, while intentional
+  maintenance stop is not falsely reported as failure.
+- Receiver names canonicalize to at most 50 UTF-8 bytes: complete managed text
+  elements, no C0/DEL controls, replacement for unpaired UTF-16, trimmed input,
+  and `AeroMirror` fallback. Interactive save informs and persists the exact
+  iPhone-visible value; legacy long stored names migrate silently. Native code
+  independently enforces a complete-code-point boundary so the 12-character
+  device ID plus `@` and name remain within the Bonjour 63-byte label. AirPlay,
+  RAOP, and `/info` share the canonical name; diagnostics log lengths only.
+- Native evidence: both official builds, extracted prepared-source build, and
+  staged executable reproduce SHA-256
+  `AD59F33907980122551458E5B97CE600D6AB8DBFF923B7BEE5EB30A26F521698`.
+  The real pipe cases include same-PID/same-port refresh plus ASCII, Cyrillic,
+  and fallback naming. Runtime/dependency, reverse-apply, protected unchanged
+  audio source, local-path/debug, and complete source-diff checks pass.
+- Initial package evidence: the final staged runtime contains that exact core;
+  dependency inspection covers 199 binaries and 148 staged DLLs. Prepared
+  corresponding source has exactly 143 archive entries/139 files, and its
+  content, provenance, patch, and extracted rebuild checks pass. Its ZIP
+  container hash is intentionally not recorded because `Compress-Archive`
+  timestamps make that container non-deterministic while validated content is
+  unchanged. The thin review payload has exactly 13 entries, and the complete
+  resilience suite passes against its exact packaged shell.
+- Initial Setup evidence: Setup builds from that payload; embedded payload and
+  native provenance equal the reviewed inputs; `/verify-runtime`,
+  `/verify-shortcut-selection`, and `/verify-update-lifecycle` each exit 0.
+  Shell, Setup, and core are x64; `0.12.13.0`, Setup comparison 0.12.13,
+  exactly five 0.12.13 script defaults, local links, strict UTF-8/no-added-BOM,
+  diff, and release-input fingerprint checks pass. Volatile shell/payload/Setup
+  hashes and sizes remain in the gate handoff rather than their own inputs.
+- Carried-forward behavior: the untagged 0.12.12 bounded ten-minute then
+  20-minute/shared-unlock schedule remains, but a capable healthy core now
+  services those automatic stages in place. The untagged 0.12.11 Photos outer-
+  window behavior and 0.12.10 geometry/test isolation are unchanged.
+- Scope boundary: local Bonjour callback readiness does not continuously
+  attest iPhone visibility or force an iOS browse-cache refresh. This patch
+  adds no in-process BLE reconfiguration, AWDL/peer-to-peer AirPlay, AirDrop,
+  Photos content rectangle/crop, Camera-orientation fix, full native-core
+  audit, physical acceptance, installed update, tag, or public asset. There is
+  no `docs/releases/0.12.13/BUILD_REPORT.md`.
+- Immediate next step: install the unchanged candidate for the physical 30–40
+  minute idle, manual-recovery, and physical-IPv4 test matrix. Do not infer
+  remote iPhone visibility from the completed local registration gates.
+- Physical reporter evidence on 2026-08-13 found an unresolved media-liveness
+  defect in the installed 0.12.13 candidate: the last rendered frame froze a
+  few seconds after mirroring began, while the native process, RTSP/control
+  session, and mirror parser remained responsive until the reporter stopped
+  mirroring on the iPhone. The log proves a first H.265 appsrc/sink/D3D11
+  Present, then 3840x2160 codec/geometry packets, but has no continuous VCL,
+  push, decoded-sink, or Present counters. Therefore 0.12.13 must not be
+  published yet; the next candidate must first identify and correct the exact
+  video-pipeline boundary. This observation is not a Bonjour/discovery failure.
+
+## Prior untagged 0.12.12 candidate history
+
+- Status: superseded verified local pretag discovery candidate. Its final local automated
+  gate passes: fresh managed x64 build, complete receiver resilience suite and
+  repeat against the exact packaged shell, independent source/evidence review
+  with no P0/P1/P2 finding, unchanged-native source/provenance, exact thin
+  payload, Setup and lifecycle verification, version/default/link/UTF-8/diff,
+  and release-input fingerprint stability. Installed update, physical-device,
+  exact-tag, GitHub Release, and public re-download gates remain pending.
+- Local app/Setup source version is `0.12.12`; Windows PE/file source version is
+  `0.12.12.0`. Setup's internal comparison version and exactly five release-
+  script defaults target 0.12.12. Public `v0.12.9` remains the immutable normal
+  updater-visible latest review release.
+- Reporter-machine 0.12.11 evidence: the shell started at 12:09:14. Core PID
+  19780 advertised port 61272 and reached DNS-SD/BLE startup readiness by
+  12:09:20.771. The existing first idle renewal ran at 12:19:16; replacement
+  PID 39968 advertised port 52197 and reached startup readiness by
+  12:19:20.053. No further app event, inbound AirPlay probe, readiness failure,
+  sleep, or network change appears before the user found the receiver absent
+  and manually refreshed discovery at 12:42:35. Windows records one
+  `SessionUnlock` at 12:14, before the first renewal; the next input event was
+  `InputHid` at 12:40, not an unlock.
+- Manual refresh started PID 36292 on port 53867. Local startup readiness
+  completed 4.776 seconds later and an iPhone connection reached Windows at
+  12:43:05, an upper bound of 30.717 seconds after the manual action. These
+  facts show that a full managed restart restored a usable advertisement; they
+  do not identify whether DNS-SD, BLE, Bonjour browse state, or iOS caching was
+  the stale boundary. Existing readiness markers describe startup only.
+- Mitigation: an idle epoch keeps the existing first renewal after ten minutes
+  and now schedules a second timed renewal 20 minutes after that restart. In
+  the captured episode the added stage would have been due near 12:39, about
+  58 seconds before the recorded 12:40 `InputHid` event.
+- Safety boundary: the timed second stage and the existing post-renewal
+  `SessionUnlock` fallback share one strict two-renewal allowance. Whichever
+  consumes the second allowance prevents a third restart. Active mirroring or
+  current client grace preserves the due timer and allowance for a later idle
+  pass. High-level client activity, mirroring start, manual discovery refresh,
+  and the existing eligible-epoch boundaries reset or re-arm the sequence.
+- Verification: deterministic tests cover 10/20-minute mapping, both allowance
+  transitions, not-yet-due preservation, anti-churn postponement, active/client-
+  grace deferral, timed-versus-unlock mutual exclusion, session activity, core
+  restart, manual refresh, and physical-network reset boundaries. Automated
+  checks do not prove continuous iPhone visibility during a real idle period.
+- Package evidence: prepared native source retains the reviewed unchanged core
+  and provenance and contains 143 archive entries/139 files. The thin review
+  payload contains exactly 13 entries. Setup's embedded payload/provenance is
+  equal to its reviewed input; `/verify-runtime`,
+  `/verify-shortcut-selection`, and `/verify-update-lifecycle` each exit 0.
+  Shell, Setup, and core architecture, PE/file version, Setup comparison
+  version, exactly five script defaults, all 29 local links across 57 Markdown
+  files, strict UTF-8, diff, and release-input fingerprints pass. Exact
+  container sizes/hashes are retained only in the final gate handoff.
+- Carried-forward behavior: the untagged 0.12.11 candidate's automatic exact-
+  signature Photos outer-window fitting, retired Photos-specific switch,
+  provisional-placement protection, geometry ordering/refit rules, and test
+  isolation remain in the source.
+- Scope boundary: no native source, DNS-SD/BLE ownership, BLE helper,
+  capability, dependency, runtime, patch, or provenance input changed. This
+  patch adds no acknowledged in-place re-publication, stable-port contract,
+  root-cause claim, or continuous-visibility guarantee.
+- Artifact status: the verified local 0.12.12 shell, prepared native source,
+  exact 13-entry review payload, and Setup exist only as pretag candidate
+  artifacts. There is no tag, GitHub Release, public asset, or
+  `docs/releases/0.12.12/BUILD_REPORT.md`.
+- Its former immediate next step was a 30–40 minute physical idle test. That
+  gate is superseded by the 0.12.13 plan; its frozen 0.12.12 artifacts must not
+  be relabeled, and it remains untagged and unpublished.
+
+## Prior untagged 0.12.11 candidate history
+
+- Status: superseded local pretag candidate. Fresh and packaged-shell managed
+  builds, the complete resilience suite, independent source/evidence review,
+  unchanged-native provenance, exact thin payload, Setup, all three Setup
+  verification modes, version/default/link/UTF-8/diff, and release-input
+  fingerprint gates passed. Physical Photos, installed update, exact tag,
+  GitHub Release, and public re-download remained pending.
+- Version 0.12.11 removed the temporary Photos-specific setting and made only
+  the exact correlated `3840x2160`, auxiliary `0x0` media signature a
+  provisional automatic outer-window target. A later phone-shaped frame takes
+  over, and provisional placement cannot become trusted or persistable.
+- Its verified local artifacts remain 0.12.11 evidence and must not be
+  relabelled. The implementation is carried into 0.12.12. There is no 0.12.11
+  tag, GitHub Release, public asset, or `BUILD_REPORT.md`.
+
+## Prior untagged 0.12.10 candidate history
+
+- Status: superseded local pretag candidate. The managed x64 source build, complete
+  receiver resilience suite, independent source review, unchanged-native
+  reuse/provenance, prepared native source, initial exact 13-entry review
+  payload, Setup, runtime loader, shortcut, and update-lifecycle gates pass.
+  The focused package/Setup rebuild after the evidence-document update also
+  passes. Exact-tag, GitHub Release, public re-download, installed update, and
+  all physical Windows/iPhone gates remain pending.
+- Local app/Setup version is `0.12.10`; Windows PE/file version is
+  `0.12.10.0`. Setup's internal comparison version and exactly five release-
+  script defaults target 0.12.10. Settings remain at schema 12 and
+  `FollowPhotosMediaCanvas` remains default-false; no migration was added.
+- Geometry ordering: every correlated native geometry/size event advances a
+  monotonic sequence for the lifetime of the current core. An identical
+  pending candidate retains the original 350 ms deadline while adopting the
+  newer sequence, preventing indefinite debounce starvation. A duplicate of
+  the current stable candidate does not reopen the debounce; a change between
+  device-frame and media-canvas classification is still distinct. A new mirror
+  session clears its candidate/baseline state without rewinding the core-
+  lifetime sequence; a full core reset clears it.
+- Renderer fitting: the applied target records both its class
+  (`DeviceFrame`/`MediaCanvas`) and exact aspect. A fresh event refits when the
+  class or exact aspect changes, even without a portrait/landscape flip. A
+  scaled marker with the same class and aspect is consumed without repeated
+  movement. A live Photos-option change forces re-evaluation of the current
+  stable frame. A class/aspect mismatch survives a supervision tick blocked by
+  an active resize/mouse gesture or a failed fit and is retried later, while
+  provisional media-canvas fits remain non-persistable.
+- Test isolation: reflection tests set one process-lifetime storage override
+  to a GUID-named direct child of the system temp directory before persistent
+  paths or logging are used. All settings, trust, key, and log paths resolve
+  there; a second different override is rejected. The asynchronous log queue
+  is drained deterministically before assertions and exact-root cleanup. A
+  failed run retains the exact GUID root and emits its path as a warning; only
+  a successful drained run deletes it. The production
+  `%LOCALAPPDATA%\AirPlayReceiverMvp\receiver.log` is untouched by the suite.
+- Automated evidence: the full resilience suite covers non-sliding duplicate
+  debounce, session/core reset invariants, device-frame/media-canvas and exact-
+  aspect transitions, retry after a blocked setting-change pass, scaled-same-
+  aspect suppression, Photos-toggle behavior, provisional-placement
+  protection, one-shot storage-root validation, log markers after drain,
+  failure-root retention/warning, and successful cleanup. The production log
+  remained byte-identical across the executable test gate. Physical behavior
+  is not inferred from these checks.
+- Native/discovery scope: no native code, capability, patch, runtime, or
+  dependency change is part of 0.12.10. Same-process, same-port DNS-SD/BLE
+  refresh after HTTP reset, safe registration ownership, a `refreshDiscovery`
+  command, and acknowledged ready markers remain `DESIGN/NEXT`, not
+  implemented behavior.
+- Local artifact status: the focused post-evidence 0.12.10 review payload and
+  Setup pass automated pretag checks. Their exact hashes are retained in the
+  final gate handoff, but they are not public downloads. There is no 0.12.10
+  tag, GitHub Release, public asset, or `BUILD_REPORT.md`. Public `v0.12.9`
+  remains the immutable normal updater-visible latest review Release with all
+  evidence below unchanged.
+- It was not tagged or published. Its implementation is carried into 0.12.11,
+  while its frozen local artifacts remain 0.12.10 evidence and must not be
+  relabelled. Its pending physical gates are superseded by the 0.12.11 plan.
 
 ## Latest public release — 0.12.9
 
@@ -468,7 +703,7 @@ evidence is in `docs/releases/0.12.9/BUILD_REPORT.md`.
 - localization is not included. D-006 remains the planned resource-based
   system-language and manual override design.
 
-## Immediate next steps
+## Public 0.12.9 physical follow-up
 
 1. Preserve the published tag and four assets as immutable project history.
    Keep exact public hashes and route verification in

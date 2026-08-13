@@ -1,8 +1,8 @@
 diff --git a/src/airplayworker.cpp b/src/airplayworker.cpp
-index 6cc919a..766eb42 100644
+index 6cc919a..648745e 100644
 --- a/src/airplayworker.cpp
 +++ b/src/airplayworker.cpp
-@@ -11,15 +11,18 @@ void AirPlayWorker::setArgs(const QStringList &args) {
+@@ -11,36 +11,32 @@ void AirPlayWorker::setArgs(const QStringList &args) {
  
  void AirPlayWorker::run() {
      std::vector<QByteArray> argBytes;
@@ -25,18 +25,38 @@ index 6cc919a..766eb42 100644
      }
  
      qDebug() << "Starting UxPlay engine with arguments:" << m_args;
-@@ -43,4 +46,4 @@ void AirPlayWorker::run() {
+     emit started();
+ 
+-    int ret = 0;
+-
+-    // Loop con controllo di interruzione
+-    while (!isInterruptionRequested()) {
+-        ret = start_uxplay(static_cast<int>(argv.size()), argv.data());
+-
+-        // Se il processo termina, esci dal loop
+-        if (ret != 0) {
+-            emit errorOccurred(QString("Engine exited with code %1").arg(ret));
+-            break;
+-        }
++    int ret = start_uxplay(static_cast<int>(argv.size()), argv.data());
++    if (ret != 0 && !isInterruptionRequested()) {
++        emit errorOccurred(QString("Engine exited with code %1").arg(ret));
+     }
+ 
+     emit stopped();
+ }
  
  void AirPlayWorker::stopAirplay() {
++    requestInterruption();
      stop_uxplay();
 -}
 \ No newline at end of file
 +}
 diff --git a/src/main.cpp b/src/main.cpp
-index d659491..5d40497 100644
+index d659491..4baac87 100644
 --- a/src/main.cpp
 +++ b/src/main.cpp
-@@ -93,6 +93,21 @@ static int runRuntimeSelfTest(const QString &appPath) {
+@@ -93,10 +93,34 @@ static int runRuntimeSelfTest(const QString &appPath) {
      return 2;
  }
  
@@ -57,8 +77,22 @@ index d659491..5d40497 100644
 +
  int main(int argc, char *argv[]) {
  #ifdef _WIN32
++    bool rawHeadless = false;
++    for (int index = 1; index < argc; ++index) {
++        if (strcmp(argv[index], "--headless") == 0) {
++            rawHeadless = true;
++            break;
++        }
++    }
      // if the process was started from a console (CMD/PowerShell), attach to it so we can see qDebug() output.
-@@ -140,14 +155,46 @@ int main(int argc, char *argv[]) {
+-    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
++    // A headless host supplies redirected pipes; never overwrite them with
++    // CONIN$/CONOUT$ even when the parent also owns a console.
++    if (!rawHeadless && AttachConsole(ATTACH_PARENT_PROCESS)) {
+         // redirect stdout and stderr to the console
+         FILE* fp;
+         freopen_s(&fp, "CONOUT$", "w", stdout);
+@@ -140,14 +164,46 @@ int main(int argc, char *argv[]) {
      if (app.arguments().contains("--self-test")) {
          return runRuntimeSelfTest(appPath);
      }
@@ -108,18 +142,29 @@ index d659491..5d40497 100644
      return app.exec();
  }
 diff --git a/src/mainwindow.cpp b/src/mainwindow.cpp
-index aeb732d..9d22acd 100644
+index aeb732d..0102681 100644
 --- a/src/mainwindow.cpp
 +++ b/src/mainwindow.cpp
-@@ -1,6 +1,7 @@
+@@ -1,6 +1,8 @@
  #include "mainwindow.h"
  #include "airplayworker.h"
  #include "mdns_responder.hpp"
++#include <algorithm>
 +#include <cstdio>
  #include <windows.h>
  #include <winsvc.h>
  
-@@ -54,9 +55,19 @@ BOOL CALLBACK EnumWindowsProcRename(HWND hwnd, LPARAM lParam) {
+@@ -27,6 +29,9 @@
+ #include <QUrl>
+ #include <QVBoxLayout>
+ #include <QTextStream>
++#include <regex>
++#include <string>
++#include "uxplay_api.h"
+ 
+ struct RenameData {
+     DWORD pid;
+@@ -54,10 +59,23 @@ BOOL CALLBACK EnumWindowsProcRename(HWND hwnd, LPARAM lParam) {
      return TRUE;
  }
  
@@ -139,9 +184,13 @@ index aeb732d..9d22acd 100644
 +        setupTray();
 +    }
      setupUI();
++    if (m_headless) {
++        startCommandReader();
++    }
  
      // If Bonjour Service is missing, we must install it; otherwise we exit.
-@@ -125,6 +136,12 @@ void MainWindow::ensureSettingsFileExists() {
+     if (ensureBonjourServiceInstalled()) {
+@@ -125,6 +143,12 @@ void MainWindow::ensureSettingsFileExists() {
  }
  
  QStringList MainWindow::getArgumentsFromFile() {
@@ -154,7 +203,7 @@ index aeb732d..9d22acd 100644
      const QString userPath = userArgumentsPath();
      const QString machinePath = machineArgumentsPath();
      const QString selectedPath = activeArgumentsPath();
-@@ -300,6 +317,12 @@ void MainWindow::onRendererChanged(int /*index*/) {
+@@ -300,6 +324,12 @@ void MainWindow::onRendererChanged(int /*index*/) {
  }
  
  void MainWindow::applyRendererAndFullscreenArgs(QStringList &args) {
@@ -167,7 +216,26 @@ index aeb732d..9d22acd 100644
      while (true) {
          int idx = args.indexOf("-fs");
          if (idx < 0) break;
-@@ -432,7 +455,11 @@ void MainWindow::onAirplayStopped() {
+@@ -377,9 +407,16 @@ void MainWindow::stopServer() {
+     if (m_worker) {
+         m_worker->disconnect();
+         if (m_worker->isRunning()) {
+-            QMetaObject::invokeMethod(m_worker, &AirPlayWorker::stopAirplay, Qt::QueuedConnection);
+-            if (!m_worker->wait(1000)) {
++            // stop_uxplay is thread-safe and marshals shutdown to the owning
++            // GLib context. A queued QThread slot cannot run while this GUI
++            // thread is blocked in wait().
++            m_worker->stopAirplay();
++            if (!m_worker->wait(3000)) {
++                fprintf(stderr,
++                        "AEROMIRROR_OWNER_SHUTDOWN_TIMEOUT fallback=terminate\n");
++                fflush(stderr);
+                 m_worker->terminate();
++                m_worker->wait(1000);
+             }
+         }
+         m_worker = nullptr;
+@@ -432,7 +469,62 @@ void MainWindow::onAirplayStopped() {
  }
  
  void MainWindow::onAirplayError(const QString &message) {
@@ -177,32 +245,113 @@ index aeb732d..9d22acd 100644
 +    } else {
 +        qWarning().noquote() << "[headless]" << message;
 +    }
++}
++
++void MainWindow::startCommandReader() {
++    m_commandReader = std::thread([]() {
++        const std::regex command(
++            "^AEROMIRROR_COMMAND refresh-discovery request=([1-9][0-9]{0,19})$");
++        HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
++        if (input == NULL || input == INVALID_HANDLE_VALUE) return;
++        std::string pending;
++        char chunk[128];
++        DWORD count = 0;
++        while (ReadFile(input, chunk, sizeof(chunk), &count, NULL) && count) {
++            pending.append(chunk, count);
++            if (pending.size() > 1024) {
++                pending.clear();
++                fprintf(stderr,
++                        "AEROMIRROR_COMMAND_REJECTED reason=overflow\n");
++                fflush(stderr);
++                continue;
++            }
++            std::size_t newline = 0;
++            while ((newline = pending.find('\n')) != std::string::npos) {
++                std::string line = pending.substr(0, newline);
++                pending.erase(0, newline + 1);
++                if (!line.empty() && line.back() == '\r') line.pop_back();
++                if (line.size() > 256) {
++                    fprintf(stderr,
++                            "AEROMIRROR_COMMAND_REJECTED reason=overflow\n");
++                    fflush(stderr);
++                    continue;
++                }
++                std::smatch match;
++                unsigned long long request = 0;
++                try {
++                    if (std::regex_match(line, match, command)) {
++                        request = std::stoull(match[1].str());
++                    }
++                } catch (...) {
++                    request = 0;
++                }
++                if (!request || !request_discovery_refresh(request)) {
++                    fprintf(stderr,
++                            "AEROMIRROR_COMMAND_REJECTED request=%llu reason=%s\n",
++                            request,
++                            request ? "busy-or-not-ready" : "invalid");
++                    fflush(stderr);
++                }
++            }
++        }
++    });
++    m_commandReader.detach();
  }
  
  void MainWindow::toggleAutostart(bool checked) {
-@@ -469,13 +496,31 @@ void MainWindow::startBluetoothBeacon(const QString &path) {
+@@ -456,32 +548,133 @@ void MainWindow::setAutostart(bool enabled) {
+ }
+ 
+ void MainWindow::startBluetoothBeacon(const QString &path) {
+-    if (m_beacon && m_beacon->state() != QProcess::NotRunning)
+-        return;
++    if (m_beacon) {
++        if (m_beacon->state() != QProcess::NotRunning) return;
++        stopBluetoothBeacon();
++    }
+ 
++    m_beaconStopping = false;
++    m_beaconFailureReported = false;
+     QString exe = QApplication::applicationDirPath() + "/uxplay-bluetooth-beacon.exe";
+     if (!QFile::exists(exe)) {
+         qDebug() << "uxplay-bluetooth-beacon.exe not found";
++        reportBluetoothBeaconFailure(
++            QByteArray("helper executable was not found"));
+         return;
+     }
+ 
+     m_beacon = new QProcess(this);
++    m_beaconOutputBuffer.clear();
      m_beacon->setProcessChannelMode(QProcess::MergedChannels);
  
      connect(m_beacon, &QProcess::readyRead, this, [this]() {
 -        // Forward beacon logs to our debug console
 -        qDebug() << "[beacon output]" << m_beacon->readAll().trimmed();
-+        // Qt debug output from a GUI-subsystem process is not reliably visible
-+        // to the supervising shell. Forward helper diagnostics explicitly.
-+        const QByteArray output = m_beacon->readAll();
-+        if (!output.isEmpty()) {
-+            fprintf(stdout, "AEROMIRROR_BLE ");
-+            fwrite(output.constData(), 1,
-+                   static_cast<size_t>(output.size()), stdout);
-+            if (!output.endsWith('\n')) {
-+                fputc('\n', stdout);
-+            }
-+            fflush(stdout);
++        consumeBluetoothBeaconOutput(false);
++    });
++    connect(m_beacon, &QProcess::errorOccurred, this,
++            [this](QProcess::ProcessError error) {
++        if (error != QProcess::FailedToStart &&
++            error != QProcess::Crashed) {
++            return;
 +        }
++        QByteArray detail = m_beacon
++            ? m_beacon->errorString().toUtf8()
++            : QByteArray("helper process error");
++        reportBluetoothBeaconFailure(detail);
      });
- 
--    // Pass the explicit path to the beacon file
--    m_beacon->start(exe, {"--path", path});
--    qDebug() << "Beacon process started watching:" << path;
++    connect(m_beacon,
++            qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
++            this, [this](int exitCode, QProcess::ExitStatus status) {
++        consumeBluetoothBeaconOutput(true);
++        QByteArray detail("helper exited unexpectedly with status ");
++        detail.append(status == QProcess::CrashExit
++            ? "crash" : "normal");
++        detail.append(" and exit code ");
++        detail.append(QByteArray::number(exitCode));
++        reportBluetoothBeaconFailure(detail);
++    });
++
 +    // Bind BLE discovery to the physical Wi-Fi/Ethernet address selected by
 +    // the host shell. Letting the helper infer an address from the default
 +    // route can advertise a VPN endpoint instead.
@@ -214,14 +363,116 @@ index aeb732d..9d22acd 100644
 +    qDebug() << "Beacon process started watching:" << path
 +             << "IPv4:" << (m_beaconIpv4.isEmpty()
 +                 ? QString("automatic") : m_beaconIpv4);
++}
+ 
+-    // Pass the explicit path to the beacon file
+-    m_beacon->start(exe, {"--path", path});
+-    qDebug() << "Beacon process started watching:" << path;
++void MainWindow::emitBluetoothBeaconLine(const QByteArray &line) {
++    QByteArray clean = line;
++    while (!clean.isEmpty() &&
++           (clean.endsWith('\r') || clean.endsWith('\n'))) {
++        clean.chop(1);
++    }
++    if (clean.isEmpty()) return;
++    QByteArray framed("AEROMIRROR_BLE ");
++    framed.append(clean);
++    framed.append('\n');
++    fwrite(framed.constData(), 1,
++           static_cast<size_t>(framed.size()), stderr);
++    fflush(stderr);
++}
++
++void MainWindow::reportBluetoothBeaconFailure(const QByteArray &detail) {
++    if (m_beaconStopping || m_beaconFailureReported) return;
++    m_beaconFailureReported = true;
++
++    QByteArray bounded = detail;
++    bounded.replace('\r', ' ');
++    bounded.replace('\n', ' ');
++    static constexpr qsizetype maximumDetailBytes = 512;
++    if (bounded.size() > maximumDetailBytes) {
++        bounded.truncate(maximumDetailBytes);
++        bounded.append("...");
++    }
++    if (bounded.isEmpty()) bounded = "unspecified helper error";
++    emitBluetoothBeaconLine(
++        QByteArray("Advertising failed: ") + bounded);
++}
++
++void MainWindow::consumeBluetoothBeaconOutput(bool flushResidual) {
++    if (m_beacon) m_beaconOutputBuffer.append(m_beacon->readAll());
++    static constexpr qsizetype maximumBufferedBytes = 64 * 1024;
++    if (m_beaconOutputBuffer.size() > maximumBufferedBytes) {
++        emitBluetoothBeaconLine(
++            QByteArray("output overflow; dropping unterminated helper data"));
++        m_beaconOutputBuffer.clear();
++        return;
++    }
++    while (true) {
++        qsizetype cr = m_beaconOutputBuffer.indexOf('\r');
++        qsizetype lf = m_beaconOutputBuffer.indexOf('\n');
++        qsizetype end = cr < 0 ? lf : (lf < 0 ? cr : std::min(cr, lf));
++        if (end < 0) break;
++        QByteArray line = m_beaconOutputBuffer.left(end);
++        qsizetype remove = end + 1;
++        if (remove < m_beaconOutputBuffer.size() &&
++            ((m_beaconOutputBuffer.at(end) == '\r' &&
++              m_beaconOutputBuffer.at(remove) == '\n') ||
++             (m_beaconOutputBuffer.at(end) == '\n' &&
++              m_beaconOutputBuffer.at(remove) == '\r'))) {
++            ++remove;
++        }
++        m_beaconOutputBuffer.remove(0, remove);
++        emitBluetoothBeaconLine(line);
++    }
++    if (flushResidual && !m_beaconOutputBuffer.isEmpty()) {
++        emitBluetoothBeaconLine(m_beaconOutputBuffer);
++        m_beaconOutputBuffer.clear();
++    }
  }
  
  void MainWindow::stopBluetoothBeacon() {
+     if (!m_beacon) return;
+     
+     qDebug() << "Stopping beacon process";
++    m_beaconStopping = true;
+     if (m_beacon->state() != QProcess::NotRunning) {
+         m_beacon->terminate();
+         if (!m_beacon->waitForFinished(500)) {
+@@ -490,9 +683,11 @@ void MainWindow::stopBluetoothBeacon() {
+             m_beacon->waitForFinished(100);
+         }
+     }
++    consumeBluetoothBeaconOutput(true);
+     
+     delete m_beacon;
+     m_beacon = nullptr;
++    m_beaconOutputBuffer.clear();
+     qDebug() << "Beacon stopped and cleaned up";
+ }
+ 
 diff --git a/src/mainwindow.h b/src/mainwindow.h
-index 163521f..045855b 100644
+index 163521f..005447a 100644
 --- a/src/mainwindow.h
 +++ b/src/mainwindow.h
-@@ -19,7 +19,12 @@ class MainWindow : public QMainWindow {
+@@ -3,6 +3,7 @@
+ #include <string>
+ 
+ #include <QLabel>
++#include <QByteArray>
+ #include <QMainWindow>
+ #include <QComboBox>
+ #include <QPushButton>
+@@ -10,6 +11,7 @@
+ #include <QProcess>
+ #include <QCheckBox>
+ #include <QMessageBox>
++#include <thread>
+ 
+ class QMenu;
+ class QAction;
+@@ -19,7 +21,12 @@ class MainWindow : public QMainWindow {
      Q_OBJECT
  
  public:
@@ -235,7 +486,34 @@ index 163521f..045855b 100644
      ~MainWindow() override;
  
  protected:
-@@ -82,4 +87,7 @@ private:
+@@ -42,15 +49,22 @@ private slots:
+ 
+ private:
+     void startServer();
++    void startCommandReader();
+     void stopServer();
+     void setupTray();
+     void setupUI();
+     void updateStatus();
+     void startBluetoothBeacon(const QString &path);
+     void stopBluetoothBeacon();
++    void consumeBluetoothBeaconOutput(bool flushResidual = false);
++    void emitBluetoothBeaconLine(const QByteArray &line);
++    void reportBluetoothBeaconFailure(const QByteArray &detail);
+     void applyRendererAndFullscreenArgs(QStringList &args);
+ 
+     QProcess *m_beacon = nullptr;
++    QByteArray m_beaconOutputBuffer;
++    bool m_beaconStopping = false;
++    bool m_beaconFailureReported = false;
+ 
+     QStringList getArgumentsFromFile();
+     void ensureSettingsFileExists();
+@@ -79,7 +93,11 @@ private:
+     QLabel *m_statusLabel = nullptr;
+ 
+     AirPlayWorker *m_worker = nullptr;
++    std::thread m_commandReader;
  
      bool m_running = false;
      bool m_quitting = false;

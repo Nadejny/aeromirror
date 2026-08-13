@@ -22,8 +22,13 @@ namespace AirPlayReceiverMvp
     {
         private const double ProvisionalIPhoneAspect = 9.0 / 19.5;
         private const double DeviceFrameAspectTolerance = 0.03;
-        private bool followPhotosMediaCanvasSettingObserved;
-        private bool observedFollowPhotosMediaCanvas;
+
+        private enum RendererFitTargetKind
+        {
+            None,
+            DeviceFrame,
+            MediaCanvas
+        }
 
         private void InstallRendererMoveSizeHook(int processId)
         {
@@ -235,7 +240,8 @@ namespace AirPlayReceiverMvp
         }
 
         private bool ApplyPendingManualRendererFit(
-            IntPtr window, Size videoSize, int videoSizeGeneration)
+            IntPtr window, Size videoSize, long videoSizeSequence,
+            RendererFitTargetKind fitTargetKind)
         {
             if (Interlocked.CompareExchange(
                     ref pendingManualFit, 0, 0) != 1)
@@ -264,11 +270,8 @@ namespace AirPlayReceiverMvp
             fittedStreamWindow = window;
             videoSizeWindow = window;
             initialFitPendingWindow = IntPtr.Zero;
-            exactVideoSizeFitGeneration = videoSize.IsEmpty
-                ? -1 : videoSizeGeneration;
-            int orientation = VideoOrientation(videoSize);
-            appliedVideoOrientation = orientation != 0
-                ? orientation : GetWindowOrientation(window);
+            RecordAppliedRendererFit(
+                window, videoSizeSequence, videoSize, fitTargetKind);
             Log("Automatically fitted renderer window after manual resize" +
                 VideoSizeLogSuffix(videoSize) + ".");
             MarkStreamWindowPlacementPersistable(window);
@@ -711,39 +714,30 @@ namespace AirPlayReceiverMvp
                 NativeMethods.SetImmersiveDarkMode(window, true);
                 videoSizeWindow = window;
                 initialFitPendingWindow = window;
-                exactVideoSizeFitGeneration = -1;
+                exactVideoSizeFitSequence = -1;
+                appliedVideoFitSize = Size.Empty;
+                appliedVideoFitTargetKind = RendererFitTargetKind.None;
                 appliedVideoOrientation = 0;
                 restoredStreamWindowPlacementWindow =
                     TryRestoreStreamWindowPlacement(window)
                         ? window : IntPtr.Zero;
             }
 
-            int videoSizeGeneration;
+            long videoSizeSequence;
             bool ambiguousMediaCanvas;
             Size videoSize = GetStableVideoSize(
-                out videoSizeGeneration, out ambiguousMediaCanvas);
-            bool followPhotosMediaCanvasSettingChanged =
-                ObserveFollowPhotosMediaCanvasSettingChange();
+                out videoSizeSequence, out ambiguousMediaCanvas);
             bool orientationAuthoritative;
             bool suppressionChanged;
             Size automaticVideoSize = ResolveAutomaticVideoSize(
                 videoSize, ambiguousMediaCanvas,
                 out orientationAuthoritative,
                 out suppressionChanged);
-            bool provisionalMediaCanvasFit = ambiguousMediaCanvas &&
-                settings.FollowPhotosMediaCanvas;
+            bool provisionalMediaCanvasFit = ambiguousMediaCanvas;
+            RendererFitTargetKind fitTargetKind =
+                ResolveRendererFitTargetKind(
+                    automaticVideoSize, provisionalMediaCanvasFit);
             int automaticOrientation = VideoOrientation(automaticVideoSize);
-            int orientation = orientationAuthoritative ||
-                    provisionalMediaCanvasFit
-                ? automaticOrientation : 0;
-            if (followPhotosMediaCanvasSettingChanged &&
-                videoSizeWindow == window)
-            {
-                // Re-evaluate the already debounced frame immediately when
-                // the A/B option changes; no core restart or new geometry
-                // marker is required.
-                exactVideoSizeFitGeneration = -1;
-            }
             if (suppressionChanged)
             {
                 Log("Retained the current renderer orientation for non-device " +
@@ -768,10 +762,9 @@ namespace AirPlayReceiverMvp
                     {
                         ClearPendingManualRendererFit();
                         initialFitPendingWindow = IntPtr.Zero;
-                        exactVideoSizeFitGeneration = automaticVideoSize.IsEmpty
-                            ? -1 : videoSizeGeneration;
-                        appliedVideoOrientation = automaticOrientation != 0
-                            ? automaticOrientation : GetWindowOrientation(window);
+                        RecordAppliedRendererFit(
+                            window, videoSizeSequence, automaticVideoSize,
+                            fitTargetKind);
                         Log(provisionalMediaCanvasFit
                             ? "Applied a temporary renderer window fit for " +
                                 "the Photos/media canvas " +
@@ -785,82 +778,135 @@ namespace AirPlayReceiverMvp
                     }
                 }
                 else if (videoSizeWindow == window &&
-                    !automaticVideoSize.IsEmpty &&
-                    exactVideoSizeFitGeneration != videoSizeGeneration)
+                    ShouldApplyRendererFitTarget(
+                        appliedVideoFitSize, appliedVideoFitTargetKind,
+                        automaticVideoSize, fitTargetKind))
                 {
+                    bool firstExactFit = appliedVideoFitTargetKind ==
+                            RendererFitTargetKind.None ||
+                        appliedVideoFitSize.IsEmpty;
                     if (FitRendererWindow(
                             window, automaticVideoSize,
-                            restoredStreamWindowPlacementWindow == window))
+                            firstExactFit
+                                ? restoredStreamWindowPlacementWindow == window
+                                : true))
                     {
                         ClearPendingManualRendererFit();
-                        exactVideoSizeFitGeneration = videoSizeGeneration;
-                        appliedVideoOrientation = automaticOrientation;
-                        Log(provisionalMediaCanvasFit
-                            ? "Temporarily fitted the renderer window to " +
-                                "the debounced Photos/media canvas " +
-                                automaticVideoSize.Width + "x" +
-                                automaticVideoSize.Height + "."
-                            : "Refined renderer window fit for the first " +
-                                "exact device-frame size " +
-                                automaticVideoSize.Width + "x" +
-                                automaticVideoSize.Height + ".");
+                        RecordAppliedRendererFit(
+                            window, videoSizeSequence, automaticVideoSize,
+                            fitTargetKind);
+                        if (firstExactFit)
+                        {
+                            Log(provisionalMediaCanvasFit
+                                ? "Temporarily fitted the renderer window to " +
+                                    "the debounced Photos/media canvas " +
+                                    automaticVideoSize.Width + "x" +
+                                    automaticVideoSize.Height + "."
+                                : "Refined renderer window fit for the first " +
+                                    "exact device-frame size " +
+                                    automaticVideoSize.Width + "x" +
+                                    automaticVideoSize.Height + ".");
+                        }
+                        else
+                        {
+                            Log(provisionalMediaCanvasFit
+                                ? "Temporarily adapted the renderer window to " +
+                                    "the Photos/media canvas " +
+                                    automaticVideoSize.Width + "x" +
+                                    automaticVideoSize.Height + "."
+                                : "Adapted renderer window to device-frame " +
+                                    "aspect " + automaticVideoSize.Width +
+                                    "x" + automaticVideoSize.Height + ".");
+                        }
                         UpdateStreamWindowPlacementAfterAutomaticFit(
                             window, automaticVideoSize,
                             provisionalMediaCanvasFit);
                     }
                 }
                 else if (videoSizeWindow == window &&
-                    (orientationAuthoritative || provisionalMediaCanvasFit) &&
-                    orientation != 0 &&
-                    appliedVideoOrientation != 0 &&
-                    orientation != appliedVideoOrientation)
+                    !automaticVideoSize.IsEmpty &&
+                    fitTargetKind != RendererFitTargetKind.None &&
+                    exactVideoSizeFitSequence != videoSizeSequence)
                 {
-                    if (FitRendererWindow(
-                            window, automaticVideoSize, true))
-                    {
-                        ClearPendingManualRendererFit();
-                        appliedVideoOrientation = orientation;
-                        Log(provisionalMediaCanvasFit
-                            ? "Temporarily adapted the renderer window to " +
-                                "the landscape Photos/media canvas " +
-                                automaticVideoSize.Width + "x" +
-                                automaticVideoSize.Height + "."
-                            : "Adapted renderer window to " +
-                                (orientation == 1
-                                    ? "portrait" : "landscape") +
-                                " device frame " +
-                                automaticVideoSize.Width + "x" +
-                                automaticVideoSize.Height + ".");
-                        UpdateStreamWindowPlacementAfterAutomaticFit(
-                            window, automaticVideoSize,
-                            provisionalMediaCanvasFit);
-                    }
+                    // A newer geometry event can resolve to the same target
+                    // class and exact aspect (for example, a scaled copy or a
+                    // suppressed media canvas). Consume it without moving the
+                    // outer window so supervision does not reconsider it on
+                    // every timer tick.
+                    RecordAppliedRendererFit(
+                        window, videoSizeSequence, automaticVideoSize,
+                        fitTargetKind);
                 }
-                else if (appliedVideoOrientation == 0 && orientation != 0)
+                else if (appliedVideoOrientation == 0 &&
+                    automaticOrientation != 0)
                 {
-                    appliedVideoOrientation = orientation;
+                    appliedVideoOrientation = automaticOrientation;
                 }
                 ApplyPendingManualRendererFit(
-                    window, automaticVideoSize, videoSizeGeneration);
+                    window, automaticVideoSize, videoSizeSequence,
+                    fitTargetKind);
             }
             SavePendingStreamWindowPlacement(window);
             RememberRendererBounds(window);
             CompleteLostConnectionRendererHandoff();
         }
 
-        private bool ObserveFollowPhotosMediaCanvasSettingChange()
+        private static RendererFitTargetKind ResolveRendererFitTargetKind(
+            Size videoSize, bool provisionalMediaCanvasFit)
         {
-            bool current = settings.FollowPhotosMediaCanvas;
-            if (!followPhotosMediaCanvasSettingObserved)
+            if (videoSize.IsEmpty)
+                return RendererFitTargetKind.None;
+            return provisionalMediaCanvasFit
+                ? RendererFitTargetKind.MediaCanvas
+                : RendererFitTargetKind.DeviceFrame;
+        }
+
+        private static bool ShouldApplyRendererFitTarget(
+            Size appliedSize, RendererFitTargetKind appliedKind,
+            Size targetSize, RendererFitTargetKind targetKind)
+        {
+            if (targetSize.IsEmpty ||
+                targetKind == RendererFitTargetKind.None)
+                return false;
+            // The applied target is the durable acknowledgement. A geometry
+            // sequence can already be consumed when a live setting change is
+            // temporarily blocked by a drag, mouse press, or AutoFit=false.
+            // Keep any class/aspect mismatch eligible until a successful fit
+            // records the new target.
+            return appliedKind != targetKind ||
+                !HaveExactRendererFitAspect(appliedSize, targetSize);
+        }
+
+        private static bool HaveExactRendererFitAspect(
+            Size first, Size second)
+        {
+            return first.Width > 0 && first.Height > 0 &&
+                second.Width > 0 && second.Height > 0 &&
+                (long)first.Width * second.Height ==
+                    (long)second.Width * first.Height;
+        }
+
+        private void RecordAppliedRendererFit(
+            IntPtr window, long videoSizeSequence, Size videoSize,
+            RendererFitTargetKind fitTargetKind)
+        {
+            if (videoSize.IsEmpty ||
+                fitTargetKind == RendererFitTargetKind.None)
             {
-                followPhotosMediaCanvasSettingObserved = true;
-                observedFollowPhotosMediaCanvas = current;
-                return false;
+                exactVideoSizeFitSequence = -1;
+                appliedVideoFitSize = Size.Empty;
+                appliedVideoFitTargetKind = RendererFitTargetKind.None;
             }
-            if (observedFollowPhotosMediaCanvas == current)
-                return false;
-            observedFollowPhotosMediaCanvas = current;
-            return true;
+            else
+            {
+                exactVideoSizeFitSequence = videoSizeSequence;
+                appliedVideoFitSize = videoSize;
+                appliedVideoFitTargetKind = fitTargetKind;
+            }
+
+            int orientation = VideoOrientation(videoSize);
+            appliedVideoOrientation = orientation != 0
+                ? orientation : GetWindowOrientation(window);
         }
 
         private void UpdateStreamWindowPlacementAfterAutomaticFit(
@@ -921,23 +967,24 @@ namespace AirPlayReceiverMvp
 
             if (window != IntPtr.Zero)
             {
-                int videoSizeGeneration;
+                long videoSizeSequence;
                 bool ambiguousMediaCanvas;
                 Size rawVideoSize = GetStableVideoSize(
-                    out videoSizeGeneration, out ambiguousMediaCanvas);
+                    out videoSizeSequence, out ambiguousMediaCanvas);
                 Size videoSize = ResolveManualFitVideoSize(
                     rawVideoSize, ambiguousMediaCanvas);
+                bool provisionalMediaCanvasFit = ambiguousMediaCanvas;
+                RendererFitTargetKind fitTargetKind =
+                    ResolveRendererFitTargetKind(
+                        videoSize, provisionalMediaCanvasFit);
                 if (FitRendererWindow(window, videoSize, false))
                 {
                     ClearPendingManualRendererFit();
                     fittedStreamWindow = window;
                     videoSizeWindow = window;
                     initialFitPendingWindow = IntPtr.Zero;
-                    exactVideoSizeFitGeneration = videoSize.IsEmpty
-                        ? -1 : videoSizeGeneration;
-                    int orientation = VideoOrientation(videoSize);
-                    appliedVideoOrientation = orientation != 0
-                        ? orientation : GetWindowOrientation(window);
+                    RecordAppliedRendererFit(
+                        window, videoSizeSequence, videoSize, fitTargetKind);
                     Log("Renderer window fitted manually" +
                         VideoSizeLogSuffix(videoSize) + ".");
                     MarkStreamWindowPlacementPersistable(window);
@@ -978,7 +1025,7 @@ namespace AirPlayReceiverMvp
         }
 
         private Size GetStableVideoSize(
-            out int generation, out bool ambiguousMediaCanvas)
+            out long sequence, out bool ambiguousMediaCanvas)
         {
             lock (videoSizeSync)
             {
@@ -986,16 +1033,12 @@ namespace AirPlayReceiverMvp
                     DateTime.UtcNow >= pendingVideoSizeDueUtc)
                 {
                     currentVideoSize = pendingVideoSize;
-                    currentVideoSizeGeneration =
-                        pendingVideoSizeGeneration;
+                    currentVideoSizeSequence = pendingVideoSizeSequence;
                     currentVideoSizeIsAmbiguousMediaCanvas =
                         pendingVideoSizeIsAmbiguousMediaCanvas;
-                    pendingVideoSize = Size.Empty;
-                    pendingVideoSizeDueUtc = DateTime.MinValue;
-                    pendingVideoSizeGeneration = 0;
-                    pendingVideoSizeIsAmbiguousMediaCanvas = false;
+                    ClearPendingVideoSizeLocked();
                 }
-                generation = currentVideoSizeGeneration;
+                sequence = currentVideoSizeSequence;
                 ambiguousMediaCanvas =
                     currentVideoSizeIsAmbiguousMediaCanvas;
                 return currentVideoSize;
@@ -1022,18 +1065,12 @@ namespace AirPlayReceiverMvp
 
                 if (ambiguousMediaCanvas)
                 {
-                    if (settings.FollowPhotosMediaCanvas)
-                    {
-                        // Return the raw canvas only as a temporary shell-window
-                        // target. It deliberately does not become the trusted
-                        // device-frame baseline used by later rotations.
-                        lastSuppressedVideoSize = Size.Empty;
-                        return videoSize;
-                    }
-                    suppressionChanged =
-                        lastSuppressedVideoSize != videoSize;
-                    lastSuppressedVideoSize = videoSize;
-                    return deviceFrameVideoSize;
+                    // The exact recorded Photos/media signature is a
+                    // temporary shell-window target. It deliberately does
+                    // not become the trusted device-frame baseline used by
+                    // later rotations or placement persistence.
+                    lastSuppressedVideoSize = Size.Empty;
+                    return videoSize;
                 }
 
                 if (deviceFrameVideoSize.IsEmpty)

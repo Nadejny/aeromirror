@@ -83,8 +83,9 @@ no system-wide .NET/VC++ redistributable, driver, or framework prerequisite; a
 full Windows reboot is not an expected normal prerequisite. One reported
 Windows 10 installation became usable only after reboot, but no pre-reboot
 evidence was retained. A stopped or stale Bonjour service lifecycle is only the
-strongest current hypothesis, not a diagnosis. The 0.12.9 candidate does not
-start, stop, repair, uninstall, or otherwise mutate that machine-wide service.
+strongest current hypothesis, not a diagnosis. AeroMirror observes Bonjour but
+does not start, stop, repair, uninstall, or otherwise mutate that machine-wide
+service.
 
 For a normal review test:
 
@@ -132,8 +133,17 @@ Depending on the review build, the log may include:
 - Bonjour service presence and running state, plus observed receiver
   server-socket initialization;
 - guarded idle-discovery and Windows-unlock maintenance decisions, including
-  whether the first ten-minute allowance or final post-renewal allowance was
-  consumed, deferred, canceled, or scheduled;
+  whether the first ten-minute stage or the second stage 20 minutes later was
+  scheduled, deferred, canceled, or consumed, and whether timer or unlock used
+  the shared final allowance;
+- for a capable 0.12.13 core, the discovery-command capability plus exact
+  request/generation/PID/RAOP-port/AirPlay-port deferred, accepted, ready, or
+  failed markers. Ready means both records received local callbacks for that
+  generation; it is not continuous iPhone-visibility proof;
+- BLE helper lifecycle as complete stderr lines, including one unexpected
+  start/exit failure. Intentional helper stop during maintenance is excluded;
+- receiver-name input, registered, and RAOP-label byte counts plus a truncation
+  flag. The original receiver name is intentionally not written by this marker;
 - relevant physical-network changes without stream content;
 - UxPlay standard output and error messages;
 - feedback-gap episode count, longest duration, native recovery-marker
@@ -175,9 +185,14 @@ Please include:
 - whether it happened on first install, first start after reboot, manual
   start, reconnection, or after changing settings;
 - for a missing receiver after idle, the last successful session time, lock,
-  sleep, sign-in and SessionUnlock times, both automatic discovery-maintenance
-  log decisions, every iPhone browse attempt, and whether the first tap reached
-  Windows before using **Restart discovery**;
+  sleep, sign-in and SessionUnlock times, both timed discovery-stage decisions,
+  any unlock fallback decision, every in-process discovery request and terminal
+  generation, PID/ports before and after it, every iPhone browse attempt, and
+  whether the first tap reached Windows before using **Restart discovery**;
+- when testing **Restart discovery**, record the replacement PID, ports, fresh
+  DNS-SD/BLE startup, and iPhone result. In 0.12.13 this button deliberately
+  remains the strong full-process path rather than the narrow automatic DNS-SD
+  command;
 - for the Windows 10 reboot symptom, whether the machine/VM had ever contained
   Bonjour, every installer/UAC/firewall prompt, pre/post-reboot Bonjour service
   and process state, and whether receiver Stop/Start changed the result;
@@ -188,11 +203,15 @@ Please include:
   **Connection restored / Waiting for image**, changed to the Screen Mirroring
   reconnect hint, or faded while the image was still frozen;
 - the selected quality, latency, renderer, and audio options;
-- for a Photos sizing report, whether the schema-12 experimental wide-window
-  option was off or on, the raw/encoded geometry, outer renderer client bounds,
-  separately measured visible inner-media bounds, phone orientation, and
-  whether the same session remained connected; a wide outer window is not
-  evidence that inner media was enlarged;
+- for a Photos sizing report, the ordered raw/encoded geometry, whether a
+  phone-shaped frame preceded or followed the exact media signature, outer
+  renderer client bounds, separately measured visible inner-media bounds,
+  phone orientation, and whether the same session remained connected; an
+  automatically wide outer window is not evidence that inner media was
+  enlarged;
+- for a receiver-name problem, include input/effective UTF-8 byte counts and
+  whether the save notice appeared, but replace the actual private name. State
+  whether the value came from an interactive save or a legacy profile;
 - for stutter, the local Wi-Fi band/channel and PC connection type, a 60-second
   reproduction interval, visible freeze count, audio drift, CPU/GPU load, and
   the feedback-gap totals from diagnostics; public internet speed alone does

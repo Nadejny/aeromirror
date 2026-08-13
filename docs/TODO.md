@@ -79,6 +79,12 @@ versions.
 - [ ] Add an isolated temporary-profile integration test that exercises the
   complete `AppSettings.Load()` and `Save()` wiring, including first save and
   an injected replacement failure, without touching a user's real settings.
+- [x] Keep reflection-based resilience tests out of the production profile by
+  setting one validated GUID temporary storage root before initialization,
+  rejecting a different second root, draining asynchronous logging
+  deterministically, and deleting only that exact root after success. The
+  broader `Load()`/`Save()` integration and replacement-failure row above
+  remains pending.
 - [ ] Make native-source ZIP metadata and entry ordering deterministic so
   identical validated content produces a stable archive SHA-256. Until then,
   pin only the final generated release asset through `SHA256SUMS.txt`.
@@ -166,13 +172,38 @@ keeps continuity visible and changes waiting text to reconnect guidance. This
 does not yet repair the underlying half-open transport, decoder, sink, or clock
 condition that may leave long-gap video frozen.
 
-The 0.12.9 candidate adds a second, strictly bounded managed idle-discovery
+The 0.12.9 release adds a second, strictly bounded managed idle-discovery
 allowance. After the existing first ten-minute renewal, a later Windows unlock
 may consume one final refresh only after cooldown and only while core, socket,
 discovery-marker, physical-IPv4, mirroring, client-grace, restart, and network
 guards are safe. This mitigates one missing-after-idle report but does not prove
 its cause, preserve a port across process replacement, or replace the native
 same-port re-publication work below.
+
+The local 0.12.10 candidate does not change discovery. Safe registration
+ownership, an in-process same-port `refreshDiscovery` operation, and an
+acknowledged DNS-SD/BLE ready marker remain `DESIGN/NEXT`; the unchecked items
+below are not complete.
+The local 0.12.11 candidate carries that boundary forward unchanged.
+
+The local 0.12.12 candidate adds one additional managed timed stage 20 minutes
+after the first idle renewal. It shares the existing strict two-renewal
+allowance with `SessionUnlock`, preserves due work across active mirroring and
+client grace, and retains the existing activity/manual/network epoch
+boundaries. This is still a reporter-evidence-driven mitigation: startup-ready
+markers cannot isolate DNS-SD, BLE, Bonjour browse state, or iOS cache and do
+not prove continuous visibility.
+
+The local 0.12.13 candidate implements the first narrow acknowledged command:
+automatic idle, eligible unlock, and persistent discovery-health maintenance
+prefer a request-correlated refresh of the paired RAOP/AirPlay DNS-SD
+generation in the same process and on the same listener ports. Registration
+callbacks are pumped on the native owner context; partial pairs roll back and
+retry with bounded delays; active clients defer. Unsupported or failed
+commands retain bounded full-process fallback. Manual **Restart discovery** and
+physical IPv4 change remain full restarts because the separate BLE helper is
+unchanged. This is local-registration evidence, not continuous iPhone browse
+attestation or an AWDL implementation.
 
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
@@ -193,18 +224,30 @@ same-port re-publication work below.
   after socket lifetime, RTP input, appsrc flow, sink PTS, and presentation
   evidence identify the boundary. Do not hot-replace a half-open socket, rebase
   timestamps, or auto-reset the receiver without parser/crypto/physical tests.
-- [ ] Add graceful commands such as `shutdown`, `refreshDiscovery`, and
-  `getStatus`; do not use process presence or renderer-window discovery as a
+- [x] Add a narrow version-1 `refresh-discovery` command with request,
+  generation, PID, RAOP-port, and AirPlay-port correlation; keep it transitional
+  redirected stdin/framed stdout rather than presenting it as the complete IPC
+  contract above.
+- [ ] Extend the narrow command boundary with graceful `shutdown`, `getStatus`,
+  and complete session-state events only through the versioned named-pipe
+  contract; do not use process presence or renderer-window discovery as a
   substitute for readiness.
-- [ ] Re-publish DNS-SD and BLE on the same listening port after the native
-  HTTP reset, then emit an acknowledged ready marker. Refactor the current
-  registration ownership first so unregister/register cannot reuse freed
-  service-name or hardware-address storage.
+- [x] Refactor DNS-SD registration ownership and re-publish the paired RAOP and
+  AirPlay records on the same listener ports with current-generation callback
+  acknowledgement, active-client deferral, partial-pair rollback, and bounded
+  retry.
+- [ ] Add safe in-process BLE helper reconfiguration and acknowledgement before
+  describing discovery refresh as a same-process DNS-SD-and-BLE operation.
+  Until then, manual discovery and physical IPv4 change remain full restarts.
 - [x] Add one managed final post-renewal SessionUnlock refresh with cooldown,
   readiness/client/network guards, a strict per-idle limit, and activity
   re-arming; keep it documented as a mitigation rather than root-cause proof.
+- [x] Add one additional timed idle renewal 20 minutes after stage 1, sharing the
+  same final allowance with SessionUnlock and deferring safely for active
+  mirroring/client grace.
 - [ ] Physically validate the long-idle/unlock mitigation on Windows 10 and 11,
-  retain first-tap iPhone browse/request evidence, and isolate whether the
+  retaining same-PID/port DNS-SD generations, first-tap iPhone browse/request
+  evidence, manual full-restart controls, and BLE state. Isolate whether the
   original absence was DNS-SD, BLE, Bonjour service state, iOS browse cache,
   socket/port publication, or another lifecycle boundary.
 - [ ] Reproduce the reported Windows 10 first-install-only-after-reboot symptom
@@ -219,6 +262,49 @@ same-port re-publication work below.
 
 Acceptance target: the UI says “ready” only after the native core confirms
 that its network advertisement and listening services are active.
+
+### Native core audit and staged refactor
+
+The 0.12.13 discovery work corrected one ownership/lifecycle boundary but is
+not a full audit of the inherited `uxplay-windows`/libuxplay engine. Treat the
+reported disconnects, Bonjour gaps, renderer behavior, and Windows resource
+issues as possibly sharing deeper state-machine or ownership faults. Audit
+first; do not combine a broad rewrite with Photos, AWDL, or viewer UI changes.
+
+- [ ] Freeze one exact native baseline and map every AeroMirror patch hunk to
+  its upstream owner, thread/context, lifetime, failure path, and automated or
+  physical evidence. Keep the wrapper and libuxplay findings separate.
+- [ ] Audit receiver/session state transitions from startup through DNS-SD,
+  HTTP/RTSP setup, PIN/pairing, audio/video/mirroring, typed teardown, feedback
+  loss, reset, reconnect, normal shutdown, and rapid restart. Identify every
+  process-global, session-global, and connection-owned field explicitly.
+- [ ] Audit allocation and cleanup symmetry for Bonjour refs/TXT records,
+  GLib sources/contexts, sockets, timers, RAOP connections, RTP buffers,
+  GStreamer objects, renderer hooks, BLE process/pipe handles, Qt objects, and
+  Windows threads/handles. Exercise failure between each acquire/release pair.
+- [ ] Audit cross-thread and callback safety: owner-context rules, atomics and
+  lock ordering, callback-after-free risk, stop/join ordering, process-lifetime
+  state that must reset, and commands admitted during internal loop recovery.
+- [ ] Audit protocol/error semantics against the pinned upstream source:
+  request parsing, authentication/pairing, connection ownership, `TEARDOWN`,
+  partial HTTP/reset failure, retry/backoff, media bus errors, and distinctions
+  between clean disconnect, recoverable loss, and fatal state.
+- [ ] Audit Windows-specific assumptions: Bonjour service/DLL lifecycle,
+  UTF-8/UTF-16 boundaries, pipe framing, socket and handle widths, power and
+  network transitions, long paths, firewall/profile behavior, and Win10 1809.
+- [ ] Turn each confirmed issue into a focused patch with a deterministic
+  replay or fault-injection test, two clean reproducible builds, prepared-
+  source rebuild, runtime/loader checks, and a physical regression row. Avoid
+  speculative fixes that change protocol behavior without evidence.
+- [ ] Decide only after the audit whether to retain the pinned fork, update
+  upstream, or extract a smaller dedicated `receiver-core.exe`. Any migration
+  needs a patch/provenance map, IPC compatibility plan, rollback, and physical
+  comparison before replacing the current core.
+
+Acceptance target: every native lifecycle state and owned resource has one
+documented owner and cleanup path; confirmed P0/P1/P2 findings have focused
+tests and fixes; unchanged behavior remains reproducible from corresponding
+source; and no physical reliability claim rests on source inspection alone.
 
 ### Crash diagnostics
 
@@ -328,6 +414,21 @@ to device orientation, persist an automatic provisional landscape, modify the
 native stream, or enlarge inner media. Its value is specifically to separate
 an outer-window regression from the still-unsolved encoded-inner-canvas case.
 
+The local 0.12.10 candidate gives every correlated geometry/size record a
+monotonic core-lifetime sequence. Repeated identical pending candidates retain
+the original 350 ms deadline rather than starving the debounce, while stable
+duplicates do not reopen it. Applied fits now track target class plus exact
+aspect, so same-orientation class/aspect changes refit once and scaled
+same-class/same-aspect markers do not move the window again. Physical
+Windows/iPhone validation remains pending.
+
+The local 0.12.11 candidate retires the Photos-specific schema-12 checkbox and
+persisted field. Only the complete recorded `3840x2160 aux=0x0
+encoded=3840x2160` signature automatically becomes a provisional outer-window
+`MediaCanvas` target. Legacy key values are ignored and omitted on save. The
+canvas still cannot seed trusted orientation or make automatic placement
+persistable, and the patch does not crop, zoom, or enlarge inner media.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
@@ -337,12 +438,20 @@ an outer-window regression from the still-unsolved encoded-inner-canvas case.
 - [x] Prevent the exact replayed Photos-first `3840x2160 aux=0x0` canvas from
   becoming the device baseline or replacing a valid saved placement before a
   trustworthy frame or explicit user action exists.
-- [x] Add the schema-12 default-off exact-canvas outer-window A/B without a
-  native restart, trusted-orientation promotion, or provisional-placement save.
-- [ ] Run the same photo/video with the schema-12 A/B off and on, measure outer
-  client bounds and inner visible content separately, and retain direct-Photos
-  startup/session-stability evidence. Do not call a wider outer window an
-  inner-content fix.
+- [x] Retire the schema-12 exact-canvas A/B and apply only that exact signature
+  automatically without a native restart, trusted-orientation promotion, or
+  provisional-placement save.
+- [x] Make geometry debounce non-starving with a monotonic core-lifetime event
+  sequence, retaining the first deadline across identical pending candidates
+  and preserving reset/session invariants.
+- [x] Refit on a fresh target-class or exact-aspect change, including
+  same-orientation transitions, while consuming scaled exact-aspect duplicates
+  without repeated movement.
+- [ ] Run the same photo/video from clean and legacy `FollowPhotosMediaCanvas`
+  profiles, verify identical automatic behavior and canonical key removal,
+  measure outer client bounds and inner visible content separately, and retain
+  direct-Photos startup/session-stability evidence. Do not call a wider outer
+  window an inner-content fix.
 - [ ] Resolve sessions that start with only a generic media canvas and no early
   phone-shaped marker, without guessing that the canvas is the physical device
   ratio.

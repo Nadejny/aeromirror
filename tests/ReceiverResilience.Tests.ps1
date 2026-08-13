@@ -34,31 +34,13 @@ $settingsFormSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "UI\SettingsForm.cs"))
 $receiverCoreSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "Receiver\ReceiverContext.Core.cs"))
-$advancedDiscardStart = $settingsFormSource.IndexOf(
-    "private bool ConfirmAdvancedUnsavedChanges()")
-$advancedDiscardEnd = $settingsFormSource.IndexOf(
-    "private void UpdatePinPanel()", $advancedDiscardStart)
-Assert-True ($advancedDiscardStart -ge 0 -and
-    $advancedDiscardEnd -gt $advancedDiscardStart) `
-    "advanced settings discard has a focused implementation boundary"
-$advancedDiscardSource = $settingsFormSource.Substring(
-    $advancedDiscardStart,
-    $advancedDiscardEnd - $advancedDiscardStart)
-$discardSuppressStart = $advancedDiscardSource.IndexOf(
-    "suppressDirty = true;")
-$discardMediaCanvasRestore = $advancedDiscardSource.IndexOf(
-    "followPhotosMediaCanvas.Checked =")
-$discardSuppressEnd = $advancedDiscardSource.IndexOf(
-    "suppressDirty = false;", $discardSuppressStart + 1)
-Assert-True ($discardSuppressStart -ge 0 -and
-    $discardMediaCanvasRestore -gt $discardSuppressStart -and
-    $discardSuppressEnd -gt $discardMediaCanvasRestore -and
-    $advancedDiscardSource.Contains(
-        "context.CurrentSettings.FollowPhotosMediaCanvas") -and
-    $advancedDiscardSource.IndexOf(
-        "UpdateAdvancedDirty();", $discardSuppressEnd) -gt
-        $discardSuppressEnd) `
-    "discarding advanced changes restores the Photos checkbox without leaving dirty state"
+$receiverContextSource = [IO.File]::ReadAllText(
+    (Join-Path $sourceRoot "Receiver\ReceiverContext.cs"))
+Assert-True (-not $settingsFormSource.Contains(
+        "followPhotosMediaCanvas") -and
+    -not $settingsFormSource.Contains(
+        "FollowPhotosMediaCanvas")) `
+    "Photos/media window fitting is automatic and has no user-facing A/B control"
 $lostConnectionContextSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "Receiver\ReceiverContext.LostConnection.cs"))
 $handoffMethodStart = $lostConnectionContextSource.IndexOf(
@@ -80,6 +62,125 @@ $nativePatchPath = Join-Path $projectRoot `
 Assert-True (Test-Path -LiteralPath $nativePatchPath) `
     "pinned libuxplay patch exists"
 $nativePatchSource = [IO.File]::ReadAllText($nativePatchPath)
+$wrapperPatchPath = Join-Path $projectRoot `
+    "native-core\uxplay-windows-headless.patch"
+Assert-True (Test-Path -LiteralPath $wrapperPatchPath) `
+    "pinned wrapper patch exists"
+$wrapperPatchSource = [IO.File]::ReadAllText($wrapperPatchPath)
+Assert-True ($nativePatchSource.Contains("DNSServiceProcessResult") -and
+    $nativePatchSource.Contains("#define DNSSD_FLAGS_NO_AUTO_RENAME 0x8") -and
+    [regex]::Matches(
+        $nativePatchSource,
+        'DNSSD_FLAGS_NO_AUTO_RENAME, 0').Count -eq 2 -and
+    $nativePatchSource.Contains("aeromirror_discovery_capability_announced") -and
+    -not $nativePatchSource.Contains("aeromirror_accepting_commands") -and
+    $nativePatchSource.Contains("aeromirror_attach_discovery_request") -and
+    $nativePatchSource.Contains("AEROMIRROR_DISCOVERY_REFRESH_DEFERRED") -and
+    $nativePatchSource.Contains("pid=%lu raop_port=%u airplay_port=%u") -and
+    $wrapperPatchSource.Contains("ReadFile(") -and
+    $wrapperPatchSource.Contains("rawHeadless") -and
+    $wrapperPatchSource.Contains("requestInterruption()")) `
+    "reviewed native patches retain callback pumping, coherent identity, loop-reset command persistence, redirected pipe IPC, and graceful stop"
+Assert-True ($wrapperPatchSource.Contains(
+        "QByteArray m_beaconOutputBuffer") -and
+    $wrapperPatchSource.Contains(
+        "consumeBluetoothBeaconOutput(false)") -and
+    $wrapperPatchSource.Contains(
+        "consumeBluetoothBeaconOutput(true)") -and
+    $wrapperPatchSource.Contains(
+        "maximumBufferedBytes = 64 * 1024") -and
+    $wrapperPatchSource.Contains(
+        "m_beaconOutputBuffer.indexOf('\r')") -and
+    $wrapperPatchSource.Contains(
+        "m_beaconOutputBuffer.indexOf('\n')") -and
+    $wrapperPatchSource.Contains(
+        'QByteArray framed("AEROMIRROR_BLE ")') -and
+    $wrapperPatchSource.Contains(
+        "fwrite(framed.constData(), 1,") -and
+    $wrapperPatchSource.Contains(
+        "&QProcess::errorOccurred") -and
+    $wrapperPatchSource.Contains(
+        "error != QProcess::FailedToStart") -and
+    $wrapperPatchSource.Contains(
+        "helper exited unexpectedly with status") -and
+    $wrapperPatchSource.Contains(
+        'status == QProcess::CrashExit') -and
+    $wrapperPatchSource.Contains(
+        "if (m_beacon->state() != QProcess::NotRunning) return;") -and
+    $wrapperPatchSource.Contains(
+        "stopBluetoothBeacon();") -and
+    $wrapperPatchSource.Contains(
+        "if (m_beaconStopping || m_beaconFailureReported) return;") -and
+    $wrapperPatchSource.Contains(
+        "static constexpr qsizetype maximumDetailBytes = 512") -and
+    $wrapperPatchSource.Contains(
+        'QByteArray("Advertising failed: ")') -and
+    $wrapperPatchSource.Contains(
+        "m_beaconStopping = true;")) `
+    "BLE helper output is buffered into complete stderr lines, while unexpected start/crash failure is bounded and reported exactly once without misclassifying intentional stop"
+Assert-True ($nativePatchSource.Contains(
+        "static void aeromirror_protocol_marker") -and
+    $nativePatchSource.Contains("line[0] = '\n';") -and
+    $nativePatchSource.Contains("line[length++] = '\n';") -and
+    $nativePatchSource.Contains(
+        "fwrite(line, 1, length, stdout);") -and
+    [regex]::Matches(
+        $nativePatchSource,
+        '(?m)^\+\s*aeromirror_protocol_marker\(').Count -ge 8 -and
+    [regex]::Matches(
+        $nativePatchSource,
+        '(?m)^\+\s*LOGI\("AEROMIRROR_(?:DISCOVERY_REFRESH|DNSSD)').Count -eq 0) `
+    "all discovery protocol markers use one leading-newline and trailing-newline stdout write so each result stays isolated from adjacent unterminated output"
+$registrationPairStart = $nativePatchSource.IndexOf(
+    "dnssd_register_services(dnssd_t *dnssd")
+$registrationPairEnd = $nativePatchSource.IndexOf(
+    "dnssd_process_results(dnssd_t *dnssd)", $registrationPairStart)
+Assert-True ($registrationPairStart -ge 0 -and
+    $registrationPairEnd -gt $registrationPairStart) `
+    "the native paired-registration implementation is present in provenance"
+$registrationPairSource = $nativePatchSource.Substring(
+    $registrationPairStart,
+    $registrationPairEnd - $registrationPairStart)
+$prepareRaopIndex = $registrationPairSource.IndexOf(
+    "dnssd_prepare_raop_txt(dnssd)")
+$prepareAirPlayIndex = $registrationPairSource.IndexOf(
+    "dnssd_prepare_airplay_txt(dnssd)")
+$firstRegistrationIndex = $registrationPairSource.IndexOf(
+    "dnssd_register_raop(dnssd, raop_port)")
+Assert-True ($prepareRaopIndex -ge 0 -and
+    $prepareAirPlayIndex -gt $prepareRaopIndex -and
+    $firstRegistrationIndex -gt $prepareAirPlayIndex -and
+    $nativePatchSource.Contains(
+        "if (dnssd->airplay_record_initialized) return 0;") -and
+    $nativePatchSource.Contains(
+        "if (dnssd->raop_record_initialized) return 0;")) `
+    "both lifetime TXT records are initialized before the first Bonjour registration attempt so degraded /info remains safe"
+Assert-True ([regex]::Matches(
+        $nativePatchSource,
+        'static const char empty_txt').Count -eq 2 -and
+    $nativePatchSource.Contains(
+        "if (!dnssd || !dnssd->raop_record_initialized)") -and
+    $nativePatchSource.Contains(
+        "if (!dnssd || !dnssd->airplay_record_initialized)") -and
+    [regex]::Matches(
+        $nativePatchSource,
+        '\*length = 0;').Count -ge 2) `
+    "HTTP TXT getters fail safely before registration preparation and never call Bonjour TXT APIs on an uninitialized record"
+Assert-True ($nativePatchSource.Contains(
+        "#define DNSSD_SERVICE_LABEL_MAX_BYTES 63") -and
+    $nativePatchSource.Contains(
+        "DNSSD_SERVICE_LABEL_MAX_BYTES - (2 * hw_addr_len) - 1") -and
+    $nativePatchSource.Contains(
+        "((unsigned char) name[length] & 0xc0) == 0x80") -and
+    $nativePatchSource.Contains(
+        'canonical_name = DNSSD_FALLBACK_NAME') -and
+    $nativePatchSource.Contains(
+        "dnssd->name_len = canonical_name_len") -and
+    $nativePatchSource.Contains(
+        "AEROMIRROR_SERVICE_NAME input_bytes=%zu registered_bytes=%d") -and
+    $nativePatchSource.Contains(
+        "raop_label_bytes=%zu truncated=%d")) `
+    "one UTF-8-safe canonical receiver label keeps RAOP, AirPlay, and /info within Bonjour's 63-byte NoAutoRename boundary"
 $nativeArmStart = $nativePatchSource.IndexOf(
     "+void video_renderer_arm_recovery")
 $nativeArmEnd = $nativePatchSource.IndexOf(
@@ -187,6 +288,23 @@ Assert-True ($source.Contains(
     "the updater launches Setup outside the installed application directory"
 Assert-True ($source.Contains("discoveryRefreshAfterNetworkCheck")) `
     "manual discovery refresh survives an unavailable physical network"
+$manualDiscoveryStart = $receiverContextSource.IndexOf(
+    "bool discoveryRefreshPending =")
+$manualDiscoveryEnd = $receiverContextSource.IndexOf(
+    "if (startAfterNetworkCheck)", $manualDiscoveryStart)
+Assert-True ($manualDiscoveryStart -ge 0 -and
+    $manualDiscoveryEnd -gt $manualDiscoveryStart) `
+    "manual discovery refresh has a focused post-network-check boundary"
+$manualDiscoverySource = $receiverContextSource.Substring(
+    $manualDiscoveryStart,
+    $manualDiscoveryEnd - $manualDiscoveryStart)
+Assert-True ($manualDiscoverySource.Contains(
+        'ScheduleRestart(') -and
+    $manualDiscoverySource.Contains(
+        '"manual discovery refresh after network check"') -and
+    -not $manualDiscoverySource.Contains(
+        "TryRequestNativeDiscoveryRefresh(")) `
+    "the explicit Restart Discovery command fully restarts DNS-SD and its separately bound BLE helper"
 Assert-True ($source.Contains("physicalNetworkReady")) `
     "receiver startup requires a confirmed physical IPv4 address"
 Assert-True ($source.Contains('$_.AddressState -eq ''Preferred''')) `
@@ -197,8 +315,64 @@ Assert-True ($source.Contains("AEROMIRROR_DNSSD_READY")) `
     "native DNS-SD readiness marker is observed"
 Assert-True ($source.Contains("AEROMIRROR_DNSSD_DEGRADED")) `
     "native DNS-SD degradation marker is observed"
+Assert-True ($source.Contains(
+        "AEROMIRROR_DISCOVERY_REFRESH_CAPABILITY version=1") -and
+    $source.Contains("RedirectStandardInput = true") -and
+    $source.Contains(
+        "AEROMIRROR_COMMAND refresh-discovery request=") -and
+    $source.Contains("TryRequestNativeDiscoveryRefresh(") -and
+    $source.Contains("coreDiscoveryRefreshPendingRequest") -and
+    $source.Contains("coreDiscoveryRefreshPendingPid") -and
+    $source.Contains("coreDiscoveryRefreshPendingPort") -and
+    $source.Contains("ResetNativeDiscoveryRefreshForProcessLifecycle") -and
+    $source.Contains("DetachCoreProcessForLifecycle") -and
+    $source.Contains("object.ReferenceEquals(coreProcess, process)") -and
+    $source.Contains("Native discovery refresh completed in PID")) `
+    "capable cores use request-correlated same-PID and same-port discovery refresh IPC"
+$nativeRefreshStart = $receiverCoreSource.IndexOf(
+    "private bool TryRequestNativeDiscoveryRefresh(")
+$nativeRefreshLock = $receiverCoreSource.IndexOf(
+    "lock (coreCommandSync)", $nativeRefreshStart)
+$nativeRefreshEnd = $receiverCoreSource.IndexOf(
+    "private void ClearNativeDiscoveryRefreshRequest", $nativeRefreshStart)
+Assert-True ($nativeRefreshStart -ge 0 -and
+    $nativeRefreshLock -gt $nativeRefreshStart -and
+    $nativeRefreshEnd -gt $nativeRefreshLock) `
+    "native refresh request has a focused synchronized process boundary"
+$nativeRefreshBeforeLock = $receiverCoreSource.Substring(
+    $nativeRefreshStart, $nativeRefreshLock - $nativeRefreshStart)
+$nativeRefreshUnderLock = $receiverCoreSource.Substring(
+    $nativeRefreshLock, $nativeRefreshEnd - $nativeRefreshLock)
+Assert-True (-not $nativeRefreshBeforeLock.Contains("process.Id") -and
+    $nativeRefreshUnderLock.Contains("try { processId = process.Id; }") -and
+    $nativeRefreshUnderLock.Contains(
+        "object.ReferenceEquals(coreProcess, process)")) `
+    "same-process refresh never dereferences a potentially disposed Process before synchronized identity validation"
+Assert-True ([regex]::IsMatch(
+        $receiverCoreSource,
+        'ScheduleRestart\s*\(\s*"physical network changed"') -and
+    [regex]::IsMatch(
+        $receiverCoreSource,
+        'ScheduleRestart\s*\(\s*"deferred physical network change"')) `
+    "a real physical IPv4 change still restarts the core so the separate BLE helper receives the new address"
 Assert-True ($source.Contains("AEROMIRROR_BLE")) `
     "native BLE marker is observed"
+$stderrHandlerStart = $receiverCoreSource.IndexOf(
+    "process.ErrorDataReceived += delegate")
+$stderrHandlerEnd = $receiverCoreSource.IndexOf(
+    "process.BeginOutputReadLine()", $stderrHandlerStart)
+Assert-True ($stderrHandlerStart -ge 0 -and
+    $stderrHandlerEnd -gt $stderrHandlerStart) `
+    "native stderr handler has a focused implementation boundary"
+$stderrHandlerSource = $receiverCoreSource.Substring(
+    $stderrHandlerStart, $stderrHandlerEnd - $stderrHandlerStart)
+Assert-True ($stderrHandlerSource.Contains(
+        "ObserveCoreDiscoveryMarker(processId, e.Data);") -and
+    $stderrHandlerSource.IndexOf(
+        "ObserveCoreDiscoveryMarker(processId, e.Data);") -lt
+        $stderrHandlerSource.IndexOf(
+            'Log("core[" + processId + "]/stderr:')) `
+    "PID-scoped BLE health markers are consumed from their real stderr channel before diagnostic logging"
 Assert-True ($source.Contains("Discovery registration: DNS-SD=")) `
     "support diagnostics expose native discovery registration"
 Assert-True ($source.Contains(
@@ -207,9 +381,33 @@ Assert-True ($source.Contains(
         "SystemEvents.SessionSwitch -= OnSessionSwitch")) `
     "long-idle discovery maintenance observes and releases the Windows session-unlock event"
 Assert-True ($source.Contains(
+        "private const int IdleDiscoveryFirstRenewalMinutes = 10") -and
+    $source.Contains(
+        "private const int IdleDiscoverySecondRenewalMinutes = 20") -and
+    $source.Contains(
         "private const int IdleDiscoveryRenewalLimit = 2") -and
     $source.Contains('"session-unlock discovery refresh"')) `
-    "unlock-triggered discovery re-registration is capped at one final retry per idle epoch"
+    "long-idle discovery has two bounded timed stages and retains the unlock fallback"
+$automaticRenewalHandlerStart = $receiverCoreSource.IndexOf(
+    "private void HandleAutomaticDiscoveryMaintenance")
+$automaticRenewalHandlerEnd = $receiverCoreSource.IndexOf(
+    "private static SessionUnlockDiscoveryAction", $automaticRenewalHandlerStart)
+Assert-True ($automaticRenewalHandlerStart -ge 0 -and
+    $automaticRenewalHandlerEnd -gt $automaticRenewalHandlerStart) `
+    "automatic discovery maintenance has a focused implementation boundary"
+$automaticRenewalHandlerSource = $receiverCoreSource.Substring(
+    $automaticRenewalHandlerStart,
+    $automaticRenewalHandlerEnd - $automaticRenewalHandlerStart)
+Assert-True ($automaticRenewalHandlerSource.Contains(
+        "EvaluateAutomaticDiscoveryRenewal(") -and
+    $automaticRenewalHandlerSource.Contains(
+        "ref clientActivityGraceDueTicks") -and
+    $automaticRenewalHandlerSource.Contains(
+        'TryRequestNativeDiscoveryRefresh(') -and
+    [regex]::Matches(
+        $automaticRenewalHandlerSource,
+        'ScheduleRestart\("idle discovery renewal"').Count -eq 1) `
+    "the timed renewal prefers same-PID refresh and retains one legacy restart fallback"
 $unlockHandlerStart = $source.IndexOf(
     "private void HandleSessionUnlockDiscoveryRefresh")
 $unlockHandlerEnd = $source.IndexOf(
@@ -642,8 +840,11 @@ Assert-True ($source.Contains("settings.StreamWindowLeft = oldLeft") -and
 $restoredAreaFitCount = [regex]::Matches(
     $source,
     'FitRendererWindow\(\s*window, automaticVideoSize,\s*restoredStreamWindowPlacementWindow == window\)').Count
-Assert-True ($restoredAreaFitCount -eq 2) `
-    "initial and exact-size refinement preserve restored center and client area"
+Assert-True ($restoredAreaFitCount -eq 1 -and
+    [regex]::IsMatch(
+        $source,
+        'firstExactFit\s*\?\s*restoredStreamWindowPlacementWindow == window\s*:\s*true')) `
+    "initial and first exact-size fits preserve restored area while later aspect transitions preserve current area"
 
 $assembly = [Reflection.Assembly]::LoadFrom(
     [IO.Path]::GetFullPath($AssemblyPath))
@@ -651,14 +852,94 @@ $settingsType = $assembly.GetType(
     "AirPlayReceiverMvp.AppSettings", $true)
 $contextType = $assembly.GetType(
     "AirPlayReceiverMvp.ReceiverContext", $true)
-$context = [Runtime.Serialization.FormatterServices]::GetUninitializedObject(
-    $contextType)
 $instanceFlags = [Reflection.BindingFlags]::Instance -bor `
     [Reflection.BindingFlags]::NonPublic -bor `
     [Reflection.BindingFlags]::Public
 $staticFlags = [Reflection.BindingFlags]::Static -bor `
     [Reflection.BindingFlags]::NonPublic -bor `
     [Reflection.BindingFlags]::Public
+
+$testStorageRoot = [IO.Path]::GetFullPath((Join-Path `
+    ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString("N"))))
+$testStorageRootInfo = [IO.DirectoryInfo]::new($testStorageRoot)
+$normalizedTempRoot = [IO.Path]::GetFullPath(
+    [IO.Path]::GetTempPath()).TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar)
+$testStorageRootId = [Guid]::Empty
+$testStorageRootIsSafe =
+    $null -ne $testStorageRootInfo.Parent -and
+    $testStorageRootInfo.Parent.FullName.TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar) -ieq $normalizedTempRoot -and
+    [Guid]::TryParseExact(
+        $testStorageRootInfo.Name, "N", [ref]$testStorageRootId)
+Assert-True $testStorageRootIsSafe `
+    "the resilience suite owns one exact GUID child of the process temp root"
+
+$setStorageRootForTests = $settingsType.GetMethod(
+    "SetStorageRootForTests", $staticFlags)
+$flushLog = $contextType.GetMethod("FlushLog", $staticFlags)
+$writeLog = $contextType.GetMethod("Log", $staticFlags)
+Assert-True ($null -ne $setStorageRootForTests -and
+    $null -ne $flushLog -and
+    $flushLog.ReturnType -eq [bool] -and
+    $null -ne $writeLog) `
+    "test storage isolation exposes a process-lifetime root and deterministic log drain"
+$testCompleted = $false
+$testStorageRootSetupStarted = $false
+try {
+    $testStorageRootSetupStarted = $true
+    $setStorageRootForTests.Invoke(
+        $null, [object[]]@($testStorageRoot)) | Out-Null
+    $setStorageRootForTests.Invoke(
+        $null, [object[]]@($testStorageRoot)) | Out-Null
+    $alternateStorageRoot = [IO.Path]::GetFullPath((Join-Path `
+        ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString("N"))))
+    $secondStorageRootRejected = $false
+    try {
+        $setStorageRootForTests.Invoke(
+            $null, [object[]]@($alternateStorageRoot)) | Out-Null
+    }
+    catch {
+        $storageRootException = $_.Exception
+        while ($null -ne $storageRootException) {
+            if ($storageRootException -is [InvalidOperationException]) {
+                $secondStorageRootRejected = $true
+                break
+            }
+            $storageRootException = $storageRootException.InnerException
+        }
+    }
+    Assert-True ($secondStorageRootRejected -and
+        -not (Test-Path -LiteralPath $alternateStorageRoot)) `
+        "the process accepts one idempotent test root and never creates a replacement"
+
+    $expectedStoragePaths = [ordered]@{
+        Folder = $testStorageRoot
+        FilePath = Join-Path $testStorageRoot "settings.ini"
+        LogPath = Join-Path $testStorageRoot "receiver.log"
+        ReceiverKeyPath = Join-Path $testStorageRoot "receiver-key.pem"
+        ReceiverDeviceIdPath = Join-Path $testStorageRoot "receiver-device-id.txt"
+        TrustedClientsPath = Join-Path $testStorageRoot "trusted-clients.txt"
+    }
+    foreach ($entry in $expectedStoragePaths.GetEnumerator()) {
+        $storageProperty = $settingsType.GetProperty($entry.Key, $staticFlags)
+        Assert-True ($null -ne $storageProperty) `
+            "AppSettings exposes the $($entry.Key) storage path"
+        $actualStoragePath = [IO.Path]::GetFullPath(
+            [string]$storageProperty.GetValue($null, $null))
+        Assert-True ($actualStoragePath -ieq
+            [IO.Path]::GetFullPath([string]$entry.Value)) `
+            "$($entry.Key) stays inside the isolated GUID storage root"
+    }
+
+    $testLogMarker = "AEROMIRROR_TEST_LOG_ISOLATION root=" +
+        $testStorageRootInfo.Name
+    $context = [Runtime.Serialization.FormatterServices]::GetUninitializedObject(
+        $contextType)
+    $writeLog.Invoke(
+        $null, [object[]]@($testLogMarker)) | Out-Null
 
 $decideLostPlaceholder = $contextType.GetMethod(
     "DecideLostConnectionPlaceholderAction", $staticFlags)
@@ -856,10 +1137,10 @@ $migrateRendererDefault = $settingsType.GetMethod(
     "MigrateRendererStabilityDefault", $staticFlags)
 Assert-True ($null -ne $migrateRendererDefault) `
     "the renderer stability migration is independently testable"
-$migratePhotosMediaCanvasDefault = $settingsType.GetMethod(
-    "MigratePhotosMediaCanvasDefault", $staticFlags)
-Assert-True ($null -ne $migratePhotosMediaCanvasDefault) `
-    "the optional Photos media-canvas migration is independently testable"
+$migrateCurrentSettingsVersion = $settingsType.GetMethod(
+    "MigrateCurrentSettingsVersion", $staticFlags)
+Assert-True ($null -ne $migrateCurrentSettingsVersion) `
+    "the current profile migration is independently testable"
 $settingsPersistenceSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "Configuration\AppSettings.cs"))
 $settingsPersistenceSource = $settingsPersistenceSource.Replace(
@@ -907,37 +1188,52 @@ try {
     $settingsPersistencePathField.SetValue(
         $null, $settingsPersistencePath)
 
-    $persistedMediaCanvas = [Activator]::CreateInstance(
-        $settingsPersistenceType, $true)
-    $persistedMediaCanvas.SettingsVersion = 12
-    $persistedMediaCanvas.FollowPhotosMediaCanvas = $true
-    $settingsPersistenceSave.Invoke(
-        $persistedMediaCanvas, [object[]]@()) | Out-Null
-    $loadedMediaCanvas = $settingsPersistenceLoad.Invoke(
-        $null, [object[]]@())
-    Assert-True ($loadedMediaCanvas.SettingsVersion -eq 12 -and
-        [bool]$loadedMediaCanvas.FollowPhotosMediaCanvas) `
-        "a schema-12 Photos opt-in survives a real isolated Save and Load"
-
-    $persistedMediaCanvas.FollowPhotosMediaCanvas = $false
-    $settingsPersistenceSave.Invoke(
-        $persistedMediaCanvas, [object[]]@()) | Out-Null
-    $loadedMediaCanvas = $settingsPersistenceLoad.Invoke(
-        $null, [object[]]@())
-    Assert-True ($loadedMediaCanvas.SettingsVersion -eq 12 -and
-        -not [bool]$loadedMediaCanvas.FollowPhotosMediaCanvas) `
-        "a schema-12 Photos opt-out survives a real isolated Save and Load"
+    foreach ($legacyValue in @("true", "false", "not-a-boolean")) {
+        [IO.File]::WriteAllText(
+            $settingsPersistencePath,
+            "SettingsVersion=12`r`n" +
+            "ReceiverName=Retained-$legacyValue`r`n" +
+            "AutoFitWindow=False`r`n" +
+            "FollowPhotosMediaCanvas=$legacyValue`r`n",
+            (New-Object Text.UTF8Encoding($false)))
+        $loadedLegacyMediaCanvas = $settingsPersistenceLoad.Invoke(
+            $null, [object[]]@())
+        Assert-True ($loadedLegacyMediaCanvas.SettingsVersion -eq 12 -and
+            $loadedLegacyMediaCanvas.ReceiverName -eq
+                "Retained-$legacyValue" -and
+            -not [bool]$loadedLegacyMediaCanvas.AutoFitWindow) `
+            "schema-12 legacy Photos value '$legacyValue' is ignored without resetting unrelated settings"
+        $settingsPersistenceSave.Invoke(
+            $loadedLegacyMediaCanvas, [object[]]@()) | Out-Null
+        $savedLegacyProfile = [IO.File]::ReadAllText(
+            $settingsPersistencePath)
+        Assert-True (-not $savedLegacyProfile.Contains(
+                "FollowPhotosMediaCanvas=") -and
+            $savedLegacyProfile.Contains(
+                "ReceiverName=Retained-$legacyValue") -and
+            $savedLegacyProfile.Contains("AutoFitWindow=False")) `
+            "saving schema 12 removes the retired Photos key and preserves unrelated values"
+    }
 
     [IO.File]::WriteAllText(
         $settingsPersistencePath,
-        "SettingsVersion=12`r`n" +
-        "FollowPhotosMediaCanvas=not-a-boolean`r`n",
+        "SettingsVersion=11`r`n" +
+        "ReceiverName=Retained-v11`r`n" +
+        "AlwaysOnTop=True`r`n" +
+        "FollowPhotosMediaCanvas=True`r`n",
         (New-Object Text.UTF8Encoding($false)))
-    $loadedMalformedMediaCanvas = $settingsPersistenceLoad.Invoke(
+    $loadedV11MediaCanvas = $settingsPersistenceLoad.Invoke(
         $null, [object[]]@())
-    Assert-True ($loadedMalformedMediaCanvas.SettingsVersion -eq 12 -and
-        -not [bool]$loadedMalformedMediaCanvas.FollowPhotosMediaCanvas) `
-        "a malformed schema-12 Photos value normalizes to the safe opt-out"
+    Assert-True ($loadedV11MediaCanvas.SettingsVersion -eq 12 -and
+        $loadedV11MediaCanvas.ReceiverName -eq "Retained-v11" -and
+        [bool]$loadedV11MediaCanvas.AlwaysOnTop) `
+        "a schema-11 profile advances while its retired Photos key is ignored"
+    $settingsPersistenceSave.Invoke(
+        $loadedV11MediaCanvas, [object[]]@()) | Out-Null
+    Assert-True (-not [IO.File]::ReadAllText(
+            $settingsPersistencePath).Contains(
+                "FollowPhotosMediaCanvas=")) `
+        "saving a migrated schema-11 profile drops the retired Photos key"
 }
 finally {
     if ([IO.Directory]::Exists($settingsPersistenceRoot)) {
@@ -945,11 +1241,53 @@ finally {
     }
 }
 $contextSettingsField = $contextType.GetField("settings", $instanceFlags)
+$normalizeReceiverName = $settingsType.GetMethod(
+    "NormalizeReceiverNameForDiscovery", $staticFlags)
 $buildUxPlayArguments = $contextType.GetMethod(
     "BuildUxPlayArguments", $instanceFlags)
 Assert-True ($null -ne $contextSettingsField -and
+    $null -ne $normalizeReceiverName -and
     $null -ne $buildUxPlayArguments) `
     "receiver arguments can be verified from normalized settings"
+function Normalize-ReceiverName([string]$Value) {
+    return [string]$normalizeReceiverName.Invoke(
+        $null, [object[]]@($Value))
+}
+$ascii50 = "A" * 50
+$ascii51 = "A" * 51
+$cyrillicGlyph = [string][char]0x0416
+$cyrillicBoundary = $cyrillicGlyph * 26
+$emojiBoundary = [char]::ConvertFromUtf32(0x1F600) * 13
+Assert-True ((Normalize-ReceiverName $ascii50) -eq $ascii50 -and
+    [Text.Encoding]::UTF8.GetByteCount(
+        (Normalize-ReceiverName $ascii50)) -eq 50) `
+    "an exact 50-byte ASCII receiver name is preserved"
+Assert-True ((Normalize-ReceiverName $ascii51) -eq ("A" * 50)) `
+    "a 51-byte ASCII receiver name is reduced to the Bonjour-safe boundary"
+Assert-True ((Normalize-ReceiverName $cyrillicBoundary) -eq
+        ($cyrillicGlyph * 25) -and
+    [Text.Encoding]::UTF8.GetByteCount(
+        (Normalize-ReceiverName $cyrillicBoundary)) -eq 50) `
+    "Cyrillic receiver names are not split inside a UTF-8 code point"
+Assert-True ((Normalize-ReceiverName $emojiBoundary) -eq
+        ([char]::ConvertFromUtf32(0x1F600) * 12) -and
+    [Text.Encoding]::UTF8.GetByteCount(
+        (Normalize-ReceiverName $emojiBoundary)) -eq 48) `
+    "emoji receiver names preserve complete surrogate pairs"
+Assert-True ((Normalize-ReceiverName "   ") -eq "AeroMirror") `
+    "a blank receiver name uses the same nonblank fallback as native DNS-SD"
+$replacementCharacter = [string][char]0xfffd
+$unpairedHigh = "A" + [char]0xd800 + "B"
+$unpairedLow = "A" + [char]0xdc00 + "B"
+Assert-True ((Normalize-ReceiverName $unpairedHigh) -eq
+        ("A" + $replacementCharacter + "B") -and
+    (Normalize-ReceiverName $unpairedLow) -eq
+        ("A" + $replacementCharacter + "B")) `
+    "unpaired UTF-16 surrogates are deterministically replaced before persistence and UTF-8 byte counting"
+$controlName = "A" + [char]0x00 + [char]0x09 + [char]0x1f +
+    "B" + [char]0x7f + "C"
+Assert-True ((Normalize-ReceiverName $controlName) -eq "ABC") `
+    "hand-edited C0 and DEL controls are removed before the receiver name reaches native argument parsing"
 function Invoke-UxPlayArguments($Settings) {
     $contextSettingsField.SetValue($context, $Settings)
     return [string]$buildUxPlayArguments.Invoke($context, [object[]]@())
@@ -979,30 +1317,40 @@ Assert-True ($explicitD3D12Settings.SettingsVersion -eq 11 -and
 $legacyMediaCanvasSettings = [Activator]::CreateInstance(
     $settingsType, $true)
 $legacyMediaCanvasSettings.SettingsVersion = 11
-$legacyMediaCanvasSettings.FollowPhotosMediaCanvas = $true
-$migratePhotosMediaCanvasDefault.Invoke(
+$legacyMediaCanvasSettings.ReceiverName = "Retained-migration"
+$legacyMediaCanvasSettings.AutoFitWindow = $false
+$migrateCurrentSettingsVersion.Invoke(
     $null, [object[]]@($legacyMediaCanvasSettings)) | Out-Null
 Assert-True ($legacyMediaCanvasSettings.SettingsVersion -eq 12 -and
-    -not [bool]$legacyMediaCanvasSettings.FollowPhotosMediaCanvas) `
-    "existing profiles migrate to conservative Photos window fitting"
+    $legacyMediaCanvasSettings.ReceiverName -eq "Retained-migration" -and
+    -not [bool]$legacyMediaCanvasSettings.AutoFitWindow) `
+    "current-version migration preserves unrelated profile values"
 $currentMediaCanvasSettings = [Activator]::CreateInstance(
     $settingsType, $true)
-$currentMediaCanvasSettings.FollowPhotosMediaCanvas = $true
-$migratePhotosMediaCanvasDefault.Invoke(
+$currentMediaCanvasSettings.ReceiverName = "Current-profile"
+$migrateCurrentSettingsVersion.Invoke(
     $null, [object[]]@($currentMediaCanvasSettings)) | Out-Null
 Assert-True ($currentMediaCanvasSettings.SettingsVersion -eq 12 -and
-    [bool]$currentMediaCanvasSettings.FollowPhotosMediaCanvas) `
-    "an explicit current-schema Photos window-fit opt-in is preserved"
+    $currentMediaCanvasSettings.ReceiverName -eq "Current-profile") `
+    "a current-schema profile is left intact"
 $settingsProbe = [Activator]::CreateInstance($settingsType, $true)
 Assert-True ([int]$settingsProbe.SettingsVersion -eq 12 -and
     $settingsProbe.Renderer -eq "d3d11" -and
-    -not [bool]$settingsProbe.FollowPhotosMediaCanvas) `
-    "new settings profiles keep stable D3D11 and conservative Photos fitting defaults"
+    $null -eq $settingsType.GetField(
+        "FollowPhotosMediaCanvas", $instanceFlags)) `
+    "new profiles keep stable D3D11 without a Photos fitting preference"
 $defaultAudioArguments = Invoke-UxPlayArguments $settingsProbe
 Assert-True ([regex]::Matches(
         $defaultAudioArguments,
         [regex]::Escape($resilientAudioArgument)).Count -eq 1) `
     "default audio emits exactly one resilient WASAPI2 sink argument"
+$longNameSettings = [Activator]::CreateInstance($settingsType, $true)
+$longNameSettings.ReceiverName = $cyrillicBoundary
+$longNameArguments = Invoke-UxPlayArguments $longNameSettings
+Assert-True ($longNameArguments.Contains(
+        '-n "' + ($cyrillicGlyph * 25) + '"') -and
+    -not $longNameArguments.Contains($cyrillicBoundary)) `
+    "managed launch arguments use exactly the canonical name shown to iPhone"
 $mutedSettings = [Activator]::CreateInstance($settingsType, $true)
 $mutedSettings.AudioOutput = "mute"
 $mutedArguments = Invoke-UxPlayArguments $mutedSettings
@@ -1026,15 +1374,11 @@ $settingsProbe.AutoFitWindow = $false
 $normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
 Assert-True (-not [bool]$settingsProbe.AutoFitWindow) `
     "settings normalization preserves an explicit automatic-fit opt-out"
-$mediaCanvasOffArguments = Invoke-UxPlayArguments $settingsProbe
-$mediaCanvasOnSettings = $settingsProbe.Copy()
-$mediaCanvasOnSettings.FollowPhotosMediaCanvas = $true
-$mediaCanvasOnCopy = $mediaCanvasOnSettings.Copy()
-Assert-True ([bool]$mediaCanvasOnCopy.FollowPhotosMediaCanvas) `
-    "copying current settings preserves an explicit Photos window-fit opt-in"
-$mediaCanvasOnArguments = Invoke-UxPlayArguments $mediaCanvasOnSettings
-Assert-True ($mediaCanvasOnArguments -eq $mediaCanvasOffArguments) `
-    "the Photos window-fit experiment does not alter native receiver arguments"
+$mediaCanvasArgumentsBefore = Invoke-UxPlayArguments $settingsProbe
+$mediaCanvasSettingsCopy = $settingsProbe.Copy()
+$mediaCanvasArgumentsAfter = Invoke-UxPlayArguments $mediaCanvasSettingsCopy
+Assert-True ($mediaCanvasArgumentsAfter -eq $mediaCanvasArgumentsBefore) `
+    "automatic Photos window fitting has no native receiver argument delta"
 Invoke-UxPlayArguments $settingsProbe | Out-Null
 $hasValidStreamWindowPlacement = $settingsType.GetMethod(
     "HasValidStreamWindowPlacement", $instanceFlags)
@@ -1052,8 +1396,7 @@ $settingsCopy = $settingsType.GetMethod("Copy", $instanceFlags).Invoke(
     $settingsProbe, [object[]]@())
 Assert-True ($settingsCopy.StreamWindowLeft -eq -1200 -and
     $settingsCopy.StreamWindowWidth -eq 620 -and
-    $settingsCopy.StreamWindowDpi -eq 144 -and
-    -not [bool]$settingsCopy.FollowPhotosMediaCanvas) `
+    $settingsCopy.StreamWindowDpi -eq 144) `
     "ordinary settings edits preserve the saved stream-window placement"
 $settingsProbe.StreamWindowDpi = 0
 $normalizeSettings.Invoke($settingsProbe, [object[]]@()) | Out-Null
@@ -1190,11 +1533,14 @@ $physicalNetworkRestartDeferred = Field "physicalNetworkRestartDeferred"
 $maintenanceSync = Field "postSessionMaintenanceSync"
 $videoSizeSync = Field "videoSizeSync"
 $streamWindowPlacementSync = Field "streamWindowPlacementSync"
+$videoGeometryEventSequence = Field "videoGeometryEventSequence"
 $pendingVideoSize = Field "pendingVideoSize"
 $pendingVideoSizeDueUtc = Field "pendingVideoSizeDueUtc"
+$pendingVideoSizeSequence = Field "pendingVideoSizeSequence"
 $pendingVideoSizeIsAmbiguous =
     Field "pendingVideoSizeIsAmbiguousMediaCanvas"
 $currentVideoSize = Field "currentVideoSize"
+$currentVideoSizeSequence = Field "currentVideoSizeSequence"
 $currentVideoSizeIsAmbiguous =
     Field "currentVideoSizeIsAmbiguousMediaCanvas"
 $rawGeometryVideoSize = Field "rawGeometryVideoSize"
@@ -1250,90 +1596,30 @@ $feedbackHandoffToken = Field "lostConnectionFeedbackHandoffToken"
 $continuityToken = Field "lostConnectionContinuityToken"
 $mirrorSessionGeneration = Field "mirrorSessionGeneration"
 $coreProcess = Field "coreProcess"
+$coreDiscoveryRefreshPendingRequest =
+    Field "coreDiscoveryRefreshPendingRequest"
+$coreDiscoveryRefreshPendingPid = Field "coreDiscoveryRefreshPendingPid"
+$coreDiscoveryRefreshPendingPort = Field "coreDiscoveryRefreshPendingPort"
+$coreDiscoveryRefreshDueTicks = Field "coreDiscoveryRefreshDueTicks"
+$coreDiscoveryRefreshPhase = Field "coreDiscoveryRefreshPhase"
+$coreDiscoveryRefreshFallbackPending =
+    Field "coreDiscoveryRefreshFallbackPending"
+$coreCommandSync = Field "coreCommandSync"
 $fittedStreamWindow = Field "fittedStreamWindow"
 $videoSizeWindow = Field "videoSizeWindow"
 $rendererPolicyWindow = Field "rendererPolicyWindow"
 $rendererPolicyApplied = Field "rendererPolicyApplied"
 $rendererPolicyAlwaysOnTop = Field "rendererPolicyAlwaysOnTop"
 $rendererPolicyShowInTaskbar = Field "rendererPolicyShowInTaskbar"
-$exactVideoSizeFitGeneration = Field "exactVideoSizeFitGeneration"
-$followPhotosMediaCanvasSettingObserved =
-    Field "followPhotosMediaCanvasSettingObserved"
-$observedFollowPhotosMediaCanvas =
-    Field "observedFollowPhotosMediaCanvas"
-
+$exactVideoSizeFitSequence = Field "exactVideoSizeFitSequence"
+$appliedVideoFitSize = Field "appliedVideoFitSize"
+$appliedVideoFitTargetKind = Field "appliedVideoFitTargetKind"
 $maintenanceSync.SetValue($context, (New-Object object))
+$coreCommandSync.SetValue($context, (New-Object object))
 $videoSizeSync.SetValue($context, (New-Object object))
 $streamWindowPlacementSync.SetValue($context, (New-Object object))
 $activePid.SetValue($context, 42)
 $mirrorActive.SetValue($context, 1)
-$observeFollowPhotosMediaCanvasSettingChange = $contextType.GetMethod(
-    "ObserveFollowPhotosMediaCanvasSettingChange", $instanceFlags)
-$applyTopMost = $contextType.GetMethod("ApplyTopMost", $instanceFlags)
-Assert-True ($null -ne $observeFollowPhotosMediaCanvasSettingChange -and
-    $null -ne $applyTopMost) `
-    "live Photos fitting exposes a focused setting observer"
-$liveToggleContext =
-    [Runtime.Serialization.FormatterServices]::GetUninitializedObject(
-        $contextType)
-$liveToggleSettings = [Activator]::CreateInstance($settingsType, $true)
-$liveToggleSettings.AutoFitWindow = $false
-$contextSettingsField.SetValue($liveToggleContext, $liveToggleSettings)
-$videoSizeSync.SetValue($liveToggleContext, (New-Object object))
-$streamWindowPlacementSync.SetValue($liveToggleContext, (New-Object object))
-$liveToggleProcess = [Diagnostics.Process]::GetCurrentProcess()
-$coreProcess.SetValue($liveToggleContext, $liveToggleProcess)
-$liveToggleWindow = New-Object Windows.Forms.Form
-$liveToggleWindow.ShowInTaskbar = $false
-$liveToggleWindow.Opacity = 0
-$liveToggleWindow.Size = [Drawing.Size]::new(320, 640)
-try {
-    $liveToggleWindow.Show()
-    [Windows.Forms.Application]::DoEvents()
-    $liveToggleHandle = $liveToggleWindow.Handle
-    $fittedStreamWindow.SetValue($liveToggleContext, $liveToggleHandle)
-    $videoSizeWindow.SetValue($liveToggleContext, $liveToggleHandle)
-    $rendererPolicyWindow.SetValue($liveToggleContext, $liveToggleHandle)
-    $rendererPolicyApplied.SetValue($liveToggleContext, $true)
-    $rendererPolicyAlwaysOnTop.SetValue(
-        $liveToggleContext, $liveToggleSettings.AlwaysOnTop)
-    $rendererPolicyShowInTaskbar.SetValue(
-        $liveToggleContext, $liveToggleSettings.ShowStreamInTaskbar)
-
-    Assert-True (-not [bool]$observeFollowPhotosMediaCanvasSettingChange.Invoke(
-            $liveToggleContext, [object[]]@())) `
-        "the first observation establishes the live Photos setting baseline"
-    $exactVideoSizeFitGeneration.SetValue($liveToggleContext, 37)
-    $liveToggleSettings.FollowPhotosMediaCanvas = $true
-    $applyTopMost.Invoke($liveToggleContext, [object[]]@()) | Out-Null
-    Assert-True (
-        [bool]$followPhotosMediaCanvasSettingObserved.GetValue(
-            $liveToggleContext) -and
-        [bool]$observedFollowPhotosMediaCanvas.GetValue(
-            $liveToggleContext) -and
-        [int]$exactVideoSizeFitGeneration.GetValue(
-            $liveToggleContext) -eq -1) `
-        "enabling Photos fitting re-evaluates the current debounced frame immediately"
-
-    $exactVideoSizeFitGeneration.SetValue($liveToggleContext, 38)
-    $applyTopMost.Invoke($liveToggleContext, [object[]]@()) | Out-Null
-    Assert-True ([int]$exactVideoSizeFitGeneration.GetValue(
-            $liveToggleContext) -eq 38) `
-        "an unchanged Photos setting does not repeatedly invalidate the fitted generation"
-
-    $liveToggleSettings.FollowPhotosMediaCanvas = $false
-    $applyTopMost.Invoke($liveToggleContext, [object[]]@()) | Out-Null
-    Assert-True (-not [bool]$observedFollowPhotosMediaCanvas.GetValue(
-            $liveToggleContext) -and
-        [int]$exactVideoSizeFitGeneration.GetValue(
-            $liveToggleContext) -eq -1) `
-        "disabling Photos fitting also re-evaluates the current debounced frame immediately"
-}
-finally {
-    $liveToggleWindow.Close()
-    $liveToggleWindow.Dispose()
-    $liveToggleProcess.Dispose()
-}
 $markPlacementPersistable = $contextType.GetMethod(
     "MarkStreamWindowPlacementPersistable", $instanceFlags)
 $canPersistPlacement = $contextType.GetMethod(
@@ -1389,6 +1675,71 @@ $presentationCanvas = [Drawing.Size]::new(3840, 2160)
 $unknownCanvas = [Drawing.Size]::new(1200, 1000)
 $sixteenByNinePortrait = [Drawing.Size]::new(1080, 1920)
 $sixteenByNineLandscape = [Drawing.Size]::new(1920, 1080)
+$rendererFitTargetKindType = $contextType.GetNestedType(
+    "RendererFitTargetKind", [Reflection.BindingFlags]::NonPublic)
+$shouldApplyRendererFitTarget = $contextType.GetMethod(
+    "ShouldApplyRendererFitTarget", $staticFlags)
+$haveExactRendererFitAspect = $contextType.GetMethod(
+    "HaveExactRendererFitAspect", $staticFlags)
+Assert-True ($null -ne $rendererFitTargetKindType -and
+    $null -ne $shouldApplyRendererFitTarget -and
+    $null -ne $haveExactRendererFitAspect) `
+    "renderer fitting exposes deterministic target-class and exact-aspect decisions"
+$noFitTarget = [Enum]::Parse($rendererFitTargetKindType, "None")
+$deviceFrameFitTarget = [Enum]::Parse(
+    $rendererFitTargetKindType, "DeviceFrame")
+$mediaCanvasFitTarget = [Enum]::Parse(
+    $rendererFitTargetKindType, "MediaCanvas")
+$scaledLandscapeFrame = [Drawing.Size]::new(1920, 888)
+$nearbyLandscapeFrame = [Drawing.Size]::new(1920, 900)
+function Should-ApplyRendererFitTarget(
+    [Drawing.Size]$AppliedSize,
+    $AppliedKind,
+    [Drawing.Size]$TargetSize,
+    $TargetKind
+) {
+    return [bool]$shouldApplyRendererFitTarget.Invoke(
+        $null,
+        [object[]]@(
+            $AppliedSize, $AppliedKind, $TargetSize, $TargetKind))
+}
+$blockedAutomaticMediaTarget = Should-ApplyRendererFitTarget `
+        $landscapeFrame $deviceFrameFitTarget `
+        $presentationCanvas $mediaCanvasFitTarget
+$sameSequenceRetryTarget = Should-ApplyRendererFitTarget `
+        $landscapeFrame $deviceFrameFitTarget `
+        $presentationCanvas $mediaCanvasFitTarget
+Assert-True ($blockedAutomaticMediaTarget -and $sameSequenceRetryTarget) `
+    "a blocked automatic 3840x1776 device to 3840x2160 media transition remains eligible"
+Assert-True (Should-ApplyRendererFitTarget `
+        $landscapeFrame $deviceFrameFitTarget `
+        $presentationCanvas $mediaCanvasFitTarget) `
+    "automatic Photos fitting distinguishes a same-orientation media target from a device frame"
+Assert-True (Should-ApplyRendererFitTarget `
+        $landscapeFrame $deviceFrameFitTarget `
+        $nearbyLandscapeFrame $deviceFrameFitTarget) `
+    "an exact device-frame aspect change is fitted even when both targets are landscape"
+Assert-True (-not (Should-ApplyRendererFitTarget `
+        $landscapeFrame $deviceFrameFitTarget `
+        $scaledLandscapeFrame $deviceFrameFitTarget)) `
+    "a scaled copy of the same exact aspect does not move the outer window"
+Assert-True (Should-ApplyRendererFitTarget `
+        $landscapeFrame $deviceFrameFitTarget `
+        $scaledLandscapeFrame $mediaCanvasFitTarget) `
+    "a target-class transition is fitted even when the exact aspect is unchanged"
+Assert-True (-not (Should-ApplyRendererFitTarget `
+        $presentationCanvas $mediaCanvasFitTarget `
+        $presentationCanvas $mediaCanvasFitTarget)) `
+    "a newer geometry sequence with the same target class and aspect is consumed without refitting"
+Assert-True (-not (Should-ApplyRendererFitTarget `
+        ([Drawing.Size]::Empty) $noFitTarget `
+        ([Drawing.Size]::Empty) $noFitTarget)) `
+    "an unresolved media canvas cannot force a fallback outer-window transition"
+Assert-True ([bool]$haveExactRendererFitAspect.Invoke(
+        $null, [object[]]@($landscapeFrame, $scaledLandscapeFrame)) -and
+    -not [bool]$haveExactRendererFitAspect.Invoke(
+        $null, [object[]]@($landscapeFrame, $presentationCanvas))) `
+    "renderer fit equivalence distinguishes the device and Photos landscape aspects exactly"
 $markPlacementPersistable.Invoke(
     $context, [object[]]@($placementWindow)) | Out-Null
 $pendingPlacementWindow.SetValue($context, $placementWindow)
@@ -1438,6 +1789,19 @@ Assert-True (-not [bool]$knownAmbiguousMediaCanvas.Invoke(
         $null, [object[]]@(
             1920, 1080, 1920, 1080, 0, 0, 1920, 1080))) `
     "real landscape and non-matching 16:9 streams are not rejected by the Photos signature"
+Assert-True (-not [bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            3840, 2160, 3840, 2160, 1, 0, 3840, 2160)) -and
+    -not [bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            3840, 2160, 3839, 2160, 0, 0, 3840, 2160)) -and
+    -not [bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            3840, 2160, 3840, 2160, 0, 0, 3840, 2159)) -and
+    -not [bool]$knownAmbiguousMediaCanvas.Invoke(
+        $null, [object[]]@(
+            3839, 2160, 3840, 2160, 0, 0, 3840, 2160))) `
+    "every correlated 4K geometry component must match the observed Photos signature exactly"
 
 function Resolve-AutomaticVideoSize(
     [Drawing.Size]$VideoSize,
@@ -1456,16 +1820,22 @@ function Resolve-AutomaticVideoSize(
 
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$automaticPhotosArgumentsBefore = Invoke-UxPlayArguments $settingsProbe
 $unlearnedCanvasResult = Resolve-AutomaticVideoSize `
     $presentationCanvas $true
 Assert-True (-not $unlearnedCanvasResult.OrientationAuthoritative -and
-    $unlearnedCanvasResult.Size.IsEmpty -and
-    $unlearnedCanvasResult.SuppressionChanged) `
-    "a first recorded Photos canvas cannot seed the device-frame baseline"
+    $unlearnedCanvasResult.Size -eq $presentationCanvas -and
+    -not $unlearnedCanvasResult.SuppressionChanged -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty) `
+    "a direct-in-Photos canvas automatically drives landscape without seeding the device baseline"
 $directMediaPortrait = Resolve-AutomaticVideoSize $portraitFrame
 Assert-True ($directMediaPortrait.OrientationAuthoritative -and
     $directMediaPortrait.Size -eq $portraitFrame) `
     "a later phone-shaped frame recovers a direct-in-Photos session to portrait"
+Assert-True ((Invoke-UxPlayArguments $settingsProbe) -eq
+        $automaticPhotosArgumentsBefore) `
+    "automatic Photos target selection does not alter UxPlay arguments"
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $unlearnedCanvasResult = Resolve-AutomaticVideoSize `
@@ -1483,57 +1853,43 @@ Assert-True ($portraitResult.OrientationAuthoritative -and
     "the first exact frame establishes session orientation"
 $photoResult = Resolve-AutomaticVideoSize $presentationCanvas $true
 Assert-True (-not $photoResult.OrientationAuthoritative -and
-    $photoResult.Size -eq $portraitFrame -and
-    $photoResult.SuppressionChanged) `
-    "998x2160 to 3840x2160 retains portrait device orientation"
+    $photoResult.Size -eq $presentationCanvas -and
+    -not $photoResult.SuppressionChanged -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        $portraitFrame) `
+    "998x2160 to the exact Photos canvas automatically targets landscape while preserving the trusted portrait baseline"
 $repeatedPhotoResult = Resolve-AutomaticVideoSize $presentationCanvas $true
 Assert-True (-not $repeatedPhotoResult.OrientationAuthoritative -and
-    $repeatedPhotoResult.Size -eq $portraitFrame -and
+    $repeatedPhotoResult.Size -eq $presentationCanvas -and
     -not $repeatedPhotoResult.SuppressionChanged) `
-    "a stable presentation canvas does not repeat its suppression notice"
+    "a stable presentation canvas resolves to the same provisional target"
 $manualPhotoFit = [Drawing.Size]$resolveManualFitVideo.Invoke(
     $context, [object[]]@($presentationCanvas, $true))
-Assert-True ($manualPhotoFit -eq $portraitFrame) `
-    "manual tray fitting uses the learned portrait frame instead of the raw Photos canvas"
+Assert-True ($manualPhotoFit -eq $presentationCanvas) `
+    "manual tray fitting uses the exact observed Photos canvas"
 $portraitReturnResult = Resolve-AutomaticVideoSize $portraitFrame
 Assert-True ($portraitReturnResult.OrientationAuthoritative -and
     $portraitReturnResult.Size -eq $portraitFrame) `
     "returning from Photos restores authoritative portrait input"
 
-$settingsProbe.FollowPhotosMediaCanvas = $true
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
-$followDirectMediaResult = Resolve-AutomaticVideoSize `
+$landscapeBeforeMedia = Resolve-AutomaticVideoSize $landscapeFrame
+$mediaAfterLandscape = Resolve-AutomaticVideoSize `
     $presentationCanvas $true
-Assert-True (-not $followDirectMediaResult.OrientationAuthoritative -and
-    $followDirectMediaResult.Size -eq $presentationCanvas -and
-    -not $followDirectMediaResult.SuppressionChanged -and
+Assert-True ($landscapeBeforeMedia.OrientationAuthoritative -and
+    $landscapeBeforeMedia.Size -eq $landscapeFrame -and
+    $mediaAfterLandscape.Size -eq $presentationCanvas -and
+    -not $mediaAfterLandscape.OrientationAuthoritative -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
-        [Drawing.Size]::Empty) `
-    "opt-in direct-in-Photos fitting follows the canvas without seeding a device baseline"
-$followDirectPortrait = Resolve-AutomaticVideoSize $portraitFrame
-$followMediaAfterPortrait = Resolve-AutomaticVideoSize `
-    $presentationCanvas $true
-Assert-True ($followDirectPortrait.OrientationAuthoritative -and
-    $followMediaAfterPortrait.Size -eq $presentationCanvas -and
-    -not $followMediaAfterPortrait.OrientationAuthoritative -and
+        $landscapeFrame) `
+    "3840x1776 device landscape to 3840x2160 media remains a provisional class transition"
+$portraitAfterLandscapeMedia = Resolve-AutomaticVideoSize $portraitFrame
+Assert-True ($portraitAfterLandscapeMedia.OrientationAuthoritative -and
+    $portraitAfterLandscapeMedia.Size -eq $portraitFrame -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         $portraitFrame) `
-    "opt-in Photos fitting preserves the trusted portrait baseline"
-$manualFollowMediaFit = [Drawing.Size]$resolveManualFitVideo.Invoke(
-    $context, [object[]]@($presentationCanvas, $true))
-Assert-True ($manualFollowMediaFit -eq $presentationCanvas) `
-    "manual fitting honors the explicit Photos canvas opt-in"
-$followPortraitReturn = Resolve-AutomaticVideoSize $portraitFrame
-Assert-True ($followPortraitReturn.OrientationAuthoritative -and
-    $followPortraitReturn.Size -eq $portraitFrame) `
-    "a trusted phone frame remains able to restore portrait after temporary Photos fitting"
-$settingsProbe.FollowPhotosMediaCanvas = $false
-$disabledMediaFit = Resolve-AutomaticVideoSize $presentationCanvas $true
-Assert-True (-not $disabledMediaFit.OrientationAuthoritative -and
-    $disabledMediaFit.Size -eq $portraitFrame -and
-    $disabledMediaFit.SuppressionChanged) `
-    "disabling the experiment immediately returns to conservative baseline selection"
+    "a trusted portrait frame restores portrait after landscape device and media targets"
 
 $deviceFrameVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $lastSuppressedVideoSize.SetValue($context, [Drawing.Size]::Empty)
@@ -1591,8 +1947,12 @@ $feedbackPresentProofPid.SetValue($context, 0)
 $activePid.SetValue($context, 42)
 $observeSocketReady = $contextType.GetMethod(
     "ObserveCoreSocketReady", $instanceFlags)
+$handleNativeDiscoveryTimeout = $contextType.GetMethod(
+    "HandleNativeDiscoveryRefreshTimeout", $instanceFlags)
 Assert-True ($null -ne $observeSocketReady) `
     "generic native socket readiness has a process-scoped observer"
+Assert-True ($null -ne $handleNativeDiscoveryTimeout) `
+    "native discovery timeout exposes a deterministic maintenance boundary"
 
 $httpMarkersReady.SetValue($context, 0)
 $httpPort.SetValue($context, 0)
@@ -1616,6 +1976,107 @@ Assert-True ([int]$httpMarkersReady.GetValue($context) -eq 1 -and
     [int]$httpPort.GetValue($context) -eq 53999 -and
     [int]$socketsReady.GetValue($context) -eq 1) `
     "the initial marker establishes native capability and advertised AirPlay port"
+
+# Same-process discovery command protocol: a native client can defer a
+# correlated request for longer than the shell's terminal-result deadline.
+# Only ACCEPTED starts that deadline; stale request/PID/port frames cannot
+# mutate the current command state.
+$coreDiscoveryRefreshPendingRequest.SetValue($context, [long]700)
+$coreDiscoveryRefreshPendingPid.SetValue($context, 42)
+$coreDiscoveryRefreshPendingPort.SetValue($context, 53999)
+$coreDiscoveryRefreshFallbackPending.SetValue($context, 1)
+$coreDiscoveryRefreshPhase.SetValue($context, 0)
+$coreDiscoveryRefreshDueTicks.SetValue(
+    $context, [DateTime]::UtcNow.AddSeconds(12).Ticks)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "audio progress`rAEROMIRROR_DISCOVERY_REFRESH_DEFERRED request=700 reason=client-active pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+Assert-True ([int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 0 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -gt 0) `
+    "a carriage-return-prefixed embedded marker cannot mutate command correlation state; only the exact separately framed marker below is accepted"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_DEFERRED request=699 reason=client-active pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+Assert-True ([long]$coreDiscoveryRefreshPendingRequest.GetValue($context) -eq
+        700 -and
+    [int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 0 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -gt 0) `
+    "a stale deferred request cannot suspend the current command deadline"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_DEFERRED request=700 reason=client-active pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+Assert-True ([long]$coreDiscoveryRefreshPendingRequest.GetValue($context) -eq
+        700 -and
+    [int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 1 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -eq 0 -and
+    [int]$coreDiscoveryRefreshFallbackPending.GetValue($context) -eq 1) `
+    "a correlated native deferral suspends the legacy timeout without losing its fallback"
+$handleNativeDiscoveryTimeout.Invoke($context, @()) | Out-Null
+Assert-True ([long]$coreDiscoveryRefreshPendingRequest.GetValue($context) -eq
+        700 -and
+    [int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 1 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -eq 0 -and
+    -not [bool]$restartPending.GetValue($context)) `
+    "a timeout recheck cannot claim a request after correlated deferral suspended its deadline"
+$acceptedBefore = [DateTime]::UtcNow.Ticks
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_ACCEPTED request=700 next_generation=9 pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+$acceptedDue = [long]$coreDiscoveryRefreshDueTicks.GetValue($context)
+Assert-True ([int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 2 -and
+    $acceptedDue -ge $acceptedBefore + [TimeSpan]::FromSeconds(11).Ticks -and
+    $acceptedDue -le [DateTime]::UtcNow.AddSeconds(13).Ticks) `
+    "native acceptance starts a fresh bounded terminal-result deadline"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_DEFERRED request=700 reason=client-active pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+Assert-True ([int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 2 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -eq $acceptedDue) `
+    "a late duplicate deferral cannot roll an accepted request back to an unbounded phase"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "prefix AEROMIRROR_DISCOVERY_REFRESH_READY request=700 generation=9 pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_READY request=700 generation=9 pid=43 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_READY request=700 generation=9 pid=42 raop_port=53998 airplay_port=53999")) |
+    Out-Null
+Assert-True ([long]$coreDiscoveryRefreshPendingRequest.GetValue($context) -eq
+        700 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -eq $acceptedDue) `
+    "embedded, wrong-PID, and wrong-port terminal markers leave the bounded request pending"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_DISCOVERY_REFRESH_READY request=700 generation=9 pid=42 raop_port=53999 airplay_port=53999")) |
+    Out-Null
+Assert-True ([long]$coreDiscoveryRefreshPendingRequest.GetValue($context) -eq
+        0 -and
+    [int]$coreDiscoveryRefreshPendingPid.GetValue($context) -eq 0 -and
+    [int]$coreDiscoveryRefreshPendingPort.GetValue($context) -eq 0 -and
+    [long]$coreDiscoveryRefreshDueTicks.GetValue($context) -eq 0 -and
+    [int]$coreDiscoveryRefreshPhase.GetValue($context) -eq 0 -and
+    [int]$coreDiscoveryRefreshFallbackPending.GetValue($context) -eq 0 -and
+    [int]$dnsSdStatus.GetValue($context) -eq 1) `
+    "one correlated same-PID same-port READY atomically settles and clears its command"
+$dnsSdStatus.SetValue($context, 0)
 
 $recoveryPending.SetValue($context, 1)
 $recoveryPid.SetValue($context, 42)
@@ -1689,15 +2150,52 @@ $httpResetPort.SetValue($context, 0)
 $socketsReady.SetValue($context, 0)
 $getStableVideoSize = $contextType.GetMethod(
     "GetStableVideoSize", $instanceFlags)
-Assert-True ($null -ne $getStableVideoSize) `
+$decideVideoSizeCandidateAction = $contextType.GetMethod(
+    "DecideVideoSizeCandidateAction", $staticFlags)
+Assert-True ($null -ne $getStableVideoSize -and
+    $null -ne $decideVideoSizeCandidateAction) `
     "video-size debounce exposes a deterministic stable-frame boundary"
+function Decide-VideoSizeCandidate(
+    [Drawing.Size]$CurrentSize,
+    [bool]$CurrentIsMediaCanvas,
+    [Drawing.Size]$PendingSize,
+    [bool]$PendingIsMediaCanvas,
+    [Drawing.Size]$ObservedSize,
+    [bool]$ObservedIsMediaCanvas
+) {
+    return [string]$decideVideoSizeCandidateAction.Invoke(
+        $null,
+        [object[]]@(
+            $CurrentSize, $CurrentIsMediaCanvas,
+            $PendingSize, $PendingIsMediaCanvas,
+            $ObservedSize, $ObservedIsMediaCanvas))
+}
+Assert-True ((Decide-VideoSizeCandidate `
+        $portraitFrame $false ([Drawing.Size]::Empty) $false `
+        $portraitFrame $false) -eq "None") `
+    "an already-stable geometry is ignored without opening another debounce"
+Assert-True ((Decide-VideoSizeCandidate `
+        $portraitFrame $false $landscapeFrame $false `
+        $portraitFrame $false) -eq "CancelPending") `
+    "a return to the stable geometry cancels a superseded candidate"
+Assert-True ((Decide-VideoSizeCandidate `
+        $portraitFrame $false $landscapeFrame $false `
+        $landscapeFrame $false) -eq "RetainPendingDeadline") `
+    "an identical pending candidate retains its original debounce deadline"
+Assert-True ((Decide-VideoSizeCandidate `
+        $portraitFrame $false $presentationCanvas $false `
+        $presentationCanvas $true) -eq "ArmPending") `
+    "a media-canvas class change arms a distinct geometry candidate"
 
 # Recorded Photos sequence: 998x2160 was followed by the app's 3840x2160
 # presentation canvas about 130 ms later, before the 350 ms debounce elapsed.
+$videoGeometryEventSequence.SetValue($context, [long]0)
 $pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$pendingVideoSizeSequence.SetValue($context, [long]0)
 $pendingVideoSizeIsAmbiguous.SetValue($context, $false)
 $currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$currentVideoSizeSequence.SetValue($context, [long]0)
 $currentVideoSizeIsAmbiguous.SetValue($context, $false)
 $rawGeometryVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $rawGeometryVideoSizeGeneration.SetValue($context, 0)
@@ -1715,9 +2213,27 @@ $observe.Invoke(
     [object[]]@(42,
         "AEROMIRROR_VIDEO_SIZE source=998x2160 encoded=998x2160")) |
     Out-Null
+$firstPortraitDue = [DateTime]$pendingVideoSizeDueUtc.GetValue($context)
+$firstPortraitSequence = [long]$pendingVideoSizeSequence.GetValue($context)
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_GEOMETRY width0=998 height0=2160 source=998x2160 aux=1421x0 encoded=998x2160")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_SIZE source=998x2160 encoded=998x2160")) |
+    Out-Null
 Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
-    $portraitFrame) `
-    "the first raw phone-shaped marker is retained before debounce"
+        $portraitFrame -and
+    [DateTime]$pendingVideoSizeDueUtc.GetValue($context) -eq
+        $firstPortraitDue -and
+    [long]$pendingVideoSizeSequence.GetValue($context) -gt
+        $firstPortraitSequence -and
+    [long]$videoGeometryEventSequence.GetValue($context) -eq
+        [long]$pendingVideoSizeSequence.GetValue($context)) `
+    "a repeated phone candidate advances event sequence without postponing its original debounce"
 $observe.Invoke(
     $context,
     [object[]]@(42,
@@ -1734,24 +2250,50 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
         $presentationCanvas -and
     [bool]$pendingVideoSizeIsAmbiguous.GetValue($context)) `
     "the later Photos canvas keeps both the early device frame and its ambiguous classification"
+$recordedCanvasSequence =
+    [long]$pendingVideoSizeSequence.GetValue($context)
 $pendingVideoSizeDueUtc.SetValue(
     $context, [DateTime]::UtcNow.AddMilliseconds(-1))
-$stableArguments = [object[]]@(0, $false)
+$stableArguments = [object[]]@([long]0, $false)
 $recordedStableCanvas = [Drawing.Size]$getStableVideoSize.Invoke(
     $context, $stableArguments)
 $recordedPhotosResult = Resolve-AutomaticVideoSize `
     $recordedStableCanvas ([bool]$stableArguments[1])
 Assert-True ($recordedStableCanvas -eq $presentationCanvas -and
+    [long]$stableArguments[0] -eq $recordedCanvasSequence -and
     [bool]$stableArguments[1] -and
     -not $recordedPhotosResult.OrientationAuthoritative -and
-    $recordedPhotosResult.Size -eq $portraitFrame -and
-    $recordedPhotosResult.SuppressionChanged) `
-    "the recorded direct-in-Photos sequence keeps the portrait window baseline"
+    $recordedPhotosResult.Size -eq $presentationCanvas -and
+    -not $recordedPhotosResult.SuppressionChanged -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        $portraitFrame) `
+    "the recorded portrait-to-Photos sequence commits its newest event and automatically targets the canvas without replacing its baseline"
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_GEOMETRY width0=3840 height0=2160 source=3840x2160 aux=0x0 encoded=3840x2160")) |
+    Out-Null
+$observe.Invoke(
+    $context,
+    [object[]]@(42,
+        "AEROMIRROR_VIDEO_SIZE source=3840x2160 encoded=3840x2160")) |
+    Out-Null
+Assert-True ([Drawing.Size]$pendingVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty -and
+    [DateTime]$pendingVideoSizeDueUtc.GetValue($context) -eq
+        [DateTime]::MinValue -and
+    [long]$currentVideoSizeSequence.GetValue($context) -eq
+        $recordedCanvasSequence -and
+    [long]$videoGeometryEventSequence.GetValue($context) -gt
+        $recordedCanvasSequence) `
+    "an identical stable candidate advances observation order without reopening debounce"
 
 $pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$pendingVideoSizeSequence.SetValue($context, [long]0)
 $pendingVideoSizeIsAmbiguous.SetValue($context, $false)
 $currentVideoSize.SetValue($context, [Drawing.Size]::Empty)
+$currentVideoSizeSequence.SetValue($context, [long]0)
 $currentVideoSizeIsAmbiguous.SetValue($context, $false)
 $rawGeometryVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $rawGeometryVideoSizeGeneration.SetValue($context, 0)
@@ -1775,16 +2317,18 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     "a first raw Photos canvas is classified without becoming an iPhone candidate"
 $pendingVideoSizeDueUtc.SetValue(
     $context, [DateTime]::UtcNow.AddMilliseconds(-1))
-$directCanvasArguments = [object[]]@(0, $false)
+$directCanvasArguments = [object[]]@([long]0, $false)
 $directCanvas = [Drawing.Size]$getStableVideoSize.Invoke(
     $context, $directCanvasArguments)
 $directCanvasResult = Resolve-AutomaticVideoSize `
     $directCanvas ([bool]$directCanvasArguments[1])
 Assert-True ($directCanvas -eq $presentationCanvas -and
     [bool]$directCanvasArguments[1] -and
-    $directCanvasResult.Size.IsEmpty -and
-    -not $directCanvasResult.OrientationAuthoritative) `
-    "the observed Photos-first canvas remains unresolved instead of forcing landscape"
+    $directCanvasResult.Size -eq $presentationCanvas -and
+    -not $directCanvasResult.OrientationAuthoritative -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty) `
+    "the observed Photos-first canvas automatically targets landscape without becoming a device baseline"
 $observe.Invoke(
     $context,
     [object[]]@(42,
@@ -1798,11 +2342,13 @@ $observe.Invoke(
 $latePortraitResult = Resolve-AutomaticVideoSize `
     $directCanvas ([bool]$directCanvasArguments[1])
 Assert-True (-not $latePortraitResult.OrientationAuthoritative -and
-    $latePortraitResult.Size -eq $portraitFrame) `
-    "the later early phone marker repairs orientation before its debounce completes"
+    $latePortraitResult.Size -eq $presentationCanvas -and
+    [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
+        $portraitFrame) `
+    "a later early phone marker repairs the trusted baseline while the stable Photos target remains provisional"
 $pendingVideoSizeDueUtc.SetValue(
     $context, [DateTime]::UtcNow.AddMilliseconds(-1))
-$latePortraitArguments = [object[]]@(0, $false)
+$latePortraitArguments = [object[]]@([long]0, $false)
 $latePortraitStable = [Drawing.Size]$getStableVideoSize.Invoke(
     $context, $latePortraitArguments)
 $latePortraitStableResult = Resolve-AutomaticVideoSize `
@@ -1814,6 +2360,7 @@ Assert-True ($latePortraitStable -eq $portraitFrame -and
     "the completed Photos-first replay establishes portrait as the saved device baseline"
 $pendingVideoSize.SetValue($context, [Drawing.Size]::Empty)
 $pendingVideoSizeDueUtc.SetValue($context, [DateTime]::MinValue)
+$pendingVideoSizeSequence.SetValue($context, [long]0)
 $pendingVideoSizeIsAmbiguous.SetValue($context, $false)
 
 $readiness = $contextType.GetMethod(
@@ -1844,6 +2391,10 @@ $pinMarker = $contextType.GetMethod(
     "IsAirPlayPinEntryMarker", $staticFlags)
 $deferDisruptive = $contextType.GetMethod(
     "ShouldDeferDisruptiveMaintenance", $staticFlags)
+$getIdleRenewalDelay = $contextType.GetMethod(
+    "GetIdleDiscoveryRenewalDelayMinutes", $staticFlags)
+$evaluateAutomaticRenewal = $contextType.GetMethod(
+    "EvaluateAutomaticDiscoveryRenewal", $staticFlags)
 $evaluateUnlockRefresh = $contextType.GetMethod(
     "EvaluateSessionUnlockDiscoveryRefresh", $staticFlags)
 $onSessionSwitch = $contextType.GetMethod(
@@ -1870,6 +2421,9 @@ Assert-True ($null -ne $calculateFeedbackPlaceholderDue -and
     "feedback-gap continuity exposes deterministic deadline transitions"
 Assert-True ($null -ne $consumeLostRecovery) `
     "lost-client recovery exposes a focused one-shot state transition"
+Assert-True ($null -ne $getIdleRenewalDelay -and
+    $null -ne $evaluateAutomaticRenewal) `
+    "timed discovery renewal exposes deterministic delay and allowance transitions"
 Assert-True ($null -ne $evaluateUnlockRefresh) `
     "session-unlock discovery maintenance exposes a deterministic action transition"
 Assert-True ($null -ne $onSessionSwitch) `
@@ -1933,6 +2487,92 @@ function Invoke-UnlockDiscoveryDecision(
         NextCompletedRenewals = [int]$arguments[12]
     }
 }
+$firstIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+    $null, [object[]]@(0))
+$secondIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+    $null, [object[]]@(1))
+$exhaustedIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+    $null, [object[]]@(2))
+Assert-True ($firstIdleDelay -eq 10 -and
+    $secondIdleDelay -eq 20 -and
+    $exhaustedIdleDelay -eq 0) `
+    "idle discovery maps allowance 0 to ten minutes, allowance 1 to twenty minutes, and stops at 2"
+function Invoke-AutomaticDiscoveryDecision(
+    [int]$CompletedRenewals,
+    [long]$DueTicks,
+    [bool]$MirrorActive,
+    [long]$ClientGraceDueTicks,
+    [DateTime]$LastRefreshUtc,
+    [DateTime]$NowUtc) {
+    $arguments = [object[]]@(
+        $CompletedRenewals,
+        $DueTicks,
+        $MirrorActive,
+        $ClientGraceDueTicks,
+        $NowUtc.Ticks,
+        $LastRefreshUtc,
+        $NowUtc,
+        [long]0,
+        [int]0)
+    $action = $evaluateAutomaticRenewal.Invoke($null, $arguments)
+    return [pscustomobject]@{
+        Action = $action.ToString()
+        NextDueTicks = [long]$arguments[7]
+        NextCompletedRenewals = [int]$arguments[8]
+    }
+}
+$automaticNow = [DateTime]::UtcNow
+$automaticDue = $automaticNow.AddSeconds(-1).Ticks
+$automaticFirstDecision = Invoke-AutomaticDiscoveryDecision `
+    0 $automaticDue $false ([long]0) ([DateTime]::MinValue) $automaticNow
+Assert-True ($automaticFirstDecision.Action -eq "Refresh" -and
+    $automaticFirstDecision.NextDueTicks -eq 0 -and
+    $automaticFirstDecision.NextCompletedRenewals -eq 1) `
+    "the first due timer consumes exactly allowance 0 to 1"
+$automaticSecondDecision = Invoke-AutomaticDiscoveryDecision `
+    1 $automaticDue $false ([long]0) `
+    $automaticNow.AddMinutes(-21) $automaticNow
+Assert-True ($automaticSecondDecision.Action -eq "Refresh" -and
+    $automaticSecondDecision.NextDueTicks -eq 0 -and
+    $automaticSecondDecision.NextCompletedRenewals -eq 2) `
+    "the second due timer consumes exactly allowance 1 to 2"
+$automaticExhaustedDecision = Invoke-AutomaticDiscoveryDecision `
+    2 $automaticDue $false ([long]0) `
+    $automaticNow.AddMinutes(-21) $automaticNow
+Assert-True ($automaticExhaustedDecision.Action -eq "None" -and
+    $automaticExhaustedDecision.NextDueTicks -eq 0 -and
+    $automaticExhaustedDecision.NextCompletedRenewals -eq 2) `
+    "the exhausted timer allowance cannot create a third restart"
+$automaticFutureDue = $automaticNow.AddMinutes(1).Ticks
+$automaticNotDueDecision = Invoke-AutomaticDiscoveryDecision `
+    1 $automaticFutureDue $false ([long]0) `
+    $automaticNow.AddMinutes(-21) $automaticNow
+Assert-True ($automaticNotDueDecision.Action -eq "None" -and
+    $automaticNotDueDecision.NextDueTicks -eq $automaticFutureDue -and
+    $automaticNotDueDecision.NextCompletedRenewals -eq 1) `
+    "a not-yet-due second stage preserves its exact deadline and allowance"
+$automaticRecentRefresh = $automaticNow.AddMinutes(-1)
+$automaticAntiChurnDecision = Invoke-AutomaticDiscoveryDecision `
+    1 $automaticDue $false ([long]0) `
+    $automaticRecentRefresh $automaticNow
+Assert-True ($automaticAntiChurnDecision.Action -eq "None" -and
+    $automaticAntiChurnDecision.NextDueTicks -eq
+        $automaticNow.AddMinutes(20).Ticks -and
+    $automaticAntiChurnDecision.NextCompletedRenewals -eq 1) `
+    "the two-minute anti-churn guard postpones stage 2 without consuming its allowance"
+$automaticActiveDecision = Invoke-AutomaticDiscoveryDecision `
+    1 $automaticDue $true ([long]0) `
+    $automaticNow.AddMinutes(-21) $automaticNow
+$automaticGraceDecision = Invoke-AutomaticDiscoveryDecision `
+    1 $automaticDue $false $automaticNow.AddSeconds(30).Ticks `
+    $automaticNow.AddMinutes(-21) $automaticNow
+Assert-True ($automaticActiveDecision.Action -eq "None" -and
+    $automaticGraceDecision.Action -eq "None" -and
+    $automaticActiveDecision.NextDueTicks -eq $automaticDue -and
+    $automaticGraceDecision.NextDueTicks -eq $automaticDue -and
+    $automaticActiveDecision.NextCompletedRenewals -eq 1 -and
+    $automaticGraceDecision.NextCompletedRenewals -eq 1) `
+    "active mirroring and client grace preserve the due timer and allowance for a later idle pass"
 $unlockNow = [DateTime]::UtcNow
 $unlockIdleRefresh = $unlockNow.AddMinutes(-11)
 $refreshDecision = Invoke-UnlockDiscoveryDecision `
@@ -1942,6 +2582,19 @@ Assert-True ($refreshDecision.Action -eq "Refresh" -and
     $refreshDecision.NextDueTicks -eq 0 -and
     $refreshDecision.NextCompletedRenewals -eq 2) `
     "a healthy long-idle unlock consumes allowance 1 to 2 and requests the final refresh"
+$unlockAfterTimedSecondDecision = Invoke-UnlockDiscoveryDecision `
+    $automaticSecondDecision.NextCompletedRenewals `
+    $true $true $true $true $false $false ([long]0) `
+    $unlockIdleRefresh $unlockNow
+Assert-True ($unlockAfterTimedSecondDecision.Action -eq "None" -and
+    $unlockAfterTimedSecondDecision.NextCompletedRenewals -eq 2) `
+    "a timed second renewal consumes the shared final allowance before a later unlock"
+$timedAfterUnlockDecision = Invoke-AutomaticDiscoveryDecision `
+    $refreshDecision.NextCompletedRenewals $automaticDue $false ([long]0) `
+    $automaticNow.AddMinutes(-21) $automaticNow
+Assert-True ($timedAfterUnlockDecision.Action -eq "None" -and
+    $timedAfterUnlockDecision.NextCompletedRenewals -eq 2) `
+    "an unlock refresh consumes the shared final allowance before a later timed pass"
 $exhaustedDecision = Invoke-UnlockDiscoveryDecision `
     2 $true $true $true $true $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
@@ -2530,9 +3183,9 @@ Assert-True (-not [bool]$restartPending.GetValue($context)) `
     "abnormal mirror cleanup waits for its bounded recovery deadline"
 $idleDue = [long]$idleRenewalDue.GetValue($context)
 Assert-True ($idleDue -ge [DateTime]::UtcNow.AddMinutes(9).Ticks) `
-    "abnormal mirror cleanup preserves the idle-discovery fallback"
+    "abnormal mirror cleanup preserves the idle-discovery sequence"
 Assert-True ($idleDue -le [DateTime]::UtcNow.AddMinutes(11).Ticks) `
-    "idle-discovery fallback remains bounded near ten minutes"
+    "the first idle-discovery stage remains bounded near ten minutes"
 
 $observe.Invoke(
     $context,
@@ -2649,7 +3302,7 @@ Assert-True ([long]$sessionEndedDue.GetValue($context) -eq $rawAcceptDue) `
 Assert-True ([long]$idleRenewalDue.GetValue($context) -eq $rawAcceptIdleDue) `
     "a low-level accepted socket does not postpone idle maintenance"
 Assert-True ([int]$idleRenewalUsed.GetValue($context) -eq 1) `
-    "a low-level accepted socket does not renew the idle fallback allowance"
+    "a low-level accepted socket does not renew the idle sequence allowance"
 Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 1) `
     "a low-level accepted socket does not cancel discovery recovery"
 Assert-True ([bool]$coreReadyPending.GetValue($context)) `
@@ -2738,9 +3391,9 @@ $requestIdleDue = [long]$idleRenewalDue.GetValue($context)
 Assert-True ($requestIdleDue -ge $requestBefore.AddMinutes(9).Ticks) `
     "an AirPlay request moves idle maintenance away from the handshake"
 Assert-True ($requestIdleDue -le [DateTime]::UtcNow.AddMinutes(11).Ticks) `
-    "the re-armed idle fallback remains bounded near ten minutes"
+    "the re-armed idle sequence starts near ten minutes"
 Assert-True ([int]$idleRenewalUsed.GetValue($context) -eq 0) `
-    "an AirPlay request re-arms one idle fallback allowance"
+    "an AirPlay request re-arms the bounded idle sequence"
 Assert-True ([int]$discoveryRecoveryPending.GetValue($context) -eq 0) `
     "an AirPlay request cancels obsolete discovery recovery"
 Assert-True ([int]$discoveryRecoveryPid.GetValue($context) -eq 0) `
@@ -2792,7 +3445,14 @@ $coreReadinessAttempts.SetValue($context, 1)
 $coreReadinessPid.SetValue($context, 42)
 $clientReadyPending.SetValue($context, 0)
 $physicalNetworkRestartDeferred.SetValue($context, 1)
+$videoGeometryEventSequence.SetValue($context, [long]19)
+$pendingVideoSize.SetValue($context, $presentationCanvas)
+$pendingVideoSizeDueUtc.SetValue(
+    $context, [DateTime]::UtcNow.AddSeconds(1))
+$pendingVideoSizeSequence.SetValue($context, [long]18)
 $pendingVideoSizeIsAmbiguous.SetValue($context, $true)
+$currentVideoSize.SetValue($context, $portraitFrame)
+$currentVideoSizeSequence.SetValue($context, [long]17)
 $currentVideoSizeIsAmbiguous.SetValue($context, $true)
 $rawGeometryVideoSize.SetValue($context, $presentationCanvas)
 $rawGeometryVideoSizeGeneration.SetValue($context, 7)
@@ -2813,12 +3473,19 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
+    [long]$videoGeometryEventSequence.GetValue($context) -eq 19 -and
+    [Drawing.Size]$pendingVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty -and
+    [long]$pendingVideoSizeSequence.GetValue($context) -eq 0 -and
+    [Drawing.Size]$currentVideoSize.GetValue($context) -eq
+        [Drawing.Size]::Empty -and
+    [long]$currentVideoSizeSequence.GetValue($context) -eq 0 -and
     -not [bool]$pendingVideoSizeIsAmbiguous.GetValue($context) -and
     -not [bool]$currentVideoSizeIsAmbiguous.GetValue($context) -and
     [Drawing.Size]$rawGeometryVideoSize.GetValue($context) -eq
         [Drawing.Size]::Empty -and
     -not [bool]$rawGeometryIsAmbiguous.GetValue($context)) `
-    "a new mirroring session forgets the previous device aspect and media-canvas classification"
+    "a new mirroring session clears candidates and baselines without rewinding the core-lifetime geometry sequence"
 Assert-True ([int]$sessionEndedPending.GetValue($context) -eq 0) `
     "actual mirroring start clears pending post-session maintenance"
 Assert-True ([long]$sessionEndedDue.GetValue($context) -eq 0) `
@@ -2959,7 +3626,12 @@ $resetCoreSession = $contextType.GetMethod(
     "ResetCoreSessionTracking", $instanceFlags)
 Assert-True ($null -ne $resetCoreSession) `
     "core shutdown exposes a complete session-state reset"
+$videoGeometryEventSequence.SetValue($context, [long]23)
+$pendingVideoSize.SetValue($context, $presentationCanvas)
+$pendingVideoSizeSequence.SetValue($context, [long]22)
 $pendingVideoSizeIsAmbiguous.SetValue($context, $true)
+$currentVideoSize.SetValue($context, $portraitFrame)
+$currentVideoSizeSequence.SetValue($context, [long]21)
 $currentVideoSizeIsAmbiguous.SetValue($context, $true)
 $rawGeometryVideoSize.SetValue($context, $presentationCanvas)
 $rawGeometryVideoSizeGeneration.SetValue($context, 7)
@@ -2967,6 +3639,9 @@ $rawGeometryIsAmbiguous.SetValue($context, $true)
 $earlyDeviceFrameVideoSize.SetValue($context, $portraitFrame)
 $deviceFrameVideoSize.SetValue($context, $landscapeFrame)
 $lastSuppressedVideoSize.SetValue($context, $presentationCanvas)
+$exactVideoSizeFitSequence.SetValue($context, [long]20)
+$appliedVideoFitSize.SetValue($context, $landscapeFrame)
+$appliedVideoFitTargetKind.SetValue($context, $deviceFrameFitTarget)
 $httpMarkersReady.SetValue($context, 1)
 $httpPort.SetValue($context, 53999)
 $httpResetStatus.SetValue($context, 1)
@@ -2978,15 +3653,86 @@ Assert-True ([Drawing.Size]$earlyDeviceFrameVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
     [Drawing.Size]$lastSuppressedVideoSize.GetValue($context) -eq
     [Drawing.Size]::Empty -and
+    [long]$videoGeometryEventSequence.GetValue($context) -eq 0 -and
+    [long]$pendingVideoSizeSequence.GetValue($context) -eq 0 -and
+    [long]$currentVideoSizeSequence.GetValue($context) -eq 0 -and
     -not [bool]$pendingVideoSizeIsAmbiguous.GetValue($context) -and
     -not [bool]$currentVideoSizeIsAmbiguous.GetValue($context) -and
     [Drawing.Size]$rawGeometryVideoSize.GetValue($context) -eq
         [Drawing.Size]::Empty -and
     -not [bool]$rawGeometryIsAmbiguous.GetValue($context) -and
+    [long]$exactVideoSizeFitSequence.GetValue($context) -eq -1 -and
+    [Drawing.Size]$appliedVideoFitSize.GetValue($context) -eq
+        [Drawing.Size]::Empty -and
+    [string]$appliedVideoFitTargetKind.GetValue($context) -eq "None" -and
     [int]$httpMarkersReady.GetValue($context) -eq 0 -and
     [int]$httpPort.GetValue($context) -eq 0 -and
     [int]$httpResetStatus.GetValue($context) -eq 0 -and
     [int]$httpResetPort.GetValue($context) -eq 0) `
-    "core reset clears learned device orientation, media-canvas, and native HTTP lifecycle state"
+    "core reset clears geometry sequences, learned baselines, fit targets, and native HTTP lifecycle state"
 
+$logDrainSucceeded = [bool]$flushLog.Invoke(
+    $null, [object[]]@(5000))
+Assert-True $logDrainSucceeded `
+    "the isolated logger drains before the test inspects or removes its root"
+$testLogPath = [string]$expectedStoragePaths.LogPath
+Assert-True (Test-Path -LiteralPath $testLogPath -PathType Leaf) `
+    "the resilience suite writes receiver.log only inside its GUID root"
+$isolatedLog = [IO.File]::ReadAllText($testLogPath)
+Assert-True ($isolatedLog.Contains($testLogMarker)) `
+    "the isolated receiver log contains this run's unique marker"
+Assert-True ($isolatedLog.Contains(
+        "Rejected native reset HTTP-ready marker: port 54000 does not match advertised port 53999.")) `
+    "fake core HTTP diagnostics are captured by the isolated receiver log"
+$testCompleted = $true
+}
+finally {
+    $cleanupDrainSucceeded = $false
+    try {
+        $cleanupDrainSucceeded = [bool]$flushLog.Invoke(
+            $null, [object[]]@(5000))
+    }
+    catch {
+        if ($testCompleted) {
+            throw
+        }
+    }
+
+    if ($testCompleted) {
+        Assert-True $cleanupDrainSucceeded `
+            "the isolated logger remains drained through safe cleanup"
+        if (Test-Path -LiteralPath $testStorageRoot) {
+            Remove-Item -LiteralPath $testStorageRoot -Recurse -Force
+        }
+    }
+    elseif ($testStorageRootSetupStarted -and
+        (Test-Path -LiteralPath $testStorageRoot)) {
+        Write-Warning (
+            "Receiver resilience failed; preserved GUID test root: " +
+            $testStorageRoot)
+    }
+}
+
+Assert-True (-not (Test-Path -LiteralPath $testStorageRoot)) `
+    "successful resilience cleanup removes only its drained GUID root"
+$testScriptSource = [IO.File]::ReadAllText($PSCommandPath)
+$storageOwnershipMarker = $testScriptSource.IndexOf(
+    '$testStorageRootSetupStarted = $false')
+$storageOwnershipTry = $testScriptSource.IndexOf(
+    'try {', $storageOwnershipMarker)
+$firstStorageMutation = $testScriptSource.IndexOf(
+    '$setStorageRootForTests.Invoke(', $storageOwnershipTry)
+$successStorageCleanup = $testScriptSource.IndexOf(
+    'Remove-Item -LiteralPath $testStorageRoot -Recurse -Force',
+    $firstStorageMutation)
+$failureStorageWarning = $testScriptSource.IndexOf(
+    'Receiver resilience failed; preserved GUID test root:',
+    $successStorageCleanup)
+Assert-True ($storageOwnershipMarker -ge 0 -and
+    $storageOwnershipTry -gt $storageOwnershipMarker -and
+    $firstStorageMutation -gt $storageOwnershipTry) `
+    "isolated test-root ownership begins before the first filesystem mutation"
+Assert-True ($successStorageCleanup -gt $firstStorageMutation -and
+    $failureStorageWarning -gt $successStorageCleanup) `
+    "successful runs clean the exact root while failed runs announce its preserved path"
 Write-Host "Receiver resilience checks passed."

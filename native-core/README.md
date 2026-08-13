@@ -26,7 +26,27 @@ also stops advertising unimplemented photo presentation features. Its
 auxiliary geometry pair is not claimed as crop, PAR, or rotation
 metadata. The launcher accepts `--beacon-ipv4 <numeric IPv4>`
 before `--uxplay`, passes it to the Windows BLE helper, and forwards helper
-output to stdout with an `AEROMIRROR_BLE` prefix.
+diagnostics to stderr with an `AEROMIRROR_BLE` prefix so command-result
+markers remain line-framed in stdout alongside ordinary UxPlay output. The
+wrapper buffers complete helper lines and reports an unexpected start failure
+or exit exactly once; an intentional helper stop is not reported as failure.
+
+The 0.12.13 native slice adds request-correlated same-PID/same-port DNS-SD
+refresh. RAOP and AirPlay registrations are treated as one generation, their
+real callbacks are pumped on the GLib owner thread for the lifetime of the
+service refs, and partial failures roll back both refs before bounded retry.
+The headless wrapper reads bounded commands from its inherited redirected
+stdin pipe and preserves an admitted refresh across transient internal GLib
+loop resets. The unchanged BLE helper remains a separate legacy/diagnostic
+path; physical IPv4 changes still use a full receiver restart so its advertised
+address cannot become stale.
+
+The receiver's shared AirPlay identity is canonicalized to at most 50 UTF-8
+bytes at a complete character boundary. This keeps the six-byte-MAC RAOP label
+(`MAC@name`) within Bonjour's 63-byte service-label limit while AirPlay, RAOP,
+and `/info` expose the same name. A blank name falls back to `AeroMirror`.
+The `AEROMIRROR_SERVICE_NAME` diagnostic reports only input/registered byte
+lengths and truncation state, not the original name.
 
 The wrapper now returns before its legacy settings UI can remove or replace
 externally supplied `-vs` and `-fs` arguments in headless/`--uxplay` mode. The

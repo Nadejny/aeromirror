@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.9"
+    [string]$Version = "0.12.13"
 )
 
 $ErrorActionPreference = "Stop"
@@ -181,12 +181,15 @@ $libModified = @(
         status --short --untracked-files=no
 )
 $expectedLibModified = @(
+    " M lib/dnssd.c",
+    " M lib/dnssd.h",
     " M lib/http_handlers.h",
     " M lib/raop_handlers.h",
     " M lib/raop_rtp_mirror.c",
     " M renderers/video_renderer.c",
     " M renderers/video_renderer.h",
-    " M uxplay.cpp"
+    " M uxplay.cpp",
+    " M uxplay_api.h"
 )
 $libStatusDifferences = @(
     Compare-Object $libModified $expectedLibModified)
@@ -240,12 +243,15 @@ try {
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
         diff --binary --no-ext-diff `
         ("--output=" + $actualLibPatch) -- `
+        "lib/dnssd.c" `
+        "lib/dnssd.h" `
         "lib/http_handlers.h" `
         "lib/raop_handlers.h" `
         "lib/raop_rtp_mirror.c" `
         "renderers/video_renderer.c" `
         "renderers/video_renderer.h" `
-        "uxplay.cpp"
+        "uxplay.cpp" `
+        "uxplay_api.h"
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to generate the current libuxplay source diff."
     }
@@ -321,12 +327,15 @@ try {
             -Destination (Join-Path $sourceRoot $relative) -Force
     }
     foreach ($relative in @(
+        "lib\dnssd.c",
+        "lib\dnssd.h",
         "lib\http_handlers.h",
         "lib\raop_handlers.h",
         "lib\raop_rtp_mirror.c",
         "renderers\video_renderer.c",
         "renderers\video_renderer.h",
-        "uxplay.cpp"
+        "uxplay.cpp",
+        "uxplay_api.h"
     )) {
         Copy-Item -LiteralPath (Join-Path $libuxplay $relative) `
             -Destination (Join-Path $sourceRoot "libuxplay\$relative") `

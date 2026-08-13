@@ -22,6 +22,9 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   or exits the application;
 - starts, stops, and restarts the UxPlay core;
 - changes the receiver name shown under **Control Center → Screen Mirroring**;
+  names are normalized to one Bonjour-safe value of at most 50 UTF-8 bytes,
+  and an interactive save explains and persists the effective value if it had
+  to remove controls, repair invalid text, trim, or shorten the input;
 - uses no PIN on a trusted/private network by default;
 - can establish PIN trust once and keeps the receiver key and trusted-client
   register under the user's local application data, independently of the
@@ -50,33 +53,47 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   latency selected by default; renderer selection and raw UxPlay arguments
   remain under Advanced settings;
 - renames the stream window, gives a newly found renderer a provisional fit,
-  captures an early phone-shaped size before the video-size debounce, ignores
-  later media-canvas ratios that do not match the learned device frame, and
+  captures an early phone-shaped size before the video-size debounce, orders
+  correlated geometry/size events with a monotonic core-lifetime sequence, and
+  lets repeated identical candidates retain the original 350 ms deadline so
+  marker traffic cannot starve a stable decision; a duplicate stable value
+  does not reopen the debounce, while a target-class change remains distinct;
+  ignores later media-canvas ratios that do not match the learned device
+  frame, and
   treats only the complete observed Photos `3840x2160 aux=0x0` signature as an
   ambiguous canvas when it arrives first; a later phone-shaped frame can still
   establish portrait, while unresolved automatic fits cannot overwrite a valid
-  saved placement; the window adapts on real portrait/landscape changes, and
+  saved placement; the window refits when the selected device-frame/media-
+  canvas class or exact aspect changes, including same-orientation changes,
+  while a scaled marker with the same class/aspect is consumed without another
+  move; the window also adapts on real portrait/landscape changes, and
   automatic fitting restores the learned proportions after a manual resize
-  unless the user turns it off; settings schema 12 also adds a default-off
-  Advanced A/B option that lets only that exact ambiguous Photos/media canvas
-  shape the outer window temporarily without treating it as trusted device
-  orientation or persisting the provisional landscape;
+  unless the user turns it off; the exact correlated Photos/media signature
+  automatically shapes the outer window temporarily without becoming trusted
+  device orientation or making the provisional landscape persistable; the
+  former schema-12 Photos-specific A/B key and checkbox are retired;
   the last normal position, size, and DPI are restored on the next session and
   clamped into an available monitor; saved bounds are applied from the early
   window-show event, unchanged native-window policy is cached, and the window
   can stay on top and remains on the taskbar by default;
-- debounces Windows network events, refreshes discovery only after an actual
-  physical network change, keeps a healthy receiver running after a normal
-  disconnect, and retains one bounded ten-minute idle-discovery fallback;
-  after that fallback has already completed, a later Windows session unlock
-  may request at most one final re-registration after a ten-minute cooldown,
-  but only while the core, local discovery, cached physical IPv4, mirroring,
-  client-grace, restart, and network-maintenance guards are safe;
-  an incoming high-level AirPlay request re-arms that fallback so it cannot
-  interrupt the next handshake, while a full manual receiver restart remains
-  available; a stale end marker from the previous session also preserves the
-  newer request/PIN grace instead of triggering deferred maintenance during
-  the reconnect handshake; after completed lost-client cleanup, the recovered
+- debounces Windows network events, keeps a healthy receiver running after a
+  normal disconnect, and retains a bounded idle-discovery sequence: the
+  existing ten-minute stage plus one additional stage 20 minutes later; after
+  the first stage, a Windows session unlock may consume that same final
+  allowance after cooldown, but timer and unlock paths together cannot exceed
+  two maintenance attempts, and active mirroring/client grace preserve due
+  work; a capable 0.12.13 core services normal automatic idle, unlock, and
+  discovery-health maintenance by refreshing the paired RAOP/AirPlay DNS-SD
+  generation in the same process and on the same listener ports; active
+  clients defer that operation, while unsupported, rejected, timed-out, or
+  repeatedly failed commands retain the bounded full-process fallback;
+  **Restart discovery** remains a deliberate full DNS-SD-and-BLE process
+  restart, and a real physical IPv4 change also restarts because the separate
+  BLE helper receives its advertised address at startup; an incoming high-
+  level AirPlay request re-arms the bounded sequence so it cannot interrupt the
+  next handshake, and a stale end marker from the previous session preserves
+  the newer request/PIN grace instead of triggering deferred maintenance;
+  after completed lost-client cleanup, the recovered
   native process and AirPlay port are preserved instead of immediately being
   replaced, while an ordinary clean disconnect still leaves the receiver
   running; after a capable native three-second warning, the shell can show
@@ -110,7 +127,10 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   candidate separates recovery epochs, video push/PTS/sink diagnostics, and
   the D3D11 presentation proof that alone can authorize continuity handoff;
   the 0.12.9 release also records guarded idle/unlock discovery maintenance
-  and provisional Photos/media canvas fits without logging mirrored content;
+  and provisional Photos/media canvas fits; the 0.12.13 candidate adds
+  request/generation/PID/port-correlated discovery results, paired DNS-SD
+  generation health, BLE helper lifecycle, and receiver-name byte counts
+  without logging the receiver name or mirrored content;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
 
@@ -130,6 +150,47 @@ not the runtime downloaded by the public network installer. Qt 6.10.1
 officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microsoft's normal consumer support lifecycle,
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
+
+## Local 0.12.13 candidate
+
+The working tree currently targets 0.12.13/`0.12.13.0`. Automatic idle,
+eligible Windows-unlock, and persistent native discovery-health maintenance
+now prefer a request-correlated refresh of the paired RAOP and AirPlay Bonjour
+records in the running core. A successful operation preserves its PID and both
+listener ports; active clients defer it, and bounded full-process recovery
+remains the compatibility/failure fallback. Manual **Restart discovery** and a
+real physical IPv4 change still perform a full process restart so the unchanged
+BLE beacon is refreshed too.
+
+Two clean native builds and an extracted prepared-source rebuild reproduce the
+reviewed core, four real redirected-pipe cases pass, the managed build and full
+resilience suite pass, and independent frozen-source review found no blocker
+in the persistent-discovery scope. The later full media audit found the
+separate frozen-frame issues below. The full package gate and focused
+post-evidence rebuild also
+pass: exact 143-entry/139-file prepared native source, 13-entry thin payload,
+packaged-shell resilience, Setup with exact embedded inputs, all three Setup
+verification modes, x64/version/default, link, UTF-8, diff, and input-
+fingerprint checks. Installed update, physical 30–40 minute iPhone idle, exact
+tag, GitHub Release, and public re-download remain pending. There is no public
+0.12.13 installer, tag, Release, or `BUILD_REPORT.md`. See the
+[0.12.13 release notes](docs/releases/0.12.13/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.13/TEST_PLAN.md).
+
+The first installed 0.12.13 media run on 2026-08-13 exposed a publication
+blocker: the last rendered frame froze while the same native process and
+control session remained alive and accepted the later iPhone Stop action.
+Current telemetry proves the first H.265 appsrc/sink/D3D11 Present and later
+3840x2160 codec/geometry packets, but cannot identify whether subsequent VCL,
+decode, or Present progress stopped. Corrective code will use a newer version;
+the tested 0.12.13 candidate will not be silently replaced or renumbered.
+
+Local paired-registration readiness is not continuous iPhone visibility and
+does not force iOS browse-cache invalidation. BLE in-process refresh, AWDL,
+AirDrop and Photos inner-content detection/crop remain separate work. The
+native-core audit is now active because of the frozen-frame evidence. The
+public latest download below remains the immutable
+0.12.9 review release.
 
 ## Installer: recommended
 
@@ -294,36 +355,36 @@ The result is:
 artifacts\Release\AeroMirror.exe
 ```
 
-Create the public thin review payload and build the per-user network installer
-from that exact ZIP with:
+Create the current thin review candidate payload and build the per-user network
+installer from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.9 `
+  -Version 0.12.13 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.9 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.9.zip
+  -Version 0.12.13 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.13.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.9.exe
+artifacts\installer\AeroMirror-Setup-0.12.13.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.9`.
+Public release names use three-part semantic versions such as `0.12.13`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.9.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.9`.
+show `0.12.13.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.13` when that candidate is published.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.9 `
+  -Version 0.12.13 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -436,6 +497,18 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.13/
+      RELEASE_NOTES.md       persistent discovery candidate summary
+      TEST_PLAN.md           same-PID discovery and fallback gates
+    0.12.12/
+      RELEASE_NOTES.md       bounded idle-discovery candidate summary
+      TEST_PLAN.md           timed stages and physical idle gates
+    0.12.11/
+      RELEASE_NOTES.md       automatic Photos-fitting candidate summary
+      TEST_PLAN.md           settings, geometry, package, and physical gates
+    0.12.10/
+      RELEASE_NOTES.md       prior local geometry/test-isolation summary
+      TEST_PLAN.md           prior geometry, logs, and physical gates
     0.12.9/
       RELEASE_NOTES.md       public discovery and Photos review summary
       TEST_PLAN.md           discovery, Photos, install, and reconnect gates
@@ -496,12 +569,19 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   device-by-device testing.
 - Renderer-window detection is heuristic. AeroMirror gives a newly opened
   renderer a provisional fit and can retain an early phone-shaped raw marker
-  before a later stable media-canvas marker wins the debounce. Later ratios
-  within a small tolerance can reshape the client area for real
-  portrait/landscape rotation; a Photos `3840x2160` presentation canvas is
-  suppressed after a learned `998x2160` device frame. If iOS sends only the
-  media canvas and no phone-shaped marker, the physical orientation remains
-  ambiguous until another authoritative frame or session.
+  before a later stable media-canvas marker wins the debounce. The 0.12.11
+  candidate retains monotonic core-lifetime ordering from 0.12.10;
+  identical pending candidates keep the original 350 ms deadline, so they
+  cannot starve the decision. Its exact fit state follows a change in target
+  class or exact aspect even when portrait/landscape class stays the same, and
+  suppresses another move for a scaled marker with the same class/aspect.
+  Later ratios within a small tolerance can reshape the client area for real
+  portrait/landscape rotation. Only the complete correlated Photos signature
+  with primary, source, and encoded `3840x2160` plus auxiliary `0x0`
+  automatically becomes a provisional outer-window landscape target; it does
+  not replace the trusted device baseline, and a later `998x2160` device frame
+  returns the window to portrait. Other media-only sessions remain ambiguous
+  until an authoritative frame or session.
   Automatic fitting restores the learned aspect after a completed manual
   resize by default, respects an explicit opt-out, and keeps **Restore window
   proportions** as a manual fallback that also uses the learned device frame
@@ -512,21 +592,24 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   encoded canvas itself. AeroMirror can keep the outer phone orientation, but
   it does not yet have native content-rectangle metadata or safe pixel analysis
   with which to crop or zoom that inner canvas. Photos may therefore still look
-  very small even when the outer renderer proportions are correct. The 0.12.9
-  default-off Advanced A/B can temporarily make the outer window follow only
-  the exact recorded ambiguous Photos/media canvas, similar to the older wide
-  presentation, but it changes no pixels and cannot enlarge inner content.
-  That provisional landscape is not saved as trusted placement unless the user
-  explicitly moves or resizes the window.
+  very small even when the outer renderer proportions are correct. The 0.12.11
+  candidate applies the exact recorded Photos/media outer-window fit
+  automatically instead of exposing the former default-off A/B. It changes no
+  pixels and cannot enlarge inner content. That automatic provisional
+  landscape is not trusted or persistable; an explicit user move or resize
+  remains a separate user-owned placement action.
 - After an abnormal Wi-Fi/client loss, AeroMirror preserves UxPlay's recovered
   process and listening port after completed in-process cleanup. The first
   stale row tapped on iOS may still fail before any request reaches Windows,
-  and iOS may take time to refresh its browse cache. Native in-place DNS-SD/BLE
-  re-publication with an acknowledged ready state remains future work. The
-  0.12.9 release adds only a managed bounded mitigation: after the existing
-  first ten-minute idle renewal, a later Windows unlock may trigger at most one
-  final guarded restart after cooldown. It neither proves the missing-receiver
-  cause nor preserves a stable advertised port across process replacement.
+  and iOS may take time to refresh its browse cache. In 0.12.13, automatic
+  idle/unlock/native-health maintenance prefers a current-request paired DNS-
+  SD refresh in that same process and on the same RAOP/AirPlay ports. Bonjour
+  callbacks prove only local registration for the new generation; they do not
+  continuously attest iPhone visibility or force a phone to discard a cached
+  row. The unchanged BLE helper is not refreshed in place, so manual discovery
+  and a real physical IPv4 change still use full-process recovery. The older
+  ten-minute then 20-minute/shared-unlock schedule and bounded restart fallback
+  remain. Physical long-idle behavior is still pending.
 - In the first public 0.12.7 physical smoke, a reporter-estimated wall-clock
   Wi-Fi interruption of about ten seconds recovered automatically; the exact
   log interval records a five-second feedback gap. After a reporter-estimated
@@ -582,10 +665,12 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   cross-process-subclass that foreign window.
 - "Always on top" or automatic fitting may need to be toggled again with an
   unusual GStreamer sink.
-- The shell combines listening sockets with explicit DNS-SD/BLE health
-  markers and a legacy Bonjour fallback before reporting readiness. This is
-  still a transitional stdout contract rather than versioned native IPC, and
-  it does not prove that an iPhone session is active.
+- The shell combines listening sockets with explicit DNS-SD/BLE health markers
+  and a legacy Bonjour fallback before reporting startup readiness. The
+  0.12.13 core additionally provides a narrow version-1 redirected-stdin and
+  framed-stdout discovery-maintenance protocol. It is intentionally not a
+  general named-pipe status/RPC contract and does not prove that an iPhone is
+  browsing or that an AirPlay session is active.
 - The executables are not yet code-signed, so Windows SmartScreen may warn
   about an unknown publisher.
 - GitHub update checking in 0.12.7 uses the former `Nadejny/aeromirror` slug;
@@ -633,9 +718,9 @@ Changing quality, FPS, receiver name, PIN mode, renderer, latency, or raw
 UxPlay arguments restarts the native receiver because these capabilities are
 advertised when the AirPlay service/session starts. Stop Screen Mirroring on
 the iPhone and connect again to guarantee a new quality negotiation. UI-only
-settings such as notifications, close-button behavior, window fitting, the
-default-off Photos/media outer-window A/B, and always-on-top save without
-restarting an otherwise running receiver.
+settings such as notifications, close-button behavior, general window fitting,
+and always-on-top save without restarting an otherwise running receiver. The
+retired Photos-specific key is ignored and omitted on save.
 
 The last saved quality preset is retained. The Save button compares the
 controls with the saved settings, so changing a preset and returning to the

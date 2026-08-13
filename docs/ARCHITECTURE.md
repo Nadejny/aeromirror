@@ -55,6 +55,16 @@ The build discovers C# files recursively below `src/` in stable path order.
 Tests must target behavior and the complete source set rather than depend on a
 single historical filename.
 
+Reflection tests that initialize persistent settings or logging use one
+process-lifetime storage override before those classes are touched. The root
+must be a GUID-named direct child of the system temporary directory; reusing
+the same root is idempotent and selecting a different second root is rejected.
+Every `AppSettings` path resolves below it for that process. The logger exposes
+a bounded drain result so tests inspect and remove the exact temporary root
+only after queued writes complete. Production continues to use
+`%LOCALAPPDATA%\AirPlayReceiverMvp`; test reflection never redirects or edits
+that directory.
+
 ## Integration contract
 
 The current shell depends on these native integration behaviors:
@@ -160,46 +170,71 @@ This deliberately keeps protocol code out of the shell. A later native build
 can replace the binary boundary with a dedicated `receiver-core.exe` or stable
 local IPC API while preserving the settings UX.
 
-The current markers are a reviewed transitional stdout contract, not a
-versioned bidirectional IPC protocol. Compatibility code still supports a
-legacy core without those markers, but explicit failure of both DNS-SD and BLE
-must never produce a false ready state.
+The patched core exposes a deliberately narrow version-1 discovery-maintenance
+protocol, not a general receiver RPC API. The managed shell writes a correlated
+refresh command to redirected stdin. The core reports capability, accepted or
+deferred progress, and a terminal ready or failed result as dedicated framed
+stdout marker lines. Compatibility code still supports a legacy core without
+this protocol, but explicit failure of both DNS-SD and BLE must never produce a
+false ready state.
 
 ## Managed discovery maintenance
 
-Normal discovery maintenance remains bounded around real activity. A physical
-network change can refresh the receiver, a completed lost-client cleanup can
-preserve the same native process and HTTP port, and an idle receiver has one
-managed ten-minute renewal. A high-level AirPlay request, PIN activity, or a
-new mirroring start establishes grace and re-arms that normal idle sequence so
-stale maintenance cannot interrupt a handshake.
+Normal automatic discovery maintenance remains bounded around real activity.
+Idle, unlock, and native-health recovery prefer an in-process refresh that
+preserves the receiver process and HTTP/RAOP/AirPlay ports. The native core
+replaces the paired DNS-SD registration generation, pumps Bonjour callbacks,
+and retries failed registration with bounded 1, 2, 5, 10, and 30 second delays.
+An active AirPlay request, PIN flow, audio/video client, or mirroring session
+defers the command rather than interrupting the connection.
 
-The 0.12.9 candidate adds one final managed fallback tied to Windows
-`SessionUnlock`. It is eligible only after the first ten-minute idle renewal
-has completed and its separate ten-minute cooldown has elapsed. Evaluation
-requires the core to be running, its readiness check to be idle, listening
-sockets to be ready, at least one DNS-SD/BLE discovery marker to be positive,
-a cached numeric physical IPv4 to be available, no active mirroring or client
-grace, and no restart/network refresh already in progress. A temporarily false
-readiness guard defers evaluation in bounded timer passes; an ineligible state
-cancels it. Consuming the second allowance prevents repeated unlock events from
-creating a restart loop.
+The managed request remains correlated to the current process, request ID,
+generation, and advertised ports. It waits for the accepted/deferred and
+terminal result markers and permits only bounded attempts. If the command is
+unsupported, rejected, times out, or repeatedly fails, the existing managed
+fallback can perform a full receiver restart. Stale markers from an earlier
+process or request cannot settle the current operation.
 
-This is a symptom mitigation, not discovery readiness IPC or root-cause proof.
-The full-process refresh may obtain another AirPlay port; it does not establish
-stable-port re-publication, mutate native registration ownership in place, or
-force an iPhone to invalidate a cached browse result. Bonjour remains an
-external machine-wide service. The managed shell observes its status but the
-0.12.9 candidate does not start, stop, repair, uninstall, or otherwise mutate
-that service.
+The settings layer removes ASCII control characters, repairs invalid UTF-16,
+and persists a receiver name of at most 50 UTF-8 bytes without splitting a
+text element. The settings UI shows the effective name whenever normalization
+changes user input. The native DNS-SD layer independently enforces the same
+50-byte ceiling at a complete UTF-8 character boundary, which keeps
+`MAC@name` within Bonjour's 63-byte label limit even for direct native launches
+or advanced argument overrides. AirPlay, RAOP, and `/info` use that one stored
+canonical name; blank input falls back to `AeroMirror`.
+
+`Restart Discovery` remains an explicit full DNS-SD-and-BLE process restart.
+A physical IPv4 change also uses the full restart because the separate BLE
+helper does not yet support in-process reconfiguration. The wrapper buffers
+the helper's arbitrary output chunks into complete lines, forwards them to
+stderr with an `AEROMIRROR_BLE` prefix, and the managed shell observes those
+PID-scoped lines as a second discovery-health path. Unexpected helper start
+failure or exit produces one bounded failure line; intentional helper shutdown
+during receiver maintenance does not.
+
+An acknowledged DNS-SD ready result proves that the local Bonjour registration
+callbacks completed for the new paired generation; it does not continuously
+attest that an iPhone can see the advertisement or force a phone to invalidate
+a cached browse result. Bonjour remains an external machine-wide service. The
+receiver observes its state but does not start, stop, repair, uninstall, or
+otherwise mutate that service.
 
 ## Renderer-window fitting
 
 Renderer-window discovery is still a heuristic Win32 boundary. When a new
 renderer is found, the shell applies a provisional iPhone-aspect fit if the
-native size marker has not arrived yet. Raw markers continue through a 350 ms
-stability debounce, but the first marker with a conservative modern-iPhone
-shape is retained immediately as an early device-frame candidate. This covers
+native size marker has not arrived yet. Each correlated raw-geometry/encoded-
+size event receives a monotonic sequence for the lifetime of the running core.
+Raw markers continue through a 350 ms stability debounce, but an identical
+repeat advances the pending candidate's sequence without moving its original
+deadline. This prevents continuous duplicates from starving a decision. A
+duplicate of the current stable candidate does not reopen the debounce, while
+the same dimensions with a different device-frame/media-canvas classification
+remain distinct. Starting a new mirror session clears candidates and baselines
+without rewinding that core-lifetime sequence; a full core reset clears it.
+The first marker with a conservative modern-iPhone shape is retained
+immediately as an early device-frame candidate. This covers
 the recorded direct-in-Photos sequence in which `998x2160` arrives about
 130 ms before the stable `3840x2160` presentation canvas. A generic 16:9
 marker is never promoted through this early path.
@@ -213,23 +248,37 @@ same session. The observed real-landscape `3840x1776 aux=0x192` signature and
 ordinary nonmatching 16:9 streams remain eligible, so the narrow rule does not
 turn auxiliary values into general orientation metadata.
 
-Settings schema 12 adds a conservative, default-off A/B for that exact
-ambiguous Photos/media signature. When enabled, the raw canvas may temporarily
-become the automatic outer-window fit target, approximating the earlier wide
-window behavior. It still cannot seed `deviceFrameVideoSize`, become an
-authoritative orientation event, or persist an automatic provisional
-landscape. Disabling the option re-evaluates the already debounced frame on the
-next supervision pass without restarting the core. The setting changes no
-native arguments, advertised feature bits, negotiation, decoded pixels, crop,
-or zoom; inner media can remain letterboxed and small.
+Version 0.12.11 makes that exact ambiguous signature an unconditional
+provisional `MediaCanvas` target for automatic outer-window fitting. It still
+cannot seed `deviceFrameVideoSize`, become an authoritative orientation event,
+or make an automatic provisional landscape persistable. The temporary schema-
+12 `FollowPhotosMediaCanvas` field and Advanced checkbox are retired: legacy
+values are ignored while loading and omitted on canonical save, while the
+schema number remains 12 and the general `AutoFitWindow` opt-out remains.
+This changes no native arguments, advertised feature bits, negotiation,
+decoded pixels, crop, or zoom; inner media can remain letterboxed and small.
+
+The exact-size fit state records the newest consumed event, the target class
+(`DeviceFrame` or `MediaCanvas`), and exact aspect. A fresh stable event refits
+when the class or exact aspect changes, even when both old and new targets are
+landscape or both are portrait. Thus `3840x1776 DeviceFrame` to
+`3840x2160 MediaCanvas` is not lost behind an orientation-only comparison. A
+scaled target with the same class and exact aspect is consumed without moving
+the window again. A class/aspect mismatch remains eligible when an active
+resize/mouse gesture blocks the pass or fitting fails; only a successful fit
+records the new target. Later refits preserve the current area, while the first
+exact fit may preserve restored area, and provisional media-canvas placement
+remains non-persistable.
 
 Later sizes whose normalized aspect matches within `0.03` are authoritative
 rotation events, while other ratios retain the learned device orientation.
-This prevents a Photos presentation canvas from reshaping a window after a
-device frame and still allows physical `1080x1920`/`1920x1080` devices. A
-session that exposes only the exact ambiguous canvas remains unresolved because
-stdout still provides no independent device-orientation metadata; the shell
-keeps the previous/provisional outer orientation rather than guessing.
+The exact correlated Photos signature is the sole narrow exception: it may
+temporarily reshape the outer window after a device frame without replacing
+that frame as the trusted baseline. A later `998x2160` frame therefore returns
+the window to portrait, and physical `1080x1920`/`1920x1080` devices remain
+eligible. A session exposing only the exact canvas receives a provisional
+landscape outer fit, but its physical device orientation is still unresolved
+because stdout provides no independent orientation metadata.
 
 The shell installs an out-of-context WinEvent hook scoped to the active native
 core process and watches both the renderer's early show event and interactive
@@ -271,12 +320,12 @@ expose explicit stream, orientation, and content-layout events.
 
 Settings schema 11 makes Direct3D 11 the managed stability default. Loading a
 legacy profile migrates only `Renderer=auto` to `d3d11`; an explicit `d3d12`
-choice is retained. Unknown renderer values normalize to D3D11. Schema 12 adds
-the independent default-off Photos/media outer-window A/B and preserves the
-schema-11 renderer migration as a separate step. The shell pins both the
-codec-family decoder and matching video sink for Direct3D 11 or 12, and raw
-advanced UxPlay arguments remain later on the command line so an experienced
-tester can make an explicit diagnostic override.
+choice is retained. Unknown renderer values normalize to D3D11. Schema 12
+remains current and preserves that renderer migration as a separate step; its
+former Photos A/B key is ignored and removed on save in 0.12.11. The shell pins
+both the codec-family decoder and matching video sink for Direct3D 11 or 12,
+and raw advanced UxPlay arguments remain later on the command line so an
+experienced tester can make an explicit diagnostic override.
 
 The headless wrapper treats the `--uxplay` vector as authoritative. It does not
 strip `-vs` or `-fs` and does not inject its persisted Qt renderer/fullscreen
@@ -402,9 +451,8 @@ renegotiation path plus an IPC command from the Windows shell.
 5. Produce a signed WiX/MSIX installer with explicit firewall rules.
 6. Add automated smoke tests for start/stop, crash recovery, settings
    migration, and missing Bonjour.
-7. Re-publish DNS-SD and BLE on the same native listening port after internal
-   lost-client reset, with an explicit ready marker, so iOS does not need to
-   discover a new process/port after abnormal Wi-Fi loss.
+7. Add in-process BLE address reconfiguration so a physical IPv4 change does
+   not require the current full receiver restart.
 8. Test with current iOS releases on Intel, AMD, and ARM64 Windows devices.
 
 ## Security notes

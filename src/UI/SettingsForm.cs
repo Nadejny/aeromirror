@@ -60,7 +60,6 @@ namespace AirPlayReceiverMvp
         private readonly Button saveButton;
         private readonly Label savedLabel;
         private readonly ComboBox renderer;
-        private readonly CheckBox followPhotosMediaCanvas;
         private readonly TextBox arguments;
         private readonly TextBox argumentPreview;
         private readonly Button advancedSave;
@@ -510,14 +509,6 @@ namespace AirPlayReceiverMvp
             argumentPreview.BackColor = Color.White;
             argumentPreview.Font = new Font("Consolas", 8.5F);
             advancedPage.Controls.Add(argumentPreview);
-
-            followPhotosMediaCanvas = MakeCheckBox(
-                "\u0414\u0435\u043b\u0430\u0442\u044c \u043e\u043a\u043d\u043e \u0448\u0438\u0440\u043e\u043a\u0438\u043c \u0434\u043b\u044f \u0444\u043e\u0442\u043e \u0438 \u0432\u0438\u0434\u0435\u043e \u0438\u0437 \u00ab\u0424\u043e\u0442\u043e\u00bb (\u044d\u043a\u0441\u043f\u0435\u0440\u0438\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u043e)",
-                24, 468);
-            toolTips.SetToolTip(
-                followPhotosMediaCanvas,
-                "\u041c\u0435\u043d\u044f\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0444\u043e\u0440\u043c\u0443 \u043e\u043a\u043d\u0430. \u0420\u0430\u0437\u043c\u0435\u0440 \u0444\u043e\u0442\u043e \u0438\u043b\u0438 \u0432\u0438\u0434\u0435\u043e \u0432\u043d\u0443\u0442\u0440\u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u043d\u043e\u0433\u043e iPhone \u043a\u0430\u0434\u0440\u0430 \u043c\u043e\u0436\u0435\u0442 \u043d\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c\u0441\u044f.");
-            advancedPage.Controls.Add(followPhotosMediaCanvas);
 
             var hotspot = MakeButton(
                 "Временная личная сеть…", 24, 492, 205, 36, false);
@@ -1111,7 +1102,6 @@ namespace AirPlayReceiverMvp
             closeToTray.Checked = s.CloseToTray;
             notifications.Checked = s.Notify;
             SelectValue(renderer, s.Renderer);
-            followPhotosMediaCanvas.Checked = s.FollowPhotosMediaCanvas;
             arguments.Text = s.AdvancedArguments;
             argumentPreview.Text = context.BuildSafeUxPlayArguments();
             UpdatePinPanel();
@@ -1140,8 +1130,6 @@ namespace AirPlayReceiverMvp
             closeToTray.CheckedChanged += delegate { MarkDirty(); };
             notifications.CheckedChanged += delegate { MarkDirty(); };
             renderer.SelectedIndexChanged += delegate { UpdateAdvancedDirty(); };
-            followPhotosMediaCanvas.CheckedChanged +=
-                delegate { UpdateAdvancedDirty(); };
             arguments.TextChanged += delegate { UpdateAdvancedDirty(); };
         }
 
@@ -1195,8 +1183,6 @@ namespace AirPlayReceiverMvp
         private bool HasAdvancedUnsavedChanges()
         {
             return SelectedValue(renderer) != context.CurrentSettings.Renderer ||
-                followPhotosMediaCanvas.Checked !=
-                    context.CurrentSettings.FollowPhotosMediaCanvas ||
                 arguments.Text.Trim() !=
                     context.CurrentSettings.AdvancedArguments.Trim();
         }
@@ -1259,8 +1245,6 @@ namespace AirPlayReceiverMvp
                 return TrySaveAdvancedSettings();
             suppressDirty = true;
             SelectValue(renderer, context.CurrentSettings.Renderer);
-            followPhotosMediaCanvas.Checked =
-                context.CurrentSettings.FollowPhotosMediaCanvas;
             arguments.Text = context.CurrentSettings.AdvancedArguments;
             argumentPreview.Text = context.BuildSafeUxPlayArguments();
             suppressDirty = false;
@@ -1331,6 +1315,20 @@ namespace AirPlayReceiverMvp
                 return false;
             }
 
+            string canonicalName =
+                AppSettings.NormalizeReceiverNameForDiscovery(name);
+            if (!string.Equals(
+                    name, canonicalName, StringComparison.Ordinal))
+            {
+                MessageBox.Show(this,
+                    "Имя приёмника ограничено 50 байтами UTF-8, чтобы " +
+                    "Bonjour стабильно публиковал его. На iPhone будет " +
+                    "отображаться: " + canonicalName,
+                    Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                name = canonicalName;
+                receiverName.Text = canonicalName;
+            }
+
             string mode = SelectedValue(pairing);
             string pin = fixedPin.Text.Trim();
             if (mode == "pin" && (pin.Length != 4 || !IsDigits(pin)))
@@ -1361,8 +1359,6 @@ namespace AirPlayReceiverMvp
             if (includeAdvanced)
             {
                 updated.Renderer = SelectedValue(renderer);
-                updated.FollowPhotosMediaCanvas =
-                    followPhotosMediaCanvas.Checked;
                 updated.AdvancedArguments = arguments.Text.Trim();
             }
             if (mode == "pin")
@@ -1401,8 +1397,6 @@ namespace AirPlayReceiverMvp
         {
             AppSettings updated = context.CurrentSettings.Copy();
             updated.Renderer = SelectedValue(renderer);
-            updated.FollowPhotosMediaCanvas =
-                followPhotosMediaCanvas.Checked;
             updated.AdvancedArguments = arguments.Text.Trim();
             context.SaveSettings(updated, true);
             argumentPreview.Text = context.BuildSafeUxPlayArguments();

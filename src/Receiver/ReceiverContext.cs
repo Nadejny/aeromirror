@@ -73,6 +73,15 @@ namespace AirPlayReceiverMvp
         private int coreSocketsReady;
         private long coreSocketsReadyDueTicks;
         private int coreDnsSdStatus;
+        private int coreDiscoveryRefreshCapability;
+        private long coreDiscoveryRefreshRequestSequence;
+        private long coreDiscoveryRefreshPendingRequest;
+        private int coreDiscoveryRefreshPendingPid;
+        private int coreDiscoveryRefreshPendingPort;
+        private long coreDiscoveryRefreshDueTicks;
+        private int coreDiscoveryRefreshPhase;
+        private int coreDiscoveryRefreshFallbackPending;
+        private object coreCommandSync = new object();
         private int coreBleStatus;
         private int coreDiscoveryRecoveryPending;
         private int coreDiscoveryRecoveryAttempts;
@@ -93,12 +102,13 @@ namespace AirPlayReceiverMvp
         private long sessionUnlockDiscoveryRefreshDueTicks;
         private bool sessionSwitchSubscribed;
         private readonly object videoSizeSync = new object();
+        private long videoGeometryEventSequence;
         private Size pendingVideoSize = Size.Empty;
         private DateTime pendingVideoSizeDueUtc = DateTime.MinValue;
-        private int pendingVideoSizeGeneration;
+        private long pendingVideoSizeSequence;
         private bool pendingVideoSizeIsAmbiguousMediaCanvas;
         private Size currentVideoSize = Size.Empty;
-        private int currentVideoSizeGeneration;
+        private long currentVideoSizeSequence;
         private bool currentVideoSizeIsAmbiguousMediaCanvas;
         private Size rawGeometryVideoSize = Size.Empty;
         private int rawGeometryVideoSizeGeneration;
@@ -109,7 +119,10 @@ namespace AirPlayReceiverMvp
         private int mirrorSessionGeneration;
         private IntPtr videoSizeWindow = IntPtr.Zero;
         private IntPtr initialFitPendingWindow = IntPtr.Zero;
-        private int exactVideoSizeFitGeneration = -1;
+        private long exactVideoSizeFitSequence = -1;
+        private Size appliedVideoFitSize = Size.Empty;
+        private RendererFitTargetKind appliedVideoFitTargetKind =
+            RendererFitTargetKind.None;
         private int appliedVideoOrientation;
         private readonly NativeMethods.WinEventProc rendererMoveSizeEventProc;
         private readonly NativeMethods.WinEventProc rendererWindowShowEventProc;

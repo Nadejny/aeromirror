@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Reflection;
@@ -21,6 +22,8 @@ namespace AirPlayReceiverMvp
     internal sealed class AppSettings
     {
         private const int RendererStabilitySettingsVersion = 11;
+        internal const int DiscoveryReceiverNameMaxUtf8Bytes = 50;
+        private const string DiscoveryReceiverNameFallback = "AeroMirror";
         internal const int CurrentSettingsVersion = 12;
 
         public int SettingsVersion = CurrentSettingsVersion;
@@ -38,7 +41,6 @@ namespace AirPlayReceiverMvp
         public bool StartMinimized = true;
         public bool CloseToTray = true;
         public bool AutoFitWindow = true;
-        public bool FollowPhotosMediaCanvas = false;
         public bool AlwaysOnTop = false;
         public bool ShowStreamInTaskbar = true;
         public bool Notify = true;
@@ -49,10 +51,62 @@ namespace AirPlayReceiverMvp
         public int StreamWindowHeight = 0;
         public int StreamWindowDpi = 0;
 
+        private static string storageRootForTests;
+
+        internal static void SetStorageRootForTests(string root)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                throw new ArgumentException(
+                    "A test storage root is required.", "root");
+
+            string normalizedRoot = Path.GetFullPath(root).TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedTempRoot = Path.GetFullPath(
+                Path.GetTempPath()).TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+            DirectoryInfo parent = Directory.GetParent(normalizedRoot);
+            Guid rootId;
+            if (parent == null ||
+                !string.Equals(
+                    parent.FullName.TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar),
+                    normalizedTempRoot,
+                    StringComparison.OrdinalIgnoreCase) ||
+                !Guid.TryParseExact(
+                    Path.GetFileName(normalizedRoot), "N", out rootId))
+            {
+                throw new ArgumentException(
+                    "The test storage root must be a GUID child of the " +
+                    "process temporary directory.", "root");
+            }
+
+            string existing = Interlocked.CompareExchange(
+                ref storageRootForTests, normalizedRoot, null);
+            if (existing != null &&
+                !string.Equals(
+                    existing, normalizedRoot,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "The process test storage root is already configured.");
+            }
+            Directory.CreateDirectory(normalizedRoot);
+        }
+
         public static string Folder
         {
             get
             {
+                string isolatedRoot = Interlocked.CompareExchange(
+                    ref storageRootForTests, null, null);
+                if (!string.IsNullOrWhiteSpace(isolatedRoot))
+                {
+                    Directory.CreateDirectory(isolatedRoot);
+                    return isolatedRoot;
+                }
+
                 try
                 {
                     string path = Path.Combine(
@@ -168,7 +222,6 @@ namespace AirPlayReceiverMvp
                 StartMinimized = StartMinimized,
                 CloseToTray = CloseToTray,
                 AutoFitWindow = AutoFitWindow,
-                FollowPhotosMediaCanvas = FollowPhotosMediaCanvas,
                 AlwaysOnTop = AlwaysOnTop,
                 ShowStreamInTaskbar = ShowStreamInTaskbar,
                 Notify = Notify,
@@ -231,8 +284,10 @@ namespace AirPlayReceiverMvp
                         if (bool.TryParse(value, out flag)) settings.AutoFitWindow = flag;
                         break;
                     case "FollowPhotosMediaCanvas":
-                        if (bool.TryParse(value, out flag))
-                            settings.FollowPhotosMediaCanvas = flag;
+                        // Legacy schema-12 A/B option. The exact observed
+                        // Photos/media signature is handled automatically;
+                        // retain every other profile value but ignore this
+                        // retired key when loading an existing settings.ini.
                         break;
                     case "AlwaysOnTop":
                         if (bool.TryParse(value, out flag)) settings.AlwaysOnTop = flag;
@@ -325,7 +380,7 @@ namespace AirPlayReceiverMvp
                 settings.ClearStreamWindowPlacement();
             }
             MigrateRendererStabilityDefault(settings);
-            MigratePhotosMediaCanvasDefault(settings);
+            MigrateCurrentSettingsVersion(settings);
             settings.NormalizePersistedValues();
             return settings;
         }
@@ -347,18 +402,16 @@ namespace AirPlayReceiverMvp
             settings.SettingsVersion = RendererStabilitySettingsVersion;
         }
 
-        internal static void MigratePhotosMediaCanvasDefault(
+        internal static void MigrateCurrentSettingsVersion(
             AppSettings settings)
         {
             if (settings == null ||
                 settings.SettingsVersion >= CurrentSettingsVersion)
                 return;
 
-            // Following the wide Photos presentation canvas changes only the
-            // shell window and is intentionally opt-in for every existing
-            // profile. Unknown or malformed persisted values also retain the
-            // field initializer's conservative false value.
-            settings.FollowPhotosMediaCanvas = false;
+            // Schema 12 no longer exposes its temporary Photos A/B switch.
+            // Advancing an older profile changes no unrelated setting; the
+            // retired key is ignored independently by the parser above.
             settings.SettingsVersion = CurrentSettingsVersion;
         }
 
@@ -382,7 +435,6 @@ namespace AirPlayReceiverMvp
                 "StartMinimized=" + StartMinimized,
                 "CloseToTray=" + CloseToTray,
                 "AutoFitWindow=" + AutoFitWindow,
-                "FollowPhotosMediaCanvas=" + FollowPhotosMediaCanvas,
                 "AlwaysOnTop=" + AlwaysOnTop,
                 "ShowStreamInTaskbar=" + ShowStreamInTaskbar,
                 "Notify=" + Notify,
@@ -398,6 +450,7 @@ namespace AirPlayReceiverMvp
 
         internal void NormalizePersistedValues()
         {
+            ReceiverName = NormalizeReceiverNameForDiscovery(ReceiverName);
             string pairing = NormalizeChoice(
                 PairingMode, "none", "none", "pin");
             string pin = (FixedPin ?? "").Trim();
@@ -460,6 +513,57 @@ namespace AirPlayReceiverMvp
                     return candidate;
             }
             return fallback;
+        }
+
+        internal static string NormalizeReceiverNameForDiscovery(string value)
+        {
+            var sanitized = new StringBuilder((value ?? "").Length);
+            string input = value ?? "";
+            for (int index = 0; index < input.Length; index++)
+            {
+                char character = input[index];
+                if (character <= '\u001f' || character == '\u007f')
+                    continue;
+                if (char.IsHighSurrogate(character))
+                {
+                    if (index + 1 < input.Length &&
+                        char.IsLowSurrogate(input[index + 1]))
+                    {
+                        sanitized.Append(character);
+                        sanitized.Append(input[++index]);
+                    }
+                    else
+                    {
+                        sanitized.Append('\ufffd');
+                    }
+                    continue;
+                }
+                sanitized.Append(char.IsLowSurrogate(character)
+                    ? '\ufffd' : character);
+            }
+
+            string candidate = sanitized.ToString().Trim();
+            if (candidate.Length == 0)
+                return DiscoveryReceiverNameFallback;
+
+            var canonical = new StringBuilder(candidate.Length);
+            int usedBytes = 0;
+            TextElementEnumerator elements =
+                StringInfo.GetTextElementEnumerator(candidate);
+            while (elements.MoveNext())
+            {
+                string element = elements.GetTextElement();
+                int elementBytes = Encoding.UTF8.GetByteCount(element);
+                if (usedBytes + elementBytes >
+                    DiscoveryReceiverNameMaxUtf8Bytes)
+                    break;
+                canonical.Append(element);
+                usedBytes += elementBytes;
+            }
+
+            return canonical.Length == 0
+                ? DiscoveryReceiverNameFallback
+                : canonical.ToString();
         }
 
         private static bool IsFourDigitAsciiPin(string value)

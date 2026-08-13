@@ -29,22 +29,28 @@ Open one GitHub issue per problem and include:
   app changed the result;
 - whether an AirPlay session was connecting, active, or disconnecting;
 - for a receiver missing after long idle, include the last successful session,
-  Windows lock/unlock times, both automatic idle-discovery decisions, each
-  iPhone browse/tap time, and the first log before manually restarting
-  discovery;
+  Windows lock/unlock times, both timed idle-discovery stages and any unlock
+  fallback decision, each correlated discovery request/generation with PID and
+  ports, each iPhone browse/tap time, and the first log before manually
+  restarting discovery. Also retain the replacement PID and fresh DNS-SD/BLE
+  startup after the manual action;
 - for a Wi-Fi interruption or frozen reconnect, whether the continuity view
   showed connection lost, waiting for image, the Screen Mirroring reconnect
   hint, or faded before the picture actually resumed; retain the log from the
   first feedback warning through any manual reselection and final image/hint;
 - for layout issues, the phone orientation and the app/media being displayed;
-  for the 0.12.9 Photos A/B also state whether the experimental wide-window
-  option was off/on and measure the outer renderer separately from the visible
-  inner photo/video;
+  for Photos also retain the ordered raw/encoded geometry, whether a phone-
+  shaped frame preceded or followed the exact media signature, and measure the
+  outer renderer separately from the visible inner photo/video;
 - if a Windows 10 first install works only after reboot, retain `setup.log`,
   `receiver.log`, Bonjour service/process state, pending-reboot state, and
   iPhone visibility before and after reboot. AeroMirror does not normally
   install a framework that requires reboot, and reinstalling on the same PC is
   not a clean Bonjour reproduction.
+- if a receiver name is changed, state whether AeroMirror displayed a
+  normalization notice and report only its input/effective UTF-8 byte counts,
+  not the private name itself. Version 0.12.13 limits the effective name to 50
+  UTF-8 bytes so `device-ID@name` remains a valid Bonjour label.
 
 Screenshots or a short screen recording are welcome when they do not expose
 private messages, photos, account names, or other personal information.
@@ -67,6 +73,13 @@ time. Before attaching it publicly, remove:
 
 Never upload `receiver-key.pem`, `trusted-clients.txt`, settings containing a
 PIN, memory dumps you have not reviewed, or mirrored photo/video content.
+
+The reflection-based resilience suite must never be pointed at this production
+directory. It creates one GUID-named child of the system temporary directory,
+sets that storage root once before `AppSettings` or logging is initialized,
+waits for a successful logger drain, and removes only that exact root after a
+successful run. A test that cannot establish this isolation must fail before
+it writes persistent state.
 
 ## Crash reports
 
