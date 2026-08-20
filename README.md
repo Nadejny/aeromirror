@@ -163,9 +163,10 @@ included.
 
 ## Current 0.12.17 review release
 
-The source targets 0.12.17/`0.12.17.0`. This normal-channel review build is for
-physical Photos presentation testing; automated checks do not claim that the
-Photos/Camera matrix has passed. Published `v0.12.16` assets remain immutable.
+The source targets 0.12.17/`0.12.17.0`. This normal-channel review Release is
+published for physical Photos presentation testing; automated checks do not
+claim that the Photos/Camera matrix has passed. Earlier public assets remain
+immutable.
 
 0.12.17 adds an **Отображение трансляции** tray submenu. **Полный экран**
 changes the selected Direct3D 11 sink through its real fullscreen property.
@@ -186,10 +187,11 @@ orientation, fullscreen, and zoom checks remain pending. The 147-entry
 corresponding-source ZIP and its no-Git clean rebuild pass; package, Setup,
 and packaged-shell tests also pass. Installed and physical-device acceptance
 remain pending. See the
-[0.12.17 release notes](docs/releases/0.12.17/RELEASE_NOTES.md) and
+[0.12.17 build report](docs/releases/0.12.17/BUILD_REPORT.md),
+[release notes](docs/releases/0.12.17/RELEASE_NOTES.md), and
 [test plan](docs/releases/0.12.17/TEST_PLAN.md).
 
-## Public 0.12.16 review release
+## Prior public 0.12.16 review release
 
 The published `v0.12.16` source targets 0.12.16/`0.12.16.0`. Its narrow change is
 the long-idle receiver policy: AeroMirror no longer disables automatic DNS-SD
@@ -293,7 +295,7 @@ teardown consolidation remain explicit P2 follow-up. Local discovery readiness
 still cannot force iOS browse-cache invalidation, and BLE in-process refresh,
 AWDL, and AirDrop remain separate. Internal 0.12.10–0.12.15 candidates are not
 renumbered or published. The 0.12.17 review release adds presentation controls;
-published 0.12.16 assets remain immutable history.
+all earlier public assets remain immutable history.
 
 ## Installer: recommended
 
@@ -310,13 +312,13 @@ presentation testing. Its managed/native contracts, reproducible source,
 13-entry review package, and Setup lifecycle pass. It keeps 0.12.16 recurring
 same-process discovery maintenance and adds native fullscreen plus explicit
 Photos zoom. Installed-update and physical Photos/Camera/rotation acceptance
-remain pending; published 0.12.16 assets are not replaced.
+remain pending; earlier published assets are not replaced.
 
 Scope and pending physical acceptance are in the
 [0.12.17 release notes](docs/releases/0.12.17/RELEASE_NOTES.md) and
 [test plan](docs/releases/0.12.17/TEST_PLAN.md). Exact tag, public assets,
-digests, and re-download evidence are recorded in a build report only after
-publication. The historical
+digests, and re-download evidence are in the
+[build report](docs/releases/0.12.17/BUILD_REPORT.md). The historical
 [0.12.8 release notes](docs/releases/0.12.8/RELEASE_NOTES.md) and
 [test plan](docs/releases/0.12.8/TEST_PLAN.md) remain available; 0.12.8 was
 never tagged or published. Published 0.12.7 remains immutable history.
@@ -324,8 +326,8 @@ never tagged or published. Published 0.12.7 remains immutable history.
 The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.17 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
 `releases/latest` API to the canonical repository. Canonical and legacy API,
-HTML/latest, and Setup routes are checked for the exact new Release after
-publication.
+HTML/latest, and Setup routes resolve to the same verified `v0.12.17`
+Release.
 
 The installer:
 
@@ -605,6 +607,7 @@ docs/
     0.12.17/
       RELEASE_NOTES.md       Photos presentation review-release summary
       TEST_PLAN.md           fullscreen, zoom, rotation, and package gates
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.16/
       RELEASE_NOTES.md       persistent idle-discovery review summary
       TEST_PLAN.md           recurring visibility and fallback gates

@@ -6,11 +6,13 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current internal candidate — 0.12.17
+## Latest public review release — 0.12.17
 
-- Status: locally packaged and explicitly authorized for a normal-channel
-  review publication, but still uninstalled, untagged, and unpublished at this
-  checkpoint. Public `v0.12.16` remains immutable until `v0.12.17` is created.
+- Status: published as the normal updater-visible review Release. Annotated tag
+  `v0.12.17` resolves to commit
+  `16dffd57f7f105e6bdb90ef95137fc00f5282a68`; GitHub Release
+  `373934492` is `draft=false`, `prerelease=false`, and the current normal
+  latest Release. Earlier public assets remain immutable.
 - User behavior: the tray exposes native fullscreen plus 100–250% uniform zoom
   for only the exact observed Photos `3840x2160 aux=0x0 encoded=3840x2160`
   media canvas. Zoom is explicit, session-scoped, and resets when that class
@@ -28,30 +30,36 @@ next step changes.
   `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
   libuxplay patch SHA-256 is
   `91AF80A36C7D4ECEB6470A1394722F2EC98312407DFA51A9929FC40E4B220CF5`.
-  The 147-entry corresponding-source ZIP is 828,175 bytes with SHA-256
-  `3F1AD0754648E94C0BC989B168B30B6D98A552171C3E4DDF39CB9348EC2036F3`;
+  The exact-tag 147-entry corresponding-source ZIP is 828,175 bytes with
+  SHA-256
+  `369497BB96F94EB2104A9741EDF36638D3EC29AAE17C3B433A95EC7F865AC86C`;
   its no-Git tree validates every pinned hash and rebuilds 57/57 to the same
   reviewed core. The exact 13-entry review payload, packaged-shell resilience,
   x64 `0.12.17.0` Setup, byte-exact embedding, and all three non-installing
-  Setup self-checks pass.
+  Setup self-checks pass. Clean-tag release packaging produces exactly four
+  public assets; `SHA256SUMS.txt`, GitHub API digests, canonical and legacy
+  latest routes, and fresh public re-download byte equality all pass. Exact
+  publication evidence is in
+  `docs/releases/0.12.17/BUILD_REPORT.md`.
 - Boundary: fullscreen enlarges the outer renderer only. Manual zoom crops the
   iPhone-provided canvas and cannot distinguish real dark content from encoded
   bars. Automatic crop, pixel inspection, and `rotate-method=auto` remain off;
   Camera orientation and the physical Photos result are unresolved.
 - Version: shell/Setup source targets `0.12.17.0`, Setup comparison 0.12.17,
   and exactly five script defaults target 0.12.17.
-- Pending: installed update, physical Photos and Camera matrix, exact tag,
-  publication, API digests, and public re-download equality.
-- Immediate next step: freeze the source, create the exact annotated tag and
-  four public assets, publish the normal review Release, verify public bytes,
-  then retain the user's physical fullscreen/zoom/rotation evidence.
+- Pending: installed update/reinstall and the physical Photos, Camera,
+  fullscreen, zoom, rotation, and long-idle discovery matrix.
+- Immediate next step: install the immutable public Setup when authorized and
+  retain physical fullscreen/zoom/rotation plus discovery evidence without
+  moving the tag or replacing any asset.
 
-## Latest public review release — 0.12.16
+## Prior public review release — 0.12.16
 
-- Status: published normal updater-visible persistent idle-discovery review
+- Status: published prior persistent idle-discovery review
   Release. Annotated tag `v0.12.16` resolves to commit
   `c012d51d5cf3194fd647c4c65c20659386043baf`; GitHub Release `373875353` is
-  `draft=false`, `prerelease=false`, and the current normal latest Release.
+  `draft=false` and `prerelease=false`. It remains immutable after
+  `v0.12.17` became the normal latest Release.
   AeroMirror now keeps the automatic same-process DNS-SD refresh schedule
   active for the lifetime of an idle receiver instead of stopping after two
   attempts.

@@ -27,7 +27,7 @@ publication.
 | Physical Photos zoom | PENDING | 100–250% steps enlarge the inner image, crop predictably, reset on exit/new session, and never apply to normal phone-shaped mirroring |
 | Camera and rotation | PENDING | Portrait/landscape, orientation lock, Camera, home screen, and Photos transitions on at least two DPI configurations |
 | Installed update | PENDING | Settings, identity, shortcuts, autostart, runtime, launch, and rollback |
-| Tag and publication | PENDING | Authorization is recorded; exact tag, four assets, checksums, API digests, and public re-download equality remain |
+| Tag and publication | PASS | Annotated `v0.12.17`, Release `373934492`, exact four assets, checksums, API digests, canonical/legacy latest routes, and fresh public re-download equality |
 
 ## Automated contract
 
@@ -95,6 +95,6 @@ continues beyond any fixed number of renewals.
 ## Acceptance boundary
 
 Automated acceptance does not prove physical Photos sizing or rotation.
-Candidate handoff requires the source/provenance and package gates. Publication
-and installation remain separately authorized actions. Do not create a
-0.12.17 build report before publication.
+Publication is complete and is not physical acceptance. Installation remains a
+separately authorized action; exact tag and public-asset evidence is recorded
+in [BUILD_REPORT.md](BUILD_REPORT.md).

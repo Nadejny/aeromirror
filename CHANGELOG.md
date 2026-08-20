@@ -34,7 +34,11 @@
   pinned-hash validation, and extracted clean 57/57 rebuild pass. The exact
   13-entry payload, packaged-shell resilience, x64 Setup, byte-exact embedding,
   and three Setup self-checks pass. Installed and physical-device acceptance
-  remain pending; public `v0.12.16` assets stay immutable.
+  remain pending. Annotated `v0.12.17`, the normal latest Release, exact four
+  assets, API digests, canonical/legacy latest routes, and fresh public
+  re-download equality pass; see the
+  [build report](docs/releases/0.12.17/BUILD_REPORT.md). Earlier public assets
+  stay immutable.
 
 ## 0.12.16 — persistent idle discovery public review release
 

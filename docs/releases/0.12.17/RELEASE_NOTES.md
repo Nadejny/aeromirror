@@ -45,16 +45,19 @@ unavailable results are logged without media content.
   `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`.
 - Libuxplay patch SHA-256:
   `91AF80A36C7D4ECEB6470A1394722F2EC98312407DFA51A9929FC40E4B220CF5`.
-- The 147-entry corresponding-source ZIP is 828,175 bytes with SHA-256
-  `3F1AD0754648E94C0BC989B168B30B6D98A552171C3E4DDF39CB9348EC2036F3`.
+- The exact-tag 147-entry corresponding-source ZIP is 828,175 bytes with
+  SHA-256
+  `369497BB96F94EB2104A9741EDF36638D3EC29AAE17C3B433A95EC7F865AC86C`.
   Its no-Git tree validates every pinned hash and cleanly rebuilds 57/57 to the
   same reviewed core SHA-256.
 - The exact 13-entry review payload, packaged-shell resilience, x64
   `0.12.17.0` Setup, byte-exact embedded inputs, and `/verify-runtime`,
   `/verify-shortcut-selection`, and `/verify-update-lifecycle` pass.
 
-Installed update, physical device, exact-tag, and public re-download gates
-remain pending at this source checkpoint.
+Annotated `v0.12.17`, normal latest Release `373934492`, the exact four
+public assets, GitHub API digests, canonical/legacy latest routes, and fresh
+public re-download equality pass. Installed update and physical-device gates
+remain pending. See [BUILD_REPORT.md](BUILD_REPORT.md) for exact evidence.
 
 ## Known limitations
 
