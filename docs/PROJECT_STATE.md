@@ -6,12 +6,13 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current review release candidate — 0.12.18
+## Latest public review release — 0.12.18
 
-- Status: built locally and not installed, tagged, or published. On 2026-08-20
-  the user explicitly authorized a normal updater-visible review publication
-  before physical acceptance. Public `v0.12.17` and every earlier asset remain
-  immutable until the new exact tag and assets pass public verification.
+- Status: published as the normal updater-visible review Release. Annotated
+  `v0.12.18` resolves to commit
+  `419ed6b199e89cf3c01efa6728f64423d9f049ed`; GitHub Release `373984443`
+  is `draft=false`, `prerelease=false`, and the current latest Release. Public
+  `v0.12.17` and every earlier tag/asset remain immutable.
 - User behavior: the tray exposes one direct **Полный экран (Esc — выйти)**
   action. The three incremental photo-zoom controls are removed. The exact
   observed Photos `3840x2160 aux=0x0 encoded=3840x2160` transport canvas uses
@@ -38,33 +39,38 @@ next step changes.
   `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
   libuxplay patch SHA-256 is
   `11330A0D905CF4480958DAA59B950F3A2CE2B4AD51A18563EBCC77924DD782C4`.
-- Corresponding source: the 147-entry ZIP is 829,835 bytes with SHA-256
-  `ADD131A3B299B859C13834A969232E63C25DC2B6C94C506B27EE9F67351EABBC`.
+- Corresponding source: the final 147-entry ZIP is 829,835 bytes with SHA-256
+  `F4B7F53CABB67E45E6497A8109A87841ED7FE06DBE3409F0E1EC95FF06EFDDFE`.
   Its extracted no-Git tree verifies all pinned inputs and cleanly rebuilds
   57/57 to the reviewed core hash.
 - Version: shell/Setup source targets `0.12.18.0`, Setup comparison 0.12.18,
   and exactly five script defaults target 0.12.18.
-- Package/Setup: the exact 13-entry review ZIP is 1,179,864 bytes with SHA-256
-  `E52070E7FAC722875E9533495BB7C097355DCDEDD81CBDF64809077672E2FFCF`.
+- Package/Setup: the exact tagged 13-entry review ZIP is 1,179,937 bytes with
+  SHA-256
+  `E9250D3061E01471887E8C061A1E80F45CE203D216B71E6A8E2C6B91D7F1242F`.
   Packaged-shell resilience and shell/core/provenance equality pass. The x64
   `0.12.18.0` Setup is 1,412,608 bytes with SHA-256
-  `A5AA2DFAD92B262B85194AF3FA86DA7832A5A650BB210E9F9875078E937C7640`;
+  `93AA1A871A4A3AC0FC22A6960F4B4EC6D577DE5F32B42002656FB14E153E0174`;
   `/verify-runtime`, `/verify-shortcut-selection`, and
   `/verify-update-lifecycle` each exit 0.
-- Pending: installed update, physical portrait/landscape Photos transitions,
-  repeated fullscreen/Esc/Alt+Enter, Camera/rotation, exact tag, four public
-  assets, API digests, and public re-download equality.
-- Immediate next step: commit and tag this exact checkpoint, rebuild the four
-  public assets from the tag, publish the normal review Release, and verify
-  every public download. Physical acceptance remains separate.
+- Publication: the clean tag produced exactly four public assets. Their local
+  SHA-256 values, `SHA256SUMS.txt`, GitHub API digests, canonical and legacy
+  latest routes, and fresh unauthenticated public downloads all agree. Exact
+  identities are recorded in `docs/releases/0.12.18/BUILD_REPORT.md`.
+- Pending: installed update and physical portrait/landscape Photos transitions,
+  repeated fullscreen/Esc/Alt+Enter, Camera/rotation, motion/audio/Stop, and
+  long-idle discovery acceptance.
+- Immediate next step: install the immutable public Setup when authorized and
+  record the physical gallery/fullscreen matrix without moving the tag or
+  replacing any asset.
 
-## Latest public review release — 0.12.17
+## Previous public review release — 0.12.17
 
 - Status: published as the normal updater-visible review Release. Annotated tag
   `v0.12.17` resolves to commit
   `16dffd57f7f105e6bdb90ef95137fc00f5282a68`; GitHub Release
-  `373934492` is `draft=false`, `prerelease=false`, and the current normal
-  latest Release. Earlier public assets remain immutable.
+  `373934492` is `draft=false` and `prerelease=false`. It remains immutable
+  after `v0.12.18` became the normal latest Release.
 - User behavior: the tray exposes native fullscreen plus 100–250% uniform zoom
   for only the exact observed Photos `3840x2160 aux=0x0 encoded=3840x2160`
   media canvas. Zoom is explicit, session-scoped, and resets when that class

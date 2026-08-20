@@ -161,12 +161,12 @@ officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microso
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
 
-## Current 0.12.18 review release candidate
+## Latest public 0.12.18 review release
 
-The source targets 0.12.18/`0.12.18.0`. A normal updater-visible review
-publication is authorized so the gallery/fullscreen behavior can be tested on
-real devices. Until that exact tag and asset set are verified, public
-`v0.12.17` and all of its assets remain immutable.
+The source targets 0.12.18/`0.12.18.0`. Annotated tag `v0.12.18` and normal
+GitHub Release `373984443` are the current updater-visible review release for
+real-device gallery/fullscreen testing. All prior tags and assets remain
+immutable.
 
 The tray now has one direct **Полный экран (Esc — выйти)** action. While the
 native D3D11 window actually covers its monitor without a frame, the shell
@@ -184,16 +184,17 @@ unscaled. This rule reads geometry only: it does not inspect pixels, infer a
 general content rectangle, rotate the stream, or rewrite media.
 
 Managed/native contract tests, two reproducible native builds, staged runtime
-inspection, the loader test, and the 147-entry corresponding-source archive
-plus extracted no-Git rebuild pass. Package, Setup, installed update, physical
-Photos/Camera/rotation, exact-tag, and public re-download checks remain pending.
-See the
+inspection, the loader test, the final 147-entry corresponding-source archive
+plus extracted no-Git rebuild, exact tagged package, x64 Setup, API digests,
+canonical/legacy latest routes, and fresh public re-download equality pass.
+Installed update and physical Photos/Camera/rotation remain pending. See the
 [0.12.18 release notes](docs/releases/0.12.18/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.18/TEST_PLAN.md).
+[test plan](docs/releases/0.12.18/TEST_PLAN.md); exact public identities are in
+the [build report](docs/releases/0.12.18/BUILD_REPORT.md).
 
-## Latest public 0.12.17 review release
+## Previous public 0.12.17 review release
 
-Public `v0.12.17` remains the updater-visible review release with native
+Public `v0.12.17` remains immutable history with native
 fullscreen and explicit 100–250% Photos zoom. Its exact evidence remains in the
 [0.12.17 build report](docs/releases/0.12.17/BUILD_REPORT.md),
 [release notes](docs/releases/0.12.17/RELEASE_NOTES.md), and
@@ -312,29 +313,31 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.17.exe
+AeroMirror-Setup-0.12.18.exe
 ```
 
-`v0.12.17` is the normal updater-visible review Release for physical Photos
-presentation testing. Its managed/native contracts, reproducible source,
-13-entry review package, and Setup lifecycle pass. It keeps 0.12.16 recurring
-same-process discovery maintenance and adds native fullscreen plus explicit
-Photos zoom. Installed-update and physical Photos/Camera/rotation acceptance
-remain pending; earlier published assets are not replaced.
+`v0.12.18` is the normal updater-visible review Release for physical Photos
+and fullscreen testing. Its managed/native contracts, reproducible source,
+13-entry review package, Setup lifecycle, public API digests, and fresh
+re-downloads pass. It keeps 0.12.16 recurring same-process discovery
+maintenance, replaces 0.12.17 manual Photos zoom with automatic portrait fill,
+and makes fullscreen state/exit safe. Installed-update and physical
+Photos/Camera/rotation acceptance remain pending; earlier published assets are
+not replaced.
 
 Scope and pending physical acceptance are in the
-[0.12.17 release notes](docs/releases/0.12.17/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.17/TEST_PLAN.md). Exact tag, public assets,
+[0.12.18 release notes](docs/releases/0.12.18/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.18/TEST_PLAN.md). Exact tag, public assets,
 digests, and re-download evidence are in the
-[build report](docs/releases/0.12.17/BUILD_REPORT.md). The historical
+[build report](docs/releases/0.12.18/BUILD_REPORT.md). The historical
 [0.12.8 release notes](docs/releases/0.12.8/RELEASE_NOTES.md) and
 [test plan](docs/releases/0.12.8/TEST_PLAN.md) remain available; 0.12.8 was
 never tagged or published. Published 0.12.7 remains immutable history.
 
-The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.17 still
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.18 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
 `releases/latest` API to the canonical repository. Canonical and legacy API,
-HTML/latest, and Setup routes resolve to the same verified `v0.12.17`
+HTML/latest, and Setup routes resolve to the same verified `v0.12.18`
 Release.
 
 The installer:
@@ -613,8 +616,9 @@ docs/
   TODO.md                    product and protocol roadmap
   releases/
     0.12.18/
-      RELEASE_NOTES.md       automatic Photos layout candidate summary
+      RELEASE_NOTES.md       automatic Photos layout review-release summary
       TEST_PLAN.md           fullscreen-state and gallery acceptance gates
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.17/
       RELEASE_NOTES.md       Photos presentation review-release summary
       TEST_PLAN.md           fullscreen, zoom, rotation, and package gates
@@ -902,13 +906,13 @@ The current license inventory is an engineering review, not legal advice.
 
 ## Sharing a build
 
-For the public 0.12.17 review Release, share the GitHub Release page or its
+For the public 0.12.18 review Release, share the GitHub Release page or its
 network Setup—not a loose `AeroMirror.exe`. Project policy keeps these assets
 together and immutable:
 
-- `AeroMirror-Setup-0.12.17.exe`;
-- `AeroMirror-source-0.12.17.zip`;
-- `AeroMirror-native-source-0.12.17.zip`;
+- `AeroMirror-Setup-0.12.18.exe`;
+- `AeroMirror-source-0.12.18.zip`;
+- `AeroMirror-native-source-0.12.18.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

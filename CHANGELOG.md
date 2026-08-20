@@ -32,14 +32,16 @@
   `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
   libuxplay patch SHA-256 is
   `11330A0D905CF4480958DAA59B950F3A2CE2B4AD51A18563EBCC77924DD782C4`.
-- Source targets `0.12.18`/`0.12.18.0`. The 147-entry corresponding-source ZIP
-  is 829,835 bytes with SHA-256
-  `ADD131A3B299B859C13834A969232E63C25DC2B6C94C506B27EE9F67351EABBC`;
+- Source targets `0.12.18`/`0.12.18.0`. The final 147-entry corresponding-
+  source ZIP is 829,835 bytes with SHA-256
+  `F4B7F53CABB67E45E6497A8109A87841ED7FE06DBE3409F0E1EC95FF06EFDDFE`;
   its extracted no-Git tree verifies every pinned hash and rebuilds 57/57 to
-  the same core. Package, Setup, installed update, physical
-  Photos/fullscreen/rotation, exact-tag, and public re-download gates remain
-  pending. The user authorized a normal updater-visible review publication on
-  2026-08-20; public `v0.12.17` stays immutable.
+  the same core. The tagged 13-entry package, x64 Setup and all three
+  self-checks pass. Annotated `v0.12.18`, normal latest Release `373984443`,
+  all four API digests, canonical/legacy latest routes, and fresh public
+  re-download equality pass. Installed update and physical
+  Photos/fullscreen/rotation remain pending; all `v0.12.17` assets stay
+  immutable.
 
 ## 0.12.17 — Photos presentation controls (review release)
 

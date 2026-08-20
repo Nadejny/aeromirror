@@ -54,22 +54,25 @@ sink and resets at renderer start.
 - Runtime staging: PASS, 199 binaries and 148 DLLs; 44 requested GStreamer
   features resolve to 27 plug-ins; loader test exits 0.
 - Corresponding source: PASS, 147 entries, 829,835 bytes, SHA-256
-  `ADD131A3B299B859C13834A969232E63C25DC2B6C94C506B27EE9F67351EABBC`;
+  `F4B7F53CABB67E45E6497A8109A87841ED7FE06DBE3409F0E1EC95FF06EFDDFE`;
   the extracted no-Git tree verifies every pinned hash and cleanly rebuilds
   57/57 to the reviewed core hash.
 - Wrapper patch SHA-256 remains
   `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`.
 - Libuxplay patch SHA-256 is
   `11330A0D905CF4480958DAA59B950F3A2CE2B4AD51A18563EBCC77924DD782C4`.
-- Review package: PASS, exact 13 entries, 1,179,864 bytes, SHA-256
-  `E52070E7FAC722875E9533495BB7C097355DCDEDD81CBDF64809077672E2FFCF`;
+- Review package: PASS, exact 13 entries, 1,179,937 bytes, SHA-256
+  `E9250D3061E01471887E8C061A1E80F45CE203D216B71E6A8E2C6B91D7F1242F`;
   packaged-shell resilience and embedded shell/core/provenance equality pass.
 - Setup: PASS, x64 `0.12.18.0`, 1,412,608 bytes, SHA-256
-  `A5AA2DFAD92B262B85194AF3FA86DA7832A5A650BB210E9F9875078E937C7640`;
+  `93AA1A871A4A3AC0FC22A6960F4B4EC6D577DE5F32B42002656FB14E153E0174`;
   all three non-installing self-checks exit 0.
+- Publication: PASS, annotated tag `v0.12.18`, normal latest Release
+  `373984443`, exactly four assets, `SHA256SUMS.txt`, API digests,
+  canonical/legacy latest routes, and fresh public re-download equality.
 
-Installed update, physical device, exact-tag, and public re-download gates are
-pending at this source checkpoint.
+Installed update and physical-device gates remain pending. Publication does
+not convert those rows into acceptance.
 
 ## Limitations
 

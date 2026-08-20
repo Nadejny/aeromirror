@@ -537,9 +537,10 @@ foreground Esc or native Alt+Enter before the normal-window fill is restored.
 The versioned corresponding-source archive/extracted rebuild, exact 13-entry
 review package, packaged-shell resilience, x64 Setup, embedded-input equality,
 and all three non-installing Setup self-checks pass. Physical iPhone behavior
-and a real installed update remain pending. The user authorized a normal
-updater-visible review publication on 2026-08-20 without converting those
-pending physical rows into PASS.
+and a real installed update remain pending. The normal updater-visible
+`v0.12.18` Release, exact four assets, checksums/API digests, canonical/legacy
+latest routes, and fresh public re-download equality pass without converting
+those pending physical rows into PASS.
 
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.

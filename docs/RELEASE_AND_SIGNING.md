@@ -97,23 +97,22 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. The 0.12.18 gallery/fullscreen review candidate is currently local,
-uninstalled, untagged, and unpublished. Its automated source/native/runtime
-gates, the versioned corresponding-source archive plus extracted no-Git
-rebuild, exact review package, x64 Setup, embedded-input equality, and all
-three non-installing Setup self-checks pass. Installed update and the physical
-matrix remain governed by
-[`releases/0.12.18/TEST_PLAN.md`](releases/0.12.18/TEST_PLAN.md). It must not
-move or replace `v0.12.17`. The user explicitly authorized a normal
-updater-visible 0.12.18 review publication on 2026-08-20 before the physical
-matrix; the Release must state that limitation and cannot claim acceptance.
+passes. The 0.12.18 gallery/fullscreen review build is the immutable normal
+latest Release. Annotated tag `v0.12.18`, GitHub Release `373984443`, the exact
+four-asset set, checksums, API digests, canonical/legacy latest routes, and
+fresh public re-download equality pass; exact evidence is in
+[`releases/0.12.18/BUILD_REPORT.md`](releases/0.12.18/BUILD_REPORT.md).
+Installed update and the physical matrix remain governed by
+[`releases/0.12.18/TEST_PLAN.md`](releases/0.12.18/TEST_PLAN.md). Publication
+does not claim physical acceptance, and no tag or public asset may be moved or
+replaced.
 The published 0.12.17 Photos-presentation Release is uninstalled and
 remains a review build until its physical matrix passes; its status is tracked in
 [`releases/0.12.17/TEST_PLAN.md`](releases/0.12.17/TEST_PLAN.md). It must not
-alter or replace any `v0.12.16` asset. The user explicitly authorized a normal
-updater-visible review publication on 2026-08-20 before the physical matrix;
-the Release states that limitation and does not claim acceptance. Annotated
-tag `v0.12.17`, normal Release `373934492`, the exact four-asset set, API
+alter or replace any `v0.12.16` asset. The user explicitly authorized its
+normal updater-visible review publication before the physical matrix; the
+Release states that limitation and does not claim acceptance. Annotated tag
+`v0.12.17`, Release `373934492`, the exact four-asset set, API
 digests, canonical/legacy latest routes, and fresh public re-download equality
 pass; exact evidence is in
 [`releases/0.12.17/BUILD_REPORT.md`](releases/0.12.17/BUILD_REPORT.md). The frozen local 0.12.13
@@ -140,10 +139,10 @@ reproducibility, staged runtime, managed, discovery-pipe, exact package, and
 Setup evidence under
 [`releases/0.12.15/TEST_PLAN.md`](releases/0.12.15/TEST_PLAN.md), but is not
 relabelled or published after the 0.12.16 correction. The untagged
-0.12.10–0.12.15 candidates remain local history. Public `v0.12.17` is the
-immutable normal latest review Release; `v0.12.16`, `v0.12.9`, and
-`v0.12.7` remain immutable historical evidence. Historical 0.11 plans remain
-part of the evidence required before labelling the project 1.0.
+0.12.10–0.12.15 candidates remain local history. Public `v0.12.18` is the
+immutable normal latest review Release; `v0.12.17`, `v0.12.16`, `v0.12.9`,
+and `v0.12.7` remain immutable historical evidence. Historical 0.11 plans
+remain part of the evidence required before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.

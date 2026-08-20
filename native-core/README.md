@@ -188,4 +188,5 @@ has 147 entries. Its extracted no-Git tree validated every pinned hash and
 completed a clean
 57/57 rebuild reproducing core SHA-256
 `C217386CBC916F8889A9C03774390FE7EC7D8C7EE0B6F64358215CACEEB35118`.
-Review payload and Setup verification remain separate pending gates.
+At that prepackage checkpoint, review payload and Setup verification remained
+separate pending gates; both later passed for the tagged release.

@@ -20,13 +20,13 @@ inferred from publication.
 | Native worker/core contracts | PASS | Eight worker scenarios plus parser, transport, SETUP, renderer, and crypto checks |
 | Reproducible native build | PASS | Two clean 57/57 builds reproduce `C217386CBC916F8889A9C03774390FE7EC7D8C7EE0B6F64358215CACEEB35118` |
 | Staged runtime and loader | PASS | 199 binaries, 148 DLLs, 44 features to 27 plug-ins, loader exit 0 |
-| Corresponding source | PASS | 147 entries, 829,835 bytes, SHA-256 `ADD131A3B299B859C13834A969232E63C25DC2B6C94C506B27EE9F67351EABBC`; all pinned hashes and extracted 57/57 no-Git rebuild pass |
+| Corresponding source | PASS | Final 147-entry public asset, 829,835 bytes, SHA-256 `F4B7F53CABB67E45E6497A8109A87841ED7FE06DBE3409F0E1EC95FF06EFDDFE`; all pinned hashes and extracted 57/57 no-Git rebuild pass |
 | Review payload and Setup | PASS | Exact 13 entries, packaged-shell resilience, embedded shell/core/provenance equality, x64 `0.12.18.0`, and all three self-checks |
 | Physical portrait Photos | PENDING | Vertical phone plus vertical photo produces a portrait normal window and usable fill |
 | Physical fullscreen lifecycle | PENDING | Tray/Alt+Enter/Esc and Photos entry/exit never leave a stuck borderless window |
 | Landscape and rotation | PENDING | Trusted landscape stays unscaled; rotation inside/outside Photos is documented accurately |
 | Installed update | PENDING | Settings, identity, shortcuts, autostart, runtime, launch, rollback |
-| Tag and publication | PENDING | Authorization is recorded; exact tag, four assets, checksums, API digests, and public re-download equality remain |
+| Tag and publication | PASS | Annotated `v0.12.18`, normal latest Release `373984443`, exact four assets, checksums, API digests, canonical/legacy latest routes, and fresh public re-download equality |
 
 ## Automated contract
 
@@ -80,4 +80,5 @@ inferred from publication.
 ## Acceptance boundary
 
 Package, installed update, physical behavior, and publication are independent
-gates. Do not add `BUILD_REPORT.md` until a real release is published.
+gates. Publication is now recorded in `BUILD_REPORT.md`; installed and physical
+rows remain pending.
