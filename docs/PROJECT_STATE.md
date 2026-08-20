@@ -6,9 +6,12 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current local candidate — 0.12.16
+## Latest public review release — 0.12.16
 
-- Status: internal pretag persistent idle-discovery maintenance candidate.
+- Status: published normal updater-visible persistent idle-discovery review
+  Release. Annotated tag `v0.12.16` resolves to commit
+  `c012d51d5cf3194fd647c4c65c20659386043baf`; GitHub Release `373875353` is
+  `draft=false`, `prerelease=false`, and the current normal latest Release.
   AeroMirror now keeps the automatic same-process DNS-SD refresh schedule
   active for the lifetime of an idle receiver instead of stopping after two
   attempts.
@@ -54,17 +57,18 @@ next step changes.
   `0.12.16.0` Setup embeds the current payload/provenance exactly and
   `/verify-runtime`, `/verify-shortcut-selection`, and
   `/verify-update-lifecycle` each exit 0. The corresponding-source workflow
-  also passes. These are pretag identities; release-script and public-download
-  identities belong in the post-publication build report.
+  also passes. Clean-tag packaging, the exact four-asset set, checksum/API
+  digest checks, canonical and legacy latest routes, and fresh public
+  re-download byte equality pass. Exact evidence is recorded in
+  `docs/releases/0.12.16/BUILD_REPORT.md`.
 - Physical status: persistent local registration is not proof that an iPhone
   continuously lists the receiver. A real installed 0.12.16 run must cover at
   least two hours idle, repeated iPhone browse checks, lock/unlock, sleep/wake,
   successful mirroring, and manual recovery before visibility is accepted.
-- Immediate next step: commit the reviewed source, create the exact tag, run
-  the clean-tag release script, and publish the explicitly authorized normal
-  GitHub review Release. Do not install it on this PC; installed-update and
-  physical iPhone acceptance remain separate pending rows in
-  `docs/releases/0.12.16/TEST_PLAN.md`.
+- Immediate next step: keep the published tag and assets immutable and run the
+  separately authorized real installed-update/reinstall and two-hour physical
+  Windows/iPhone visibility matrix. This publication run did not install or
+  replace the existing AeroMirror on this PC.
 
 ## Prior frozen internal candidate — 0.12.15
 
@@ -81,10 +85,10 @@ next step changes.
   frozen embedded documentation. Installed update, physical Windows/iPhone,
   exact-tag, GitHub Release, and public re-download gates remain pending.
 - Source targets app/Setup `0.12.15`, Windows PE/file `0.12.15.0`, Setup
-  comparison 0.12.15, and exactly five release-script defaults. Public
-  `v0.12.9` remains the immutable normal latest review Release. Internal
-  0.12.10–0.12.14 source and artifact history is not tagged, reconstructed,
-  or relabelled.
+  comparison 0.12.15, and exactly five release-script defaults. It was
+  superseded without being tagged; public `v0.12.16` is now the immutable
+  normal latest review Release. Internal 0.12.10–0.12.15 source and artifact
+  history is not tagged, reconstructed, or relabelled.
 - Worker lifecycle: mirror, HTTP, audio RTP, and NTP use one explicit
   running/joining/joined contract. Natural exit preserves join debt, concurrent
   stop has one join owner, self-stop defers its join, start failure rolls back,
@@ -447,7 +451,7 @@ next step changes.
   while its frozen local artifacts remain 0.12.10 evidence and must not be
   relabelled. Its pending physical gates are superseded by the 0.12.11 plan.
 
-## Latest public release — 0.12.9
+## Prior public release — 0.12.9
 
 - Status: published normal updater-visible public review Release. The
   implementation, final managed build, complete resilience suite, independent

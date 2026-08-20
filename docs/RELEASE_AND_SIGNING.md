@@ -98,8 +98,8 @@ requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
 passes. The frozen local 0.12.13 candidate remains failed internal history and
-must not be relabelled or silently replaced. The current internal 0.12.16
-persistent idle-discovery candidate uses
+must not be relabelled or silently replaced. The public 0.12.16 persistent
+idle-discovery review Release uses
 [`releases/0.12.16/TEST_PLAN.md`](releases/0.12.16/TEST_PLAN.md). Its managed
 build and deterministic resilience contracts pass: the first renewal remains
 ten minutes, later renewals recur every 20 minutes, active clients defer, and
@@ -109,19 +109,21 @@ provenance without modification. The exact 13-entry review payload, packaged-
 shell resilience, versioned corresponding source, x64 `0.12.16.0` Setup,
 byte-exact embedded inputs, all three Setup self-checks, and unattended
 update/reinstall policy pass after the final documentation freeze. Installed
-update and physical long-idle/iPhone visibility remain pending. Publication is
-explicitly authorized but the clean tag, public assets, re-download check, and
-`BUILD_REPORT.md` do not exist yet.
+update and physical long-idle/iPhone visibility remain pending. The annotated
+`v0.12.16` tag, normal latest GitHub Release, exact four public assets, API
+digests, canonical/legacy latest routes, and fresh re-download byte checks pass;
+exact evidence is in
+[`releases/0.12.16/BUILD_REPORT.md`](releases/0.12.16/BUILD_REPORT.md).
 
 The frozen 0.12.15 native-core candidate retains its complete native,
 reproducibility, staged runtime, managed, discovery-pipe, exact package, and
 Setup evidence under
 [`releases/0.12.15/TEST_PLAN.md`](releases/0.12.15/TEST_PLAN.md), but is not
 relabelled or published after the 0.12.16 correction. The untagged
-0.12.10–0.12.15 candidates remain local history. Public
-`v0.12.9` stays the immutable normal latest Release, with exact evidence under
-`releases/0.12.9/`. Published 0.12.7 evidence and historical 0.11 plans remain
-part of the evidence required before labelling the project 1.0.
+0.12.10–0.12.15 candidates remain local history. Public `v0.12.16` is the
+immutable normal latest Release; `v0.12.9` and `v0.12.7` remain immutable
+historical evidence. Historical 0.11 plans remain part of the evidence required
+before labelling the project 1.0.
 
 The application downloads only after explicit confirmation, verifies the
 asset against GitHub's SHA-256 digest, launches the setup, and then closes.

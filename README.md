@@ -158,9 +158,9 @@ officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microso
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
 
-## Local 0.12.16 candidate
+## Public 0.12.16 review release
 
-The working tree currently targets 0.12.16/`0.12.16.0`. Its narrow change is
+The published `v0.12.16` source targets 0.12.16/`0.12.16.0`. Its narrow change is
 the long-idle receiver policy: AeroMirror no longer disables automatic DNS-SD
 re-registration after two attempts. It waits ten minutes once, then refreshes
 the paired RAOP/AirPlay registrations every 20 minutes while idle. Each normal
@@ -192,9 +192,10 @@ non-installing self-checks, and corresponding-source build also pass after the
 unattended-update change. A local Bonjour-ready result still does not prove
 that an iPhone continuously lists the row; physical two-hour idle, lock/unlock,
 sleep/wake, repeated browse checks, and a real installed update remain pending.
-There is no 0.12.16 tag, public asset, Release, public installer, or
-`BUILD_REPORT.md`. See
-the [0.12.16 release notes](docs/releases/0.12.16/RELEASE_NOTES.md) and
+The normal updater-visible public review Release, exact four-asset set, API
+digests, and fresh public re-downloads pass. See the
+[0.12.16 build report](docs/releases/0.12.16/BUILD_REPORT.md),
+[release notes](docs/releases/0.12.16/RELEASE_NOTES.md), and
 [test plan](docs/releases/0.12.16/TEST_PLAN.md).
 
 ## Frozen 0.12.15 native-core candidate
@@ -259,9 +260,9 @@ Terminal join-failure parent lifetime, broader audio/HLS synchronization,
 remaining startup assertions, optional PIN/SRP depth, and tolerant dual
 teardown consolidation remain explicit P2 follow-up. Local discovery readiness
 still cannot force iOS browse-cache invalidation, and BLE in-process refresh,
-AWDL, and AirDrop remain separate. Internal 0.12.10–0.12.14 candidates are not
-renumbered or published; the public latest download below remains immutable
-`v0.12.9`.
+AWDL, and AirDrop remain separate. Internal 0.12.10–0.12.15 candidates are not
+renumbered or published; the public latest download below is immutable
+`v0.12.16`.
 
 ## Installer: recommended
 
@@ -270,32 +271,32 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.9.exe
+AeroMirror-Setup-0.12.16.exe
 ```
 
-`v0.12.9` is the normal latest updater-visible public review Release. Its
-managed build, resilience, native-source/provenance, Setup/lifecycle,
-exact-tag, checksum, API-digest, canonical/legacy latest-route, and fresh
-public re-download gates pass. It carries the untagged 0.12.8
-presentation-proof work and adds bounded unlock discovery maintenance plus a
-default-off Photos outer-window A/B. Physical Windows 10/Windows 11/iPhone,
-the installed update from public 0.12.7, and actual discovery, Photos, and
-reconnect acceptance remain pending.
+`v0.12.16` is the normal latest updater-visible public review Release. Its
+managed and native contracts, source/provenance, Setup lifecycle, exact tag,
+four-asset set, checksums, API digests, canonical/legacy latest routes, and
+fresh public re-download gates pass. It keeps idle same-process discovery
+maintenance recurring, preserves existing shortcut choices during unattended
+update/reinstall, and carries the frozen 0.12.15 native hardening. A real
+installed update/reinstall and physical Windows/iPhone discovery, media,
+Photos, and reconnect acceptance remain pending.
 
 Exact tag, asset-size, and SHA-256 evidence is in the
-[0.12.9 build report](docs/releases/0.12.9/BUILD_REPORT.md). Scope and pending
+[0.12.16 build report](docs/releases/0.12.16/BUILD_REPORT.md). Scope and pending
 physical acceptance are in the
-[0.12.9 release notes](docs/releases/0.12.9/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.9/TEST_PLAN.md). The historical
+[0.12.16 release notes](docs/releases/0.12.16/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.16/TEST_PLAN.md). The historical
 [0.12.8 release notes](docs/releases/0.12.8/RELEASE_NOTES.md) and
 [test plan](docs/releases/0.12.8/TEST_PLAN.md) remain available; 0.12.8 was
 never tagged or published. Published 0.12.7 remains immutable history.
 
-The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.9 still
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.16 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
 `releases/latest` API to the canonical repository. Canonical and legacy API
-and HTML/latest Setup routes return the same public `v0.12.9` Release ID
-`368804215`, tag, and Setup bytes.
+and HTML/latest Setup routes return the same public `v0.12.16` Release ID
+`373875353`, tag, and Setup bytes.
 
 The installer:
 
@@ -450,8 +451,8 @@ artifacts\installer\AeroMirror-Setup-0.12.16.exe
 
 Public release names use three-part semantic versions such as `0.12.16`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.16.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.16` if that candidate is later published.
+show `0.12.16.0` in a file-property dialog; the AeroMirror UI and published
+GitHub Release intentionally show only `0.12.16`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
@@ -572,8 +573,9 @@ docs/
   TODO.md                    product and protocol roadmap
   releases/
     0.12.16/
-      RELEASE_NOTES.md       persistent idle-discovery candidate summary
+      RELEASE_NOTES.md       persistent idle-discovery review summary
       TEST_PLAN.md           recurring visibility and fallback gates
+      BUILD_REPORT.md        published tag, assets, hashes, and test status
     0.12.15/
       RELEASE_NOTES.md       native-core hardening candidate summary
       TEST_PLAN.md           lifecycle, parser, renderer, and physical gates

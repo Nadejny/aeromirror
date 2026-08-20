@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.12.16 — persistent idle discovery maintenance candidate
+## 0.12.16 — persistent idle discovery public review release
 
-### Candidate scope
+### Release scope
 
 - AeroMirror no longer stops automatic AirPlay re-registration after two idle
   maintenance attempts. The first eligible refresh remains ten minutes after
@@ -48,14 +48,17 @@
 - The earlier 0.12.16 package identities were invalidated by the installer
   behavior change. A fresh exact 13-entry payload, packaged-shell resilience
   run, x64 Setup with byte-exact embedded inputs and all three non-installing
-  self-checks, and corresponding-source build now pass. Final public asset
-  identities are recorded outside the embedded documentation.
+  self-checks, corresponding-source build, clean-tag packaging, API digest,
+  and fresh public re-download checks pass.
 - This is a best-effort periodic DNS-SD re-registration policy, not proof that
   an iPhone continuously lists the receiver. Physical long-idle, sleep/unlock,
   router, and real iPhone browse-cache acceptance remain pending.
-- Public `v0.12.9` remains the immutable normal latest Release. The frozen
-  0.12.15 candidate is not relabelled; 0.12.16 has no tag, GitHub Release,
-  public asset, public installer, or `BUILD_REPORT.md`.
+- [`v0.12.16`](https://github.com/pyram1da/aeromirror/releases/tag/v0.12.16)
+  is published as the normal updater-visible latest review Release from commit
+  `c012d51d5cf3194fd647c4c65c20659386043baf`. Its exact four-asset set,
+  checksums, API digests, and fresh public re-downloads pass; see the
+  [build report](docs/releases/0.12.16/BUILD_REPORT.md). The frozen 0.12.15
+  candidate remains untagged internal history rather than being relabelled.
 
 ## 0.12.15 — native-core lifecycle and parser hardening candidate
 

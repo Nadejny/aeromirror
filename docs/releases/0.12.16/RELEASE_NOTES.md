@@ -2,19 +2,23 @@
 
 ## Status
 
-0.12.16 is an internal pretag candidate. It has no Git tag, GitHub Release,
-public asset, public installer, or `BUILD_REPORT.md`. Public `v0.12.9` remains
-the immutable normal latest Release. The frozen 0.12.15 candidate and its
-artifacts are retained as internal history rather than relabelled.
+0.12.16 is published as the normal updater-visible public review Release:
+
+https://github.com/pyram1da/aeromirror/releases/tag/v0.12.16
+
+Annotated tag `v0.12.16` resolves to commit
+`c012d51d5cf3194fd647c4c65c20659386043baf`. GitHub Release `373875353` is
+`draft=false` and `prerelease=false`. The frozen 0.12.15 candidate and its
+artifacts remain untagged internal history rather than being relabelled.
 
 ## Should I update?
 
 - Yes, as a review candidate if AeroMirror disappears from the iPhone Screen
   Mirroring list after the PC has been idle, or if repeated installer option
   prompts made updates inconvenient.
-- Optional if public 0.12.9 stays visible and stable on your network. Long-idle
-  iPhone visibility and the frozen-frame correction still require physical
-  validation, so this is not a claim of full acceptance.
+- Optional if the version already installed stays visible and stable on your
+  network. Long-idle iPhone visibility and the frozen-frame correction still
+  require physical validation, so this is not a claim of full acceptance.
 
 ## What changed
 
@@ -65,9 +69,10 @@ a newer installed version cannot be downgraded automatically.
 - The live redirected-pipe case refreshes request 98569 in PID 30188 on
   unchanged RAOP/AirPlay port 45023.
 - The earlier 0.12.16 package identities were superseded by the unattended-
-  update change. Exact final public asset sizes, checksums, and re-download
-  evidence will be recorded in the post-publication `BUILD_REPORT.md` rather
-  than embedded into the assets whose bytes they describe.
+  update change. Clean-tag packaging, the exact four-asset set, GitHub API
+  digests, canonical/legacy latest routes, and fresh public re-download byte
+  checks pass. Exact sizes and SHA-256 values are recorded in
+  [BUILD_REPORT.md](BUILD_REPORT.md).
 - Native code is unchanged from frozen 0.12.15. The reviewed core remains
   SHA-256
   `38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`;
@@ -86,7 +91,8 @@ before continuous practical visibility can be accepted.
 This candidate also does not add a new media, Photos crop, Camera rotation, or
 AirDrop correction. The frozen 0.12.15 native hardening and its remaining
 physical frozen-frame plan are carried forward unchanged. A real installed
-update/reinstall, physical visibility/media checks, and public re-download
-verification remain pending until their respective gates run.
+update/reinstall and physical visibility/media checks remain pending until
+their respective gates run. Publication and public re-download verification
+are complete.
 
 See [TEST_PLAN.md](TEST_PLAN.md) for exact automated and physical gates.

@@ -7,9 +7,9 @@ periodically re-announced without interrupting AirPlay activity or repeatedly
 restarting the native process. It distinguishes local registration evidence
 from actual iPhone visibility.
 
-Public `v0.12.9` remains the immutable normal latest Release. Version 0.12.16
-has no tag, GitHub Release, public asset, public installer, or
-`BUILD_REPORT.md`.
+Public `v0.12.16` is the immutable normal latest review Release. Exact tag,
+asset, checksum, API-digest, route, and fresh re-download evidence is recorded
+in [BUILD_REPORT.md](BUILD_REPORT.md).
 
 ## Current evidence status
 
@@ -23,12 +23,13 @@ has no tag, GitHub Release, public asset, public installer, or
 | Native source/runtime identity | PASS | Frozen 0.12.15 patch/provenance/core are unchanged |
 | Review payload and packaged shell | PASS | Focused final local ZIP has exact 13 entries; current/packaged shell equality and packaged resilience pass |
 | Setup self-checks | PASS | x64 `0.12.16.0`, byte-exact embedded inputs, and all three non-installing modes exit 0 |
-| Corresponding source | PASS | Versioned prepared-native-source workflow and archive validation pass; the clean-tag release script will create the public source archives |
+| Corresponding source | PASS | Versioned prepared-native-source workflow, archive validation, and clean-tag public source archives pass |
 | Installed update | PENDING | Settings, identity, shortcuts, autostart, runtime, launch, and rollback |
 | Physical long-idle visibility | PENDING | Two-hour idle run with every renewal and repeated iPhone browse observations |
 | Sleep/unlock and router behavior | PENDING | Deferred/guarded refreshes preserve PID/ports and return practical visibility |
 | Physical mirroring/media regression | PENDING | Connection, motion, audio, Stop, reconnect, and frozen-frame rows pass |
-| Exact tag and GitHub Release | PENDING | Publication is authorized; clean-tag packaging, immutable assets, API digest, and public re-download still must pass |
+| Exact tag and GitHub Release | PASS | Annotated `v0.12.16` resolves to commit `c012d51d5cf3194fd647c4c65c20659386043baf`; Release `373875353` is normal latest |
+| Public asset identity | PASS | Exactly four assets; checksum file, GitHub API digests, canonical/legacy latest routes, and fresh re-download byte equality pass |
 
 Automated checks prove managed scheduling and state transitions. They cannot
 prove remote iPhone browse behavior or continuous visibility.
@@ -47,8 +48,9 @@ another core is present so it cannot replace that receiver's beacon state.
   `0.12.16`;
 - frozen 0.12.15 native patch, provenance, runtime, and source identities are
   unchanged;
-- internal candidates are not relabelled and
-  `docs/releases/0.12.16/BUILD_REPORT.md` does not exist.
+- internal candidates are not relabelled; published `v0.12.16` and its four
+  assets are immutable project history, with exact evidence in
+  `docs/releases/0.12.16/BUILD_REPORT.md`.
 
 ### Installed update and reinstall contract
 
@@ -160,6 +162,6 @@ Source acceptance requires every automated row above. Package acceptance adds
 the exact payload and Setup rows. Physical discovery acceptance additionally
 requires the two-hour and sleep/unlock evidence with real iPhone browse and
 connection results. Local installation remains separately unauthorized in this
-run. GitHub publication is authorized but still requires the clean-tag and
-immutable public-asset gates above. Only after publication may a 0.12.16
-`BUILD_REPORT.md` be added.
+run. Clean-tag packaging and the immutable public-asset gates above pass.
+Publication does not satisfy the separately pending installed or physical
+acceptance rows.

@@ -229,10 +229,11 @@ self-checks. The focused final rebuild against frozen embedded documentation
 also passes with exact 13-entry/package-shell/provenance/Setup equality and
 fresh-process resilience. Physical visible-recovery evidence remains pending.
 
-The local 0.12.16 candidate removes the managed two-renewal exhaustion point
-without changing native registration ownership. A fresh idle epoch still waits
-ten minutes once; every later terminal result rearms a 20-minute same-process,
-same-port DNS-SD refresh. Active mirroring and client grace defer due work.
+The published 0.12.16 review release removes the managed two-renewal exhaustion
+point without changing native registration ownership. A fresh idle epoch still
+waits ten minutes once; every later terminal result rearms a 20-minute same-
+process, same-port DNS-SD refresh. Active mirroring and client grace defer due
+work.
 Only renewals one and two may use the legacy full-process restart fallback;
 later command failure keeps the receiver listening and retries on the recurring
 schedule. This is a low-frequency availability policy, not proof that an iPhone
@@ -241,8 +242,9 @@ browse cache continuously contains the receiver.
 Its managed build, deterministic resilience contracts, live same-PID/same-port
 pipe refresh, exact 13-entry review payload, packaged-shell resilience,
 versioned corresponding source, x64 Setup, embedded-input equality, and all
-three Setup self-checks pass. Installed and physical long-idle acceptance is
-still pending.
+three Setup self-checks pass. The annotated tag, normal latest GitHub Release,
+four-asset/API-digest set, and fresh public re-download checks also pass.
+Installed and physical long-idle acceptance is still pending.
 
 The 0.12.16 installer policy now treats an existing installation as an
 unattended update/reinstall transaction after the application-level
