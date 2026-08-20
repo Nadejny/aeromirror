@@ -149,3 +149,44 @@ collide with existing local artifacts, invalidate provenance and test evidence,
 and make numeric update comparisons wrong for machines already running an
 intermediate build. A corrective change after a frozen candidate always gets a
 newer version; a published tag and its assets remain immutable under D-004.
+
+## D-012 — Keep idle AirPlay DNS-SD maintenance recurring in place
+
+**Status:** accepted
+
+The normal receiver is a long-lived tray service, so automatic discovery
+maintenance must not silently expire merely because the machine has been idle
+for more than two scheduled checks. A fresh idle epoch waits ten minutes once;
+subsequent eligible maintenance recurs every 20 minutes for the lifetime of the
+running receiver. The preferred operation is the request-correlated native
+refresh of the paired RAOP/AirPlay DNS-SD generation in the same process and on
+the same ports.
+
+Real AirPlay/PIN/client activity and active mirroring take priority and defer
+maintenance. To avoid turning a local registration problem into recurring
+process churn, only automatic renewals one and two may use the historical full-
+process fallback. Later failure leaves the listener alive and schedules the
+next same-process attempt. Manual **Restart discovery** and a physical IPv4
+change remain explicit full DNS-SD-and-BLE restarts.
+
+This policy treats low-frequency re-registration as inexpensive receiver
+upkeep; it does not claim that Bonjour callbacks attest remote iPhone browse
+state, invalidate an iOS cache, implement AWDL, or refresh the separate BLE
+helper in place. Those require physical evidence or separate architecture.
+
+## D-013 — Make installed updates and reinstalls unattended
+
+**Status:** accepted
+
+The application asks for update confirmation before launching the verified
+Setup asset. After that confirmation, Setup must not ask again for Start menu,
+desktop, or post-install launch choices. A manually opened newer Setup and a
+same-version reinstall follow the same unattended path when an installed copy
+is detected. Setup preserves the shortcut state already chosen by the user and
+relaunches AeroMirror after successful replacement.
+
+A clean first install remains interactive because no prior shortcut preference
+exists. A newer installed version is excluded from the unattended path so a
+downgrade continues to require an explicit warning and confirmation. This
+choice changes presentation only; it does not weaken download-digest checks,
+the backup/rollback transaction, per-user identity, or settings persistence.

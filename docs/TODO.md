@@ -213,6 +213,44 @@ ingress, appsrc, decode/sink, and Direct3D 11 Present progress without taking
 recovery action. Physical frozen-frame reproduction and the exact causal stage
 remain pending.
 
+The local 0.12.15 candidate extends that audit across the supported default
+native path. Mirror, HTTP, audio RTP, and NTP share explicit worker/join
+ownership; socket and parser boundaries are bounded; SETUP publication is
+transactional; crypto and allocation failures return status; and renderer/bus
+operations retain their owning GStreamer objects. A fully decrypted and NAL-
+validated type-0 access unit may request one nonblocking implicit resume while
+still being delivered normally. Build, executable lifecycle/crypto, source-
+contract, frozen-review, patch/provenance, and two-clean-build gates pass. The
+validated source workflow creates a 147-entry archive. Extracted-source
+rebuild, staged runtime/loader, managed build/resilience, and live discovery-
+pipe gates now pass. The initial exact 13-entry package and x64 Setup gate also
+passes with packaged-shell resilience, embedded-input equality, and all three
+self-checks. The focused final rebuild against frozen embedded documentation
+also passes with exact 13-entry/package-shell/provenance/Setup equality and
+fresh-process resilience. Physical visible-recovery evidence remains pending.
+
+The local 0.12.16 candidate removes the managed two-renewal exhaustion point
+without changing native registration ownership. A fresh idle epoch still waits
+ten minutes once; every later terminal result rearms a 20-minute same-process,
+same-port DNS-SD refresh. Active mirroring and client grace defer due work.
+Only renewals one and two may use the legacy full-process restart fallback;
+later command failure keeps the receiver listening and retries on the recurring
+schedule. This is a low-frequency availability policy, not proof that an iPhone
+browse cache continuously contains the receiver.
+
+Its managed build, deterministic resilience contracts, live same-PID/same-port
+pipe refresh, exact 13-entry review payload, packaged-shell resilience,
+versioned corresponding source, x64 Setup, embedded-input equality, and all
+three Setup self-checks pass. Installed and physical long-idle acceptance is
+still pending.
+
+The 0.12.16 installer policy now treats an existing installation as an
+unattended update/reinstall transaction after the application-level
+confirmation. Existing Start menu and desktop shortcut choices are preserved,
+AeroMirror is relaunched, a clean first install remains interactive, and an
+automatic downgrade is refused. Deterministic Setup and source-contract checks
+pass; a real installed update remains a physical release gate.
+
 - [ ] Add a versioned local IPC contract, preferably JSON Lines over a
   per-user Windows named pipe.
 - [ ] Emit explicit core states such as `starting`, `mdnsReady`, `ready`,
@@ -249,12 +287,13 @@ remain pending.
 - [ ] Add safe in-process BLE helper reconfiguration and acknowledgement before
   describing discovery refresh as a same-process DNS-SD-and-BLE operation.
   Until then, manual discovery and physical IPv4 change remain full restarts.
-- [x] Add one managed final post-renewal SessionUnlock refresh with cooldown,
-  readiness/client/network guards, a strict per-idle limit, and activity
-  re-arming; keep it documented as a mitigation rather than root-cause proof.
-- [x] Add one additional timed idle renewal 20 minutes after stage 1, sharing the
-  same final allowance with SessionUnlock and deferring safely for active
-  mirroring/client grace.
+- [x] Keep a guarded post-renewal `SessionUnlock` refresh available after any
+  completed idle renewal, with cooldown, readiness/client/network guards, and
+  activity re-arming; keep it documented as a mitigation rather than root-cause
+  proof.
+- [x] Keep timed idle renewal recurring every 20 minutes after stage 1, defer
+  safely for active mirroring/client grace, saturate the lifetime counter, and
+  limit disruptive legacy process-restart fallback to attempts one and two.
 - [ ] Physically validate the long-idle/unlock mitigation on Windows 10 and 11,
   retaining same-PID/port DNS-SD generations, first-tap iPhone browse/request
   evidence, manual full-restart controls, and BLE state. Isolate whether the
@@ -265,6 +304,12 @@ remain pending.
   pending-reboot indicators, firewall/network state, and the effect of a
   receiver stop/start. Do not add a generic reboot prompt or machine-wide
   Bonjour mutation without a proven prerequisite and rollback design.
+- [x] Skip the shortcut/launch option form for updates and same-version
+  reinstalls, preserve the installed shortcut state, relaunch after success,
+  and retain an explicit downgrade boundary.
+- [ ] Run a real installed update and same-version reinstall, retaining Setup
+  logs and verifying shortcut absence/presence, settings, identity, autostart,
+  relaunch, and rollback on a controlled failure.
 - [ ] Give every core launch and AirPlay session a correlation ID so shell and
   native logs can be matched.
 - [ ] Define protocol version negotiation so an older shell can fail safely
@@ -295,11 +340,42 @@ first; do not combine a broad rewrite with Photos, AWDL, or viewer UI changes.
 - [ ] Audit cross-thread and callback safety: owner-context rules, atomics and
   lock ordering, callback-after-free risk, stop/join ordering, process-lifetime
   state that must reset, and commands admitted during internal loop recovery.
-- [ ] Fix the confirmed natural mirror-worker exit/join gap: a worker can set
+- [x] Fix the confirmed natural mirror-worker exit/join gap: a worker can set
   `running=false` before its callback tail is joined, allowing a restart wedge,
   leaked thread handle, or a narrow destroy/tail lifetime race. Add explicit
   join ownership plus natural-exit, socket-loss, rapid-restart, and
   unsupported-codec tests in a focused patch.
+- [x] Apply the same explicit lifecycle helper to mirror, HTTP, audio RTP, and
+  NTP workers. Cover create rollback, natural exit with join debt, one
+  concurrent join owner, self-stop deferral, restart exclusion, and terminal
+  join failure with the exact production helper and eight executable cases.
+- [x] Bound the supported default mirror/HTTP/SETUP/pairing/RTP/NTP/metadata/
+  buffer/crypto inputs and make partial setup transactional. Keep hostile-input
+  validation source-bound; do not turn the release gate into iterative exploit
+  reproduction.
+- [x] Make video/audio renderer bus ownership explicit and retain GStreamer
+  objects across unlocked work and callback teardown. Permit a valid-frame
+  implicit resume only after complete decrypt/NAL validation, deliver the same
+  access unit, and avoid leaky appsrc drop semantics.
+- [x] Materialize the exact patch/provenance set and reproduce one reviewed
+  executable in two clean compatible builds; validate the generated 147-entry
+  corresponding-source archive and all 37 libuxplay/41 total patched-source
+  hashes.
+- [x] Rebuild the core from the no-Git extracted prepared source, inspect the
+  staged runtime and loader, and pass managed build/resilience plus live
+  same-PID/same-port discovery-pipe verification.
+- [x] Complete the initial exact 13-entry review-payload and x64 Setup gate,
+  including packaged-shell resilience, byte-exact embedded payload, and all
+  three Setup self-checks.
+- [x] Run the focused final package/Setup rebuild after embedded documentation
+  freezes; repeat exact entry, shell equality, resilience, embedded provenance,
+  version, and all three Setup self-check gates.
+- [ ] Complete physical freeze/lifecycle acceptance for 0.12.15.
+- [ ] Resolve the accepted P2 native backlog: define parent lifetime after a
+  terminal platform join failure; broaden audio and optional HLS
+  synchronization review; replace remaining startup assertions with checked
+  rollback where practical; deepen optional PIN/SRP coverage; and consolidate
+  the currently tolerant dual teardown paths under one authoritative owner.
 - [ ] Audit protocol/error semantics against the pinned upstream source:
   request parsing, authentication/pairing, connection ownership, `TEARDOWN`,
   partial HTTP/reset failure, retry/backoff, media bus errors, and distinctions

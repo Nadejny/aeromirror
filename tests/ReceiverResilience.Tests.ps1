@@ -36,6 +36,8 @@ $receiverCoreSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "Receiver\ReceiverContext.Core.cs"))
 $receiverContextSource = [IO.File]::ReadAllText(
     (Join-Path $sourceRoot "Receiver\ReceiverContext.cs"))
+$installerSource = [IO.File]::ReadAllText(
+    (Join-Path $projectRoot "installer\AirPlayReceiverSetup.cs"))
 Assert-True (-not $settingsFormSource.Contains(
         "followPhotosMediaCanvas") -and
     -not $settingsFormSource.Contains(
@@ -230,8 +232,13 @@ Assert-True ($nativeFeedbackTimerSource.IndexOf(
 Assert-True ($nativePatchSource.Contains(
         "static volatile gint aeromirror_active_present_proof_ready") -and
     $nativePatchSource.Contains(
-        "sync && renderer->aeromirror_present_proof_ready ? 1 : 0") -and
-    $nativePatchSource.Contains("if (!sync)")) `
+        "sync && selected_present_proof_ready ? 1 : 0") -and
+    $nativePatchSource.Contains("selected_present_proof_ready =") -and
+    $nativePatchSource.Contains(
+        "renderer_used->aeromirror_present_proof_ready") -and
+    $nativePatchSource.Contains("if (!sync)") -and
+    $nativePatchSource.Contains(
+        "&aeromirror_active_present_proof_ready) == 1")) `
     "D3D11 presentation capability is atomic and unavailable when video sync is disabled"
 Assert-True ([regex]::Matches(
         $nativePatchSource, 'g_signal_handler_disconnect\(').Count -ge 2 -and
@@ -550,6 +557,15 @@ Assert-True (-not [regex]::IsMatch($source, 'WaitForExit\s*\(\s*\)')) `
 Assert-True ($source.Contains(
     "WorkingDirectory = Path.GetDirectoryName(installerPath)")) `
     "the updater launches Setup outside the installed application directory"
+Assert-True ($settingsFormSource.Contains(
+        'Arguments = "/update /delete-source"') -and
+    $installerSource.Contains("ShouldRunAutomaticInstall(") -and
+    $installerSource.Contains("RunAutomaticInstall(updateRequested);") -and
+    $installerSource.Contains(
+        "InstallerOperations.GetShortcutSelection(true)") -and
+    $installerSource.Contains(
+        "AeroMirror relaunched after automatic install.")) `
+    "application updates and installed-version reinstalls run without the option form, preserve shortcut choices, and relaunch AeroMirror"
 Assert-True ($source.Contains("discoveryRefreshAfterNetworkCheck")) `
     "manual discovery refresh survives an unavailable physical network"
 $manualDiscoveryStart = $receiverContextSource.IndexOf(
@@ -647,11 +663,11 @@ Assert-True ($source.Contains(
 Assert-True ($source.Contains(
         "private const int IdleDiscoveryFirstRenewalMinutes = 10") -and
     $source.Contains(
-        "private const int IdleDiscoverySecondRenewalMinutes = 20") -and
+        "private const int IdleDiscoveryRecurringRenewalMinutes = 20") -and
     $source.Contains(
-        "private const int IdleDiscoveryRenewalLimit = 2") -and
+        "private const int IdleDiscoveryLegacyRestartLimit = 2") -and
     $source.Contains('"session-unlock discovery refresh"')) `
-    "long-idle discovery has two bounded timed stages and retains the unlock fallback"
+    "long-idle discovery has one initial stage, a recurring stage, and a bounded legacy-restart allowance"
 $automaticRenewalHandlerStart = $receiverCoreSource.IndexOf(
     "private void HandleAutomaticDiscoveryMaintenance")
 $automaticRenewalHandlerEnd = $receiverCoreSource.IndexOf(
@@ -668,10 +684,16 @@ Assert-True ($automaticRenewalHandlerSource.Contains(
         "ref clientActivityGraceDueTicks") -and
     $automaticRenewalHandlerSource.Contains(
         'TryRequestNativeDiscoveryRefresh(') -and
+    $automaticRenewalHandlerSource.Contains(
+        "nextCompletedRenewals <=") -and
+    $automaticRenewalHandlerSource.Contains(
+        "IdleDiscoveryLegacyRestartLimit") -and
+    $automaticRenewalHandlerSource.Contains(
+        "ArmIdleDiscoveryRenewalIfAvailable();") -and
     [regex]::Matches(
         $automaticRenewalHandlerSource,
-        'ScheduleRestart\("idle discovery renewal"').Count -eq 1) `
-    "the timed renewal prefers same-PID refresh and retains one legacy restart fallback"
+        'ScheduleRestart\s*\(\s*"idle discovery renewal"').Count -eq 1) `
+    "timed renewal prefers same-PID refresh, bounds legacy restart fallback, and rearms recurring maintenance"
 $unlockHandlerStart = $source.IndexOf(
     "private void HandleSessionUnlockDiscoveryRefresh")
 $unlockHandlerEnd = $source.IndexOf(
@@ -730,7 +752,7 @@ Assert-True ($unlockHandlerSource.Contains(
     $unlockRefreshGateIndex -ge 0 -and
     $unlockRefreshGateIndex -lt $unlockRenewalConsumeIndex -and
     $unlockRenewalConsumeIndex -lt $unlockScheduleIndex) `
-    "only the deterministic Refresh action consumes the final allowance and schedules a restart"
+    "only the deterministic Refresh action advances the recurring count and may schedule a bounded legacy restart"
 Assert-True (-not $source.Contains("post-session discovery renewal")) `
     "a completed session does not force an unconditional core restart"
 Assert-True ($source.Contains('parts.Add("-reset 15")')) `
@@ -907,7 +929,7 @@ Assert-True ($placeholderCloseCallCount -ge 5) `
 $sessionResetStart = $source.IndexOf(
     "private void ResetCoreSessionTracking")
 $sessionResetEnd = $source.IndexOf(
-    "private void ResetIdleDiscoveryRenewalLimit", $sessionResetStart)
+    "private void ResetIdleDiscoveryRenewalSchedule", $sessionResetStart)
 Assert-True ($sessionResetStart -ge 0 -and
     $sessionResetEnd -gt $sessionResetStart) `
     "core-session reset has a focused implementation boundary"
@@ -2687,7 +2709,7 @@ Assert-True ($null -ne $consumeLostRecovery) `
     "lost-client recovery exposes a focused one-shot state transition"
 Assert-True ($null -ne $getIdleRenewalDelay -and
     $null -ne $evaluateAutomaticRenewal) `
-    "timed discovery renewal exposes deterministic delay and allowance transitions"
+    "timed discovery renewal exposes deterministic initial and recurring transitions"
 Assert-True ($null -ne $evaluateUnlockRefresh) `
     "session-unlock discovery maintenance exposes a deterministic action transition"
 Assert-True ($null -ne $onSessionSwitch) `
@@ -2753,14 +2775,20 @@ function Invoke-UnlockDiscoveryDecision(
 }
 $firstIdleDelay = [int]$getIdleRenewalDelay.Invoke(
     $null, [object[]]@(0))
-$secondIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+$firstRecurringIdleDelay = [int]$getIdleRenewalDelay.Invoke(
     $null, [object[]]@(1))
-$exhaustedIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+$laterRecurringIdleDelay = [int]$getIdleRenewalDelay.Invoke(
     $null, [object[]]@(2))
+$longRunningIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+    $null, [object[]]@(1000000))
+$invalidIdleDelay = [int]$getIdleRenewalDelay.Invoke(
+    $null, [object[]]@(-1))
 Assert-True ($firstIdleDelay -eq 10 -and
-    $secondIdleDelay -eq 20 -and
-    $exhaustedIdleDelay -eq 0) `
-    "idle discovery maps allowance 0 to ten minutes, allowance 1 to twenty minutes, and stops at 2"
+    $firstRecurringIdleDelay -eq 20 -and
+    $laterRecurringIdleDelay -eq 20 -and
+    $longRunningIdleDelay -eq 20 -and
+    $invalidIdleDelay -eq 0) `
+    "idle discovery waits ten minutes once and then keeps a twenty-minute recurring schedule"
 function Invoke-AutomaticDiscoveryDecision(
     [int]$CompletedRenewals,
     [long]$DueTicks,
@@ -2792,51 +2820,58 @@ $automaticFirstDecision = Invoke-AutomaticDiscoveryDecision `
 Assert-True ($automaticFirstDecision.Action -eq "Refresh" -and
     $automaticFirstDecision.NextDueTicks -eq 0 -and
     $automaticFirstDecision.NextCompletedRenewals -eq 1) `
-    "the first due timer consumes exactly allowance 0 to 1"
+    "the first due timer advances renewal count 0 to 1"
 $automaticSecondDecision = Invoke-AutomaticDiscoveryDecision `
     1 $automaticDue $false ([long]0) `
     $automaticNow.AddMinutes(-21) $automaticNow
 Assert-True ($automaticSecondDecision.Action -eq "Refresh" -and
     $automaticSecondDecision.NextDueTicks -eq 0 -and
     $automaticSecondDecision.NextCompletedRenewals -eq 2) `
-    "the second due timer consumes exactly allowance 1 to 2"
-$automaticExhaustedDecision = Invoke-AutomaticDiscoveryDecision `
+    "the first recurring timer advances renewal count 1 to 2"
+$automaticThirdDecision = Invoke-AutomaticDiscoveryDecision `
     2 $automaticDue $false ([long]0) `
     $automaticNow.AddMinutes(-21) $automaticNow
-Assert-True ($automaticExhaustedDecision.Action -eq "None" -and
-    $automaticExhaustedDecision.NextDueTicks -eq 0 -and
-    $automaticExhaustedDecision.NextCompletedRenewals -eq 2) `
-    "the exhausted timer allowance cannot create a third restart"
+Assert-True ($automaticThirdDecision.Action -eq "Refresh" -and
+    $automaticThirdDecision.NextDueTicks -eq 0 -and
+    $automaticThirdDecision.NextCompletedRenewals -eq 3) `
+    "recurring discovery remains active after the former two-renewal limit"
+$automaticSaturatedDecision = Invoke-AutomaticDiscoveryDecision `
+    ([int]::MaxValue) $automaticDue $false ([long]0) `
+    $automaticNow.AddMinutes(-21) $automaticNow
+Assert-True ($automaticSaturatedDecision.Action -eq "Refresh" -and
+    $automaticSaturatedDecision.NextDueTicks -eq 0 -and
+    $automaticSaturatedDecision.NextCompletedRenewals -eq [int]::MaxValue) `
+    "a process-lifetime renewal counter saturates without disabling maintenance"
 $automaticFutureDue = $automaticNow.AddMinutes(1).Ticks
 $automaticNotDueDecision = Invoke-AutomaticDiscoveryDecision `
-    1 $automaticFutureDue $false ([long]0) `
+    2 $automaticFutureDue $false ([long]0) `
     $automaticNow.AddMinutes(-21) $automaticNow
 Assert-True ($automaticNotDueDecision.Action -eq "None" -and
     $automaticNotDueDecision.NextDueTicks -eq $automaticFutureDue -and
-    $automaticNotDueDecision.NextCompletedRenewals -eq 1) `
-    "a not-yet-due second stage preserves its exact deadline and allowance"
+    $automaticNotDueDecision.NextCompletedRenewals -eq 2) `
+    "a not-yet-due recurring stage preserves its exact deadline and count"
 $automaticRecentRefresh = $automaticNow.AddMinutes(-1)
 $automaticAntiChurnDecision = Invoke-AutomaticDiscoveryDecision `
-    1 $automaticDue $false ([long]0) `
+    2 $automaticDue $false ([long]0) `
     $automaticRecentRefresh $automaticNow
 Assert-True ($automaticAntiChurnDecision.Action -eq "None" -and
     $automaticAntiChurnDecision.NextDueTicks -eq
         $automaticNow.AddMinutes(20).Ticks -and
-    $automaticAntiChurnDecision.NextCompletedRenewals -eq 1) `
-    "the two-minute anti-churn guard postpones stage 2 without consuming its allowance"
+    $automaticAntiChurnDecision.NextCompletedRenewals -eq 2) `
+    "the two-minute anti-churn guard postpones recurring maintenance without advancing its count"
 $automaticActiveDecision = Invoke-AutomaticDiscoveryDecision `
-    1 $automaticDue $true ([long]0) `
+    3 $automaticDue $true ([long]0) `
     $automaticNow.AddMinutes(-21) $automaticNow
 $automaticGraceDecision = Invoke-AutomaticDiscoveryDecision `
-    1 $automaticDue $false $automaticNow.AddSeconds(30).Ticks `
+    3 $automaticDue $false $automaticNow.AddSeconds(30).Ticks `
     $automaticNow.AddMinutes(-21) $automaticNow
 Assert-True ($automaticActiveDecision.Action -eq "None" -and
     $automaticGraceDecision.Action -eq "None" -and
     $automaticActiveDecision.NextDueTicks -eq $automaticDue -and
     $automaticGraceDecision.NextDueTicks -eq $automaticDue -and
-    $automaticActiveDecision.NextCompletedRenewals -eq 1 -and
-    $automaticGraceDecision.NextCompletedRenewals -eq 1) `
-    "active mirroring and client grace preserve the due timer and allowance for a later idle pass"
+    $automaticActiveDecision.NextCompletedRenewals -eq 3 -and
+    $automaticGraceDecision.NextCompletedRenewals -eq 3) `
+    "active mirroring and client grace preserve recurring maintenance for a later idle pass"
 $unlockNow = [DateTime]::UtcNow
 $unlockIdleRefresh = $unlockNow.AddMinutes(-11)
 $refreshDecision = Invoke-UnlockDiscoveryDecision `
@@ -2845,27 +2880,27 @@ $refreshDecision = Invoke-UnlockDiscoveryDecision `
 Assert-True ($refreshDecision.Action -eq "Refresh" -and
     $refreshDecision.NextDueTicks -eq 0 -and
     $refreshDecision.NextCompletedRenewals -eq 2) `
-    "a healthy long-idle unlock consumes allowance 1 to 2 and requests the final refresh"
+    "a healthy long-idle unlock advances count 1 to 2 and requests a guarded refresh"
 $unlockAfterTimedSecondDecision = Invoke-UnlockDiscoveryDecision `
     $automaticSecondDecision.NextCompletedRenewals `
     $true $true $true $true $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
-Assert-True ($unlockAfterTimedSecondDecision.Action -eq "None" -and
-    $unlockAfterTimedSecondDecision.NextCompletedRenewals -eq 2) `
-    "a timed second renewal consumes the shared final allowance before a later unlock"
+Assert-True ($unlockAfterTimedSecondDecision.Action -eq "Refresh" -and
+    $unlockAfterTimedSecondDecision.NextCompletedRenewals -eq 3) `
+    "a later unlock can refresh discovery after recurring timed maintenance"
 $timedAfterUnlockDecision = Invoke-AutomaticDiscoveryDecision `
     $refreshDecision.NextCompletedRenewals $automaticDue $false ([long]0) `
     $automaticNow.AddMinutes(-21) $automaticNow
-Assert-True ($timedAfterUnlockDecision.Action -eq "None" -and
-    $timedAfterUnlockDecision.NextCompletedRenewals -eq 2) `
-    "an unlock refresh consumes the shared final allowance before a later timed pass"
-$exhaustedDecision = Invoke-UnlockDiscoveryDecision `
+Assert-True ($timedAfterUnlockDecision.Action -eq "Refresh" -and
+    $timedAfterUnlockDecision.NextCompletedRenewals -eq 3) `
+    "recurring timed maintenance continues after an unlock refresh"
+$recurringUnlockDecision = Invoke-UnlockDiscoveryDecision `
     2 $true $true $true $true $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
-Assert-True ($exhaustedDecision.Action -eq "None" -and
-    $exhaustedDecision.NextDueTicks -eq 0 -and
-    $exhaustedDecision.NextCompletedRenewals -eq 2) `
-    "the consumed second allowance cannot create a third restart"
+Assert-True ($recurringUnlockDecision.Action -eq "Refresh" -and
+    $recurringUnlockDecision.NextDueTicks -eq 0 -and
+    $recurringUnlockDecision.NextCompletedRenewals -eq 3) `
+    "the old two-renewal boundary no longer disables a later guarded unlock refresh"
 $firstPendingDecision = Invoke-UnlockDiscoveryDecision `
     0 $true $true $true $true $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
@@ -2874,28 +2909,28 @@ Assert-True ($firstPendingDecision.Action -eq "None" -and
     "unlock cannot replace the normal first idle renewal"
 $cooldownRefresh = $unlockNow.AddMinutes(-9)
 $cooldownDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $true $true $true $false $false ([long]0) `
+    3 $true $true $true $true $false $false ([long]0) `
     $cooldownRefresh $unlockNow
 Assert-True ($cooldownDecision.Action -eq "RetryLater" -and
     $cooldownDecision.NextDueTicks -eq
         $cooldownRefresh.AddMinutes(10).Ticks -and
-    $cooldownDecision.NextCompletedRenewals -eq 1) `
-    "the cooldown preserves allowance 1 and reschedules at its exact deadline"
+    $cooldownDecision.NextCompletedRenewals -eq 3) `
+    "the cooldown preserves the recurring count and reschedules at its exact deadline"
 $busyDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $true $true $true $true $false ([long]0) `
+    3 $true $true $true $true $true $false ([long]0) `
     $unlockIdleRefresh $unlockNow
 Assert-True ($busyDecision.Action -eq "RetryLater" -and
     $busyDecision.NextDueTicks -eq $unlockNow.AddSeconds(5).Ticks -and
-    $busyDecision.NextCompletedRenewals -eq 1) `
-    "busy restart or network work receives an exact five-second retry without consuming allowance"
+    $busyDecision.NextCompletedRenewals -eq 3) `
+    "busy restart or network work receives an exact five-second retry without advancing the recurring count"
 $readinessDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $false $true $true $false $false ([long]0) `
+    3 $true $false $true $true $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
 $localDiscoveryDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $true $false $true $false $false ([long]0) `
+    3 $true $true $false $true $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
 $physicalNetworkDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $true $true $false $false $false ([long]0) `
+    3 $true $true $true $false $false $false ([long]0) `
     $unlockIdleRefresh $unlockNow
 Assert-True ($readinessDecision.Action -eq "RetryLater" -and
     $localDiscoveryDecision.Action -eq "RetryLater" -and
@@ -2906,15 +2941,15 @@ Assert-True ($readinessDecision.Action -eq "RetryLater" -and
         $unlockNow.AddSeconds(5).Ticks) `
     "unlock waits five seconds for an idle readiness check, local discovery marker, and cached physical IPv4"
 $activeDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $true $true $true $false $true ([long]0) `
+    3 $true $true $true $true $false $true ([long]0) `
     $unlockIdleRefresh $unlockNow
 $graceDecision = Invoke-UnlockDiscoveryDecision `
-    1 $true $true $true $true $false $false `
+    3 $true $true $true $true $false $false `
     $unlockNow.AddSeconds(30).Ticks $unlockIdleRefresh $unlockNow
 Assert-True ($activeDecision.Action -eq "None" -and
     $graceDecision.Action -eq "None" -and
-    $activeDecision.NextCompletedRenewals -eq 1 -and
-    $graceDecision.NextCompletedRenewals -eq 1) `
+    $activeDecision.NextCompletedRenewals -eq 3 -and
+    $graceDecision.NextCompletedRenewals -eq 3) `
     "unlock never interrupts mirroring or AirPlay client grace"
 Assert-True ([int]$parseFeedbackRecoverySeconds.Invoke(
         $null,

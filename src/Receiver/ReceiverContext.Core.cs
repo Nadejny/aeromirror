@@ -23,9 +23,9 @@ namespace AirPlayReceiverMvp
         private const int FeedbackGapPlaceholderSeconds = 4;
         private const int FeedbackVideoRecoveryWaitSeconds = 3;
         private const int IdleDiscoveryFirstRenewalMinutes = 10;
-        private const int IdleDiscoverySecondRenewalMinutes = 20;
+        private const int IdleDiscoveryRecurringRenewalMinutes = 20;
         private const int IdleDiscoveryUnlockRetryCooldownMinutes = 10;
-        private const int IdleDiscoveryRenewalLimit = 2;
+        private const int IdleDiscoveryLegacyRestartLimit = 2;
 
         private enum LostConnectionRecoveryAction
         {
@@ -418,7 +418,7 @@ namespace AirPlayReceiverMvp
         {
             ResetRapidExitWindow();
             ResetSharedAutomaticRecoveryBudget();
-            ResetIdleDiscoveryRenewalLimit();
+            ResetIdleDiscoveryRenewalSchedule();
             Log("Manual AirPlay discovery refresh requested.");
             Interlocked.Exchange(
                 ref discoveryRefreshAfterNetworkCheck, 1);
@@ -620,6 +620,13 @@ namespace AirPlayReceiverMvp
                         "using the bounded legacy process-restart fallback.");
                     ScheduleRestart(
                         "native discovery refresh timeout", false, 500);
+                }
+                else if (IsCoreRunning)
+                {
+                    Log("Periodic native discovery refresh request " +
+                        request + " timed out; the receiver remains running " +
+                        "and will retry on the recurring idle schedule.");
+                    ArmIdleDiscoveryRenewalIfAvailable();
                 }
             }
         }
@@ -939,7 +946,7 @@ namespace AirPlayReceiverMvp
                     ? "the deferred settings restart received a new " +
                         graceSeconds + "-second grace period"
                     : "no post-session settings restart was pending") +
-                ", and the bounded idle discovery sequence was re-armed " +
+                ", and the persistent idle discovery schedule was re-armed " +
                 "with its first renewal in ten minutes.");
         }
 
@@ -1785,6 +1792,13 @@ namespace AirPlayReceiverMvp
                                 "native discovery refresh fallback",
                                 false, 500);
                         }
+                        else if (!ready && IsCoreRunning)
+                        {
+                            Log("Periodic native discovery refresh failed; " +
+                                "the receiver remains running and will retry " +
+                                "on the recurring idle schedule.");
+                            ArmIdleDiscoveryRenewalIfAvailable();
+                        }
                     }
                 }
 
@@ -1993,7 +2007,7 @@ namespace AirPlayReceiverMvp
             appliedVideoOrientation = 0;
         }
 
-        private void ResetIdleDiscoveryRenewalLimit()
+        private void ResetIdleDiscoveryRenewalSchedule()
         {
             lock (postSessionMaintenanceSync)
             {
@@ -2012,9 +2026,17 @@ namespace AirPlayReceiverMvp
         {
             if (completedRenewals == 0)
                 return IdleDiscoveryFirstRenewalMinutes;
-            if (completedRenewals == 1)
-                return IdleDiscoverySecondRenewalMinutes;
+            if (completedRenewals > 0)
+                return IdleDiscoveryRecurringRenewalMinutes;
             return 0;
+        }
+
+        private static int IncrementIdleDiscoveryRenewalCount(
+            int completedRenewals)
+        {
+            return completedRenewals < int.MaxValue
+                ? completedRenewals + 1
+                : int.MaxValue;
         }
 
         private void ArmIdleDiscoveryRenewalIfAvailable()
@@ -2060,8 +2082,7 @@ namespace AirPlayReceiverMvp
             if (dueTicks <= 0 || nowTicks < dueTicks)
                 return AutomaticDiscoveryRenewalAction.None;
 
-            if (completedRenewals < 0 ||
-                completedRenewals >= IdleDiscoveryRenewalLimit)
+            if (completedRenewals < 0)
             {
                 nextDueTicks = 0;
                 return AutomaticDiscoveryRenewalAction.None;
@@ -2081,7 +2102,8 @@ namespace AirPlayReceiverMvp
                 return AutomaticDiscoveryRenewalAction.None;
             }
 
-            nextCompletedRenewals = completedRenewals + 1;
+            nextCompletedRenewals = IncrementIdleDiscoveryRenewalCount(
+                completedRenewals);
             nextDueTicks = 0;
             return AutomaticDiscoveryRenewalAction.Refresh;
         }
@@ -2196,15 +2218,27 @@ namespace AirPlayReceiverMvp
                     ref idleDiscoveryRenewalUsed, nextCompletedRenewals);
                 Interlocked.Exchange(
                     ref idleDiscoveryRenewalDueTicks, 0);
-                Log("Renewing idle AirPlay discovery (" +
-                    nextCompletedRenewals + "/" +
-                    IdleDiscoveryRenewalLimit + ") after prolonged " +
+                bool allowLegacyRestart = nextCompletedRenewals <=
+                    IdleDiscoveryLegacyRestartLimit;
+                Log("Renewing idle AirPlay discovery (renewal " +
+                    nextCompletedRenewals + ") after prolonged " +
                     "inactivity without a mirroring session.");
                 lastAutomaticDiscoveryRefreshUtc = now;
                 if (!TryRequestNativeDiscoveryRefresh(
-                        "idle discovery renewal", true))
+                        "idle discovery renewal", allowLegacyRestart))
                 {
-                    ScheduleRestart("idle discovery renewal", false, 1200);
+                    if (allowLegacyRestart)
+                    {
+                        ScheduleRestart(
+                            "idle discovery renewal", false, 1200);
+                    }
+                    else
+                    {
+                        Log("The periodic same-process discovery renewal " +
+                            "could not start; the receiver remains running " +
+                            "and will retry on the recurring idle schedule.");
+                        ArmIdleDiscoveryRenewalIfAvailable();
+                    }
                 }
             }
         }
@@ -2227,7 +2261,7 @@ namespace AirPlayReceiverMvp
         {
             nextDueTicks = 0;
             nextCompletedRenewals = completedRenewals;
-            if (completedRenewals != 1 || !coreRunning || mirrorActive ||
+            if (completedRenewals < 1 || !coreRunning || mirrorActive ||
                 (clientGraceDueTicks > 0 && clientGraceDueTicks > nowTicks) ||
                 lastRefreshUtc == DateTime.MinValue)
                 return SessionUnlockDiscoveryAction.None;
@@ -2247,7 +2281,8 @@ namespace AirPlayReceiverMvp
                 return SessionUnlockDiscoveryAction.RetryLater;
             }
 
-            nextCompletedRenewals = IdleDiscoveryRenewalLimit;
+            nextCompletedRenewals = IncrementIdleDiscoveryRenewalCount(
+                completedRenewals);
             return SessionUnlockDiscoveryAction.Refresh;
         }
 
@@ -2336,15 +2371,28 @@ namespace AirPlayReceiverMvp
                     nextCompletedRenewals);
                 Interlocked.Exchange(ref idleDiscoveryRenewalDueTicks, 0);
                 lastAutomaticDiscoveryRefreshUtc = now;
+                bool allowLegacyRestart = nextCompletedRenewals <=
+                    IdleDiscoveryLegacyRestartLimit;
                 Log("Windows session unlocked after prolonged AirPlay idle; " +
                     "local sockets, at least one local discovery marker, and " +
-                    "the cached physical IPv4 are ready, so the final bounded " +
+                    "the cached physical IPv4 are ready, so a guarded " +
                     "discovery re-registration will run.");
                 if (!TryRequestNativeDiscoveryRefresh(
-                        "session-unlock discovery refresh", true))
+                        "session-unlock discovery refresh",
+                        allowLegacyRestart))
                 {
-                    ScheduleRestart(
-                        "session-unlock discovery refresh", false, 1200);
+                    if (allowLegacyRestart)
+                    {
+                        ScheduleRestart(
+                            "session-unlock discovery refresh", false, 1200);
+                    }
+                    else
+                    {
+                        Log("The guarded session-unlock discovery refresh " +
+                            "could not start; the receiver remains running " +
+                            "and will retry on the recurring idle schedule.");
+                        ArmIdleDiscoveryRenewalIfAvailable();
+                    }
                 }
             }
         }

@@ -240,12 +240,6 @@ foreach ($sourceProperty in $provenance.protectedSources.PSObject.Properties) {
         -Description ("Protected unmodified source " + $sourceProperty.Name)
 }
 
-$libuxplayPatchText = Get-Content -LiteralPath $libuxplayPatch `
-    -Raw -Encoding UTF8
-if ($libuxplayPatchText -match '(?i)audio_renderer\.c') {
-    throw "The reviewed hotfix must not modify audio_renderer.c."
-}
-
 Assert-BinaryContainsAsciiToken -Path $buildGStreamerCore `
     -Token ([string]$provenance.buildGStreamerVersion) `
     -Description "Build-toolchain GStreamer core"

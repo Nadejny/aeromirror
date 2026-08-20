@@ -1017,7 +1017,9 @@ namespace AirPlayReceiverMvp
                             this,
                             "Запустить обновление до версии " +
                             availableUpdate.Version.ToString(3) +
-                            "?\r\n\r\nПриложение закроется, настройки сохранятся.",
+                            "?\r\n\r\nПриложение закроется, обновится без " +
+                            "повторного выбора ярлыков и запустится снова. " +
+                            "Текущие настройки и ярлыки сохранятся.",
                             "AeroMirror",
                             MessageBoxButtons.YesNo,
                             MessageBoxIcon.Question);

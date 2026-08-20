@@ -65,6 +65,23 @@ only after queued writes complete. Production continues to use
 `%LOCALAPPDATA%\AirPlayReceiverMvp`; test reflection never redirects or edits
 that directory.
 
+### Installed update and reinstall lifecycle
+
+The shell downloads and verifies the exact versioned Setup asset, asks once
+whether to proceed, launches it with `/update`, and exits. Setup owns the rest
+of the transaction. When `/update` is present, or Setup detects an installed
+version that is not newer than itself, it does not create an options window.
+It snapshots the existing Start menu and desktop shortcut state, stops every
+process whose executable is inside the per-user install directory, installs
+through the existing backup/rollback transaction, recreates only those
+shortcuts, and starts the installed shell again.
+
+A clean first install remains interactive. A detected newer installed version
+does not enter the automatic path, so a downgrade retains the explicit warning
+and confirmation boundary. Settings, logs, receiver identity, trust state, and
+the verified runtime cache live outside the replaced application directory and
+are not members of this file transaction.
+
 ## Integration contract
 
 The current shell depends on these native integration behaviors:
@@ -173,6 +190,19 @@ The current shell depends on these native integration behaviors:
     video own independent checked clock state. The legacy geometry marker stays
     unchanged; additional option/action evidence uses a separate diagnostic
     marker.
+14. The 0.12.15 candidate gives mirror, HTTP, audio RTP, and NTP workers one
+    explicit lifecycle contract. Natural exit preserves join debt, a single
+    caller owns join, self-stop defers join, and restart cannot overtake an
+    unjoined tail. Accepted mirror and HTTP sockets are made blocking before
+    publication and use Windows-correct timeouts. A valid type-0 video access
+    unit may clear a stale suspended state only after complete receive,
+    decryption, and NAL validation; one nonblocking implicit-resume request is
+    made before the same unit is delivered. Video renderer operations retain
+    lock-protected GStreamer references, bus callbacks retain their bus-owning
+    renderer, and destruction waits for callbacks already in flight. Audio bus
+    handling likewise maps to the originating renderer. This is the supported
+    default path; the optional HLS path remains outside this synchronization
+    claim, and physical visible recovery is still a device-test gate.
 
 The patched core receives its receiver arguments directly from the shell.
 AeroMirror does not write the PIN or the current launch configuration to
@@ -192,8 +222,11 @@ false ready state.
 
 ## Managed discovery maintenance
 
-Normal automatic discovery maintenance remains bounded around real activity.
-Idle, unlock, and native-health recovery prefer an in-process refresh that
+Normal automatic discovery maintenance remains guarded around real activity
+but is no longer exhausted after two idle attempts. The managed shell schedules
+one refresh ten minutes into a fresh idle epoch and, after every terminal
+result, schedules the next one 20 minutes later for as long as the receiver
+stays running and idle. Idle, unlock, and native-health recovery prefer an in-process refresh that
 preserves the receiver process and HTTP/RAOP/AirPlay ports. The native core
 replaces the paired DNS-SD registration generation, pumps Bonjour callbacks,
 and retries failed registration with bounded 1, 2, 5, 10, and 30 second delays.
@@ -202,10 +235,15 @@ defers the command rather than interrupting the connection.
 
 The managed request remains correlated to the current process, request ID,
 generation, and advertised ports. It waits for the accepted/deferred and
-terminal result markers and permits only bounded attempts. If the command is
-unsupported, rejected, times out, or repeatedly fails, the existing managed
-fallback can perform a full receiver restart. Stale markers from an earlier
-process or request cannot settle the current operation.
+terminal result markers. Only renewal one or two may use the existing full-
+process fallback if the command is unsupported, rejected, times out, or fails.
+From renewal three onward, failure leaves the listening core alive and rearms
+the 20-minute schedule. This bounds disruptive process replacement without
+silently disabling long-lived discovery maintenance. A Windows unlock after
+any completed renewal may request another guarded refresh after the existing
+cooldown. Incoming AirPlay activity and a physical network-profile change
+start a fresh ten-minute epoch. Stale markers from an earlier process or
+request cannot settle the current operation.
 
 The settings layer removes ASCII control characters, repairs invalid UTF-16,
 and persists a receiver name of at most 50 UTF-8 bytes without splitting a
@@ -231,6 +269,58 @@ attest that an iPhone can see the advertisement or force a phone to invalidate
 a cached browse result. Bonjour remains an external machine-wide service. The
 receiver observes its state but does not start, stop, repair, uninstall, or
 otherwise mutate that service.
+
+## Native worker, protocol, and renderer ownership
+
+The supported default native receiver has four long-lived worker owners:
+mirror transport, HTTP/RTSP, audio RTP, and NTP timing. Each owner embeds the
+same lifecycle state and holds its own socket and thread handle. Starting is
+permitted only from a joined state. A successful create publishes running;
+create failure rolls back to joined. A worker tail publishes exited while
+retaining join debt, so another thread must still join the platform handle.
+One concurrent stop caller becomes the join owner; a stop originating on the
+worker itself records the request but defers that join. A terminal platform
+join failure deliberately prevents parent destruction, and its broader parent-
+lifetime policy remains P2 follow-up.
+
+Listener sockets stay nonblocking so stop/recovery can observe the loop.
+Accepted mirror and HTTP streams are explicitly returned to blocking mode
+before they become connection state. Receive/send timeouts are represented in
+the platform's required units, and timeout/interruption is retried only while
+the owning lifecycle is still running. EOF, normal software stop, fatal media
+failure, and reconnect-to-accept are distinct transitions.
+
+Session setup is transactional. Request shape, key/timing fields, stream type,
+ports, and peer data are validated before the connection owns mirror, timing,
+or audio objects. Socket/thread start functions return failed, busy, or
+successful status. Any partial first or stream SETUP rolls back in reverse
+ownership order and cannot return a successful response containing invalid or
+unpublished ports. Mirror payload, HTTP, metadata, artwork, RTP/NTP, buffer,
+and crypto paths have bounded inputs and checked failures; crypto errors return
+status rather than terminating the process.
+
+The renderer boundary is reference based. Under the renderer lock, a render,
+pause, resume, flush, or bus operation selects its codec/format owner and takes
+references to the required GStreamer objects. Work proceeds without holding
+the selection lock, then releases those references. Video bus callbacks also
+hold an owner callback reference; final destruction first removes the global
+selection, then waits for callbacks that already acquired the old owner before
+unref/free. The unused H.264 or H.265 renderer remains retained until final
+destroy because its bus watch can still identify it. Audio bus recovery maps
+the incoming bus to its own renderer instead of consulting one global active
+format.
+
+A client pause option still pauses the renderer normally. If the sender omits
+an explicit resume option but later sends a complete type-0 video access unit,
+that unit becomes implicit-resume evidence only after decryption and bounded
+NAL validation succeed. The mirror worker clears its suspended flag, emits one
+fixed `AEROMIRROR_VIDEO_IMPLICIT_RESUME reason=valid-type0` marker, requests a
+nonblocking resume, and continues delivering the same unit. Configuration,
+report/control, encrypted-but-unvalidated, incomplete, or invalid input cannot
+take this path. No leaky appsrc policy is used to hide backpressure. The marker
+proves parser and action ordering only; decoded, presented, and visibly moving
+video still requires correlated health/Present evidence and a physical screen
+recording.
 
 ## Renderer-window fitting
 

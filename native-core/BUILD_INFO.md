@@ -11,9 +11,14 @@ arguments before the legacy Qt settings UI can rewrite them. AeroMirror 0.12.8
 adds epoch-correlated D3D11 presentation proof for feedback-gap recovery.
 AeroMirror 0.12.13 adds bounded request-correlated DNS-SD pair refresh in the
 same process and on the same ports, including persistent owner-thread callback
-pumping and recovery across transient internal GLib-loop resets. The source bundle
-contains the complete upstream trees and both patches separately and applied
-in place.
+pumping and recovery across transient internal GLib-loop resets. AeroMirror
+0.12.15 expands the libuxplay patch into a full native-core safety audit across
+worker lifecycle, socket ownership, parsers, setup/pairing, RTP/NTP, crypto,
+buffers, and both renderers. The source bundle contains the complete upstream
+trees and both patches separately and applied in place. Two clean compatible
+0.12.15 builds reproduce the executable hash recorded below. The final source
+archive contains 147 validated entries; its no-Git extracted tree validates all
+pinned hashes and a clean 57/57 rebuild reproduces the same executable.
 
 ## Exact inputs
 
@@ -23,15 +28,21 @@ in place.
   `437f37514257d9cb513ac7fbdee743b4da85852e`
 - AeroMirror patches: `uxplay-windows-headless.patch` and
   `libuxplay-aeromirror.patch`
-- Patched files: `src/airplayworker.cpp`, `src/main.cpp`,
-  `src/mainwindow.cpp`, `src/mainwindow.h`,
-  `libuxplay/lib/dnssd.c`, `libuxplay/lib/dnssd.h`,
-  `libuxplay/lib/http_handlers.h`, `libuxplay/lib/raop.h`,
-  `libuxplay/lib/raop_handlers.h`,
-  `libuxplay/lib/raop_rtp_mirror.c`,
-  `libuxplay/renderers/video_renderer.c`,
-  `libuxplay/renderers/video_renderer.h`, `libuxplay/uxplay.cpp`, and
-  `libuxplay/uxplay_api.h`
+- Patched wrapper files: `src/airplayworker.cpp`, `src/main.cpp`,
+  `src/mainwindow.cpp`, and `src/mainwindow.h`
+- Patched libuxplay files: `lib/crypto.c`, `lib/crypto.h`, `lib/dnssd.c`,
+  `lib/dnssd.h`, `lib/fairplay_playfair.c`, `lib/http_handlers.h`,
+  `lib/http_request.c`, `lib/http_request.h`, `lib/http_response.c`,
+  `lib/http_response.h`, `lib/httpd.c`, `lib/mirror_buffer.c`,
+  `lib/mirror_buffer.h`, `lib/mirror_payload_parser.c`,
+  `lib/mirror_payload_parser.h`, `lib/netutils.c`, `lib/netutils.h`,
+  `lib/pairing.c`, `lib/pairing.h`, `lib/raop.c`, `lib/raop.h`,
+  `lib/raop_buffer.c`, `lib/raop_handlers.h`, `lib/raop_ntp.c`,
+  `lib/raop_ntp.h`, `lib/raop_rtp.c`, `lib/raop_rtp.h`,
+  `lib/raop_rtp_mirror.c`, `lib/raop_rtp_mirror.h`, `lib/utils.c`,
+  `lib/worker_lifecycle.c`, `lib/worker_lifecycle.h`,
+  `renderers/audio_renderer.c`, `renderers/video_renderer.c`,
+  `renderers/video_renderer.h`, `uxplay.cpp`, and `uxplay_api.h`
 - Architecture: x64, MSYS2 UCRT64
 - Compiler recorded in the binary:
   `gcc.exe (Rev6, Built by MSYS2 project) 16.1.0`
@@ -52,8 +63,17 @@ in place.
   managed Windows audio selection.
 - Engineering build/staging GStreamer input: 1.28.5. It is not the
   redistributed-runtime version recorded above.
-- Resulting patched executable SHA-256:
-  `5A6C8AEBC381F6090AD87CBB622A370B1BA0F29923B387C72C2AE07D78605F36`
+- AeroMirror 0.12.15 compatible executable SHA-256 reproduced by both clean
+  builds:
+  `38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`
+- Materialized libuxplay patch SHA-256:
+  `E8233FFD59BFC49181D32BBD64A6C94A338FD31939B28A18C7FC7A3B5F14195D`
+- Provenance pins 37 libuxplay sources and 41 patched sources in total. The
+  final corresponding-source archive contains 147 entries, is 826,213 bytes,
+  and has SHA-256
+  `DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`.
+  Its no-Git extracted tree passes the same input/hash validation, and a clean
+  57/57 build reproduces the reviewed executable.
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
   sections are stripped from the released executable.
@@ -83,6 +103,14 @@ immutable remote timestamp through a signed, clock-epoch-protected offset;
 audio retains an independent checked mapping. These source and arithmetic
 properties are regression-tested, while the original physical frozen-frame
 symptom remains unverified until a new-device log is captured.
+The 0.12.15 audit then makes worker and socket lifetime states explicit,
+validates bounded HTTP/RTSP and mirror media structures before use, makes
+SETUP and crypto publication transactional, and hardens RTP/NTP endpoint and
+packet validation. Video/audio renderer callbacks take synchronized retained
+GStreamer references across teardown. A complete decrypted and validated
+type-0 video access unit now performs one implicit resume when the sender has
+left the stream suspended without the usual resume option, before that same
+access unit is delivered. This narrow repair remains physically unverified.
 Unsupported photo, slideshow, and photo-preload feature bits are no
 longer advertised by this screen-mirroring-focused receiver. The
 shell uses the backward-compatible video-size marker to adapt the renderer
@@ -93,9 +121,9 @@ keeps beacon diagnostics separate from the stdout command protocol and
 keeps receiver arguments alive for the full native startup call. Headless or
 external `--uxplay` launches now return before the wrapper removes or replaces
 `-vs`/`-fs`. The source packaging script verifies that both complete binary
-Git diffs exactly match the reviewed patches and separately pins the unchanged
-`libuxplay/renderers/audio_renderer.c`; no native audio-renderer fallback is
-part of this hotfix.
+Git diffs exactly match the reviewed patches. The audited
+`libuxplay/renderers/audio_renderer.c` and every new or modified source are
+individually pinned in provenance.
 
 DNS-SD identity and TXT storage now belong to the full `dnssd_t` lifetime,
 while each RAOP/AirPlay service-ref pair is rolled back and refreshed
@@ -120,6 +148,11 @@ their embedded 1.28.1 version, and the wasapi2 property before staging. It
 also verifies that the separate build prefix contains GStreamer 1.28.5. The
 executable contains no
 `.debug_*` sections or local checkout path.
+
+The final staged-runtime audit covers 199 binaries and 148 staged DLLs. All 44
+requested GStreamer features resolve to 27 plug-ins, and a manual staged
+`--loader-test` exits 0. These are 0.12.15 prepackage checks; they do not imply
+that the review payload or Setup has been built.
 
 ## Rebuild from this source bundle
 

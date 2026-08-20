@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$UpstreamRoot,
 
-    [string]$Version = "0.12.14"
+    [string]$Version = "0.12.16"
 )
 
 $ErrorActionPreference = "Stop"
@@ -178,24 +178,51 @@ if ($statusDifferences.Count -ne 0) {
 
 $libModified = @(
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
-        status --short --untracked-files=no
+        status --short --untracked-files=all
 )
 $expectedLibModified = @(
+    " M lib/crypto.c",
+    " M lib/crypto.h",
     " M lib/dnssd.c",
     " M lib/dnssd.h",
+    " M lib/fairplay_playfair.c",
     " M lib/http_handlers.h",
+    " M lib/http_request.c",
+    " M lib/http_request.h",
+    " M lib/http_response.c",
+    " M lib/http_response.h",
+    " M lib/httpd.c",
+    " M lib/mirror_buffer.c",
+    " M lib/mirror_buffer.h",
+    " M lib/netutils.c",
+    " M lib/netutils.h",
+    " M lib/pairing.c",
+    " M lib/pairing.h",
+    " M lib/raop.c",
     " M lib/raop.h",
+    " M lib/raop_buffer.c",
     " M lib/raop_handlers.h",
+    " M lib/raop_ntp.c",
+    " M lib/raop_ntp.h",
+    " M lib/raop_rtp.c",
+    " M lib/raop_rtp.h",
     " M lib/raop_rtp_mirror.c",
+    " M lib/raop_rtp_mirror.h",
+    " M lib/utils.c",
+    " M renderers/audio_renderer.c",
     " M renderers/video_renderer.c",
     " M renderers/video_renderer.h",
     " M uxplay.cpp",
-    " M uxplay_api.h"
+    " M uxplay_api.h",
+    "?? lib/mirror_payload_parser.c",
+    "?? lib/mirror_payload_parser.h",
+    "?? lib/worker_lifecycle.c",
+    "?? lib/worker_lifecycle.h"
 )
 $libStatusDifferences = @(
     Compare-Object $libModified $expectedLibModified)
 if ($libStatusDifferences.Count -ne 0) {
-    throw "libuxplay contains changes other than the reviewed AeroMirror marker patch."
+    throw "libuxplay contains changes other than the reviewed AeroMirror core patch."
 }
 
 $reviewedPatch = Join-Path (
@@ -234,22 +261,62 @@ $reviewedLibPatch = Join-Path (
 Assert-FileHash -Path $reviewedLibPatch `
     -Expected $provenance.libuxplayPatchSha256 `
     -Description "Reviewed libuxplay patch"
-$reviewedLibPatchText = Get-Content -LiteralPath $reviewedLibPatch `
-    -Raw -Encoding UTF8
-if ($reviewedLibPatchText -match '(?i)audio_renderer\.c') {
-    throw "The reviewed hotfix must not modify audio_renderer.c."
-}
 $actualLibPatch = [IO.Path]::GetTempFileName()
+$actualLibIndex = Join-Path ([IO.Path]::GetTempPath()) (
+    "aeromirror-libuxplay-index-" + [Guid]::NewGuid().ToString("N"))
+$previousGitIndexFile = $env:GIT_INDEX_FILE
 try {
+    $env:GIT_INDEX_FILE = $actualLibIndex
+    & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
+        read-tree HEAD
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to create the temporary libuxplay index."
+    }
+    & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
+        add -N -- `
+        "lib/mirror_payload_parser.c" `
+        "lib/mirror_payload_parser.h" `
+        "lib/worker_lifecycle.c" `
+        "lib/worker_lifecycle.h"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to add new reviewed sources to the temporary index."
+    }
     & git -c ("safe.directory=" + $libuxplay) -C $libuxplay `
         diff --binary --no-ext-diff `
         ("--output=" + $actualLibPatch) -- `
+        "lib/crypto.c" `
+        "lib/crypto.h" `
         "lib/dnssd.c" `
         "lib/dnssd.h" `
+        "lib/fairplay_playfair.c" `
         "lib/http_handlers.h" `
+        "lib/http_request.c" `
+        "lib/http_request.h" `
+        "lib/http_response.c" `
+        "lib/http_response.h" `
+        "lib/httpd.c" `
+        "lib/mirror_buffer.c" `
+        "lib/mirror_buffer.h" `
+        "lib/mirror_payload_parser.c" `
+        "lib/mirror_payload_parser.h" `
+        "lib/netutils.c" `
+        "lib/netutils.h" `
+        "lib/pairing.c" `
+        "lib/pairing.h" `
+        "lib/raop.c" `
         "lib/raop.h" `
+        "lib/raop_buffer.c" `
         "lib/raop_handlers.h" `
+        "lib/raop_ntp.c" `
+        "lib/raop_ntp.h" `
+        "lib/raop_rtp.c" `
+        "lib/raop_rtp.h" `
         "lib/raop_rtp_mirror.c" `
+        "lib/raop_rtp_mirror.h" `
+        "lib/utils.c" `
+        "lib/worker_lifecycle.c" `
+        "lib/worker_lifecycle.h" `
+        "renderers/audio_renderer.c" `
         "renderers/video_renderer.c" `
         "renderers/video_renderer.h" `
         "uxplay.cpp" `
@@ -266,8 +333,16 @@ try {
     }
 }
 finally {
+    $env:GIT_INDEX_FILE = $previousGitIndexFile
     if (Test-Path -LiteralPath $actualLibPatch) {
         Remove-Item -LiteralPath $actualLibPatch -Force
+    }
+    if (Test-Path -LiteralPath $actualLibIndex) {
+        Remove-Item -LiteralPath $actualLibIndex -Force
+    }
+    $actualLibIndexLock = $actualLibIndex + ".lock"
+    if (Test-Path -LiteralPath $actualLibIndexLock) {
+        Remove-Item -LiteralPath $actualLibIndexLock -Force
     }
 }
 
@@ -329,12 +404,39 @@ try {
             -Destination (Join-Path $sourceRoot $relative) -Force
     }
     foreach ($relative in @(
+        "lib\crypto.c",
+        "lib\crypto.h",
         "lib\dnssd.c",
         "lib\dnssd.h",
+        "lib\fairplay_playfair.c",
         "lib\http_handlers.h",
+        "lib\http_request.c",
+        "lib\http_request.h",
+        "lib\http_response.c",
+        "lib\http_response.h",
+        "lib\httpd.c",
+        "lib\mirror_buffer.c",
+        "lib\mirror_buffer.h",
+        "lib\mirror_payload_parser.c",
+        "lib\mirror_payload_parser.h",
+        "lib\netutils.c",
+        "lib\netutils.h",
+        "lib\pairing.c",
+        "lib\pairing.h",
+        "lib\raop.c",
         "lib\raop.h",
+        "lib\raop_buffer.c",
         "lib\raop_handlers.h",
+        "lib\raop_ntp.c",
+        "lib\raop_ntp.h",
+        "lib\raop_rtp.c",
+        "lib\raop_rtp.h",
         "lib\raop_rtp_mirror.c",
+        "lib\raop_rtp_mirror.h",
+        "lib\utils.c",
+        "lib\worker_lifecycle.c",
+        "lib\worker_lifecycle.h",
+        "renderers\audio_renderer.c",
         "renderers\video_renderer.c",
         "renderers\video_renderer.h",
         "uxplay.cpp",

@@ -264,12 +264,6 @@ foreach ($sourceProperty in $provenance.protectedSources.PSObject.Properties) {
         -Description ("Protected unmodified source " + $sourceProperty.Name)
 }
 
-$libuxplayPatchText = Get-Content -LiteralPath $libuxplayPatch `
-    -Raw -Encoding UTF8
-if ($libuxplayPatchText -match '(?i)audio_renderer\.c') {
-    throw "The reviewed hotfix must not modify audio_renderer.c."
-}
-
 $upstreamHasGit = Test-Path -LiteralPath (Join-Path $upstream ".git")
 $libuxplayHasGit = Test-Path -LiteralPath (Join-Path $libuxplay ".git")
 if ($upstreamHasGit -ne $libuxplayHasGit) {

@@ -43,6 +43,16 @@ Open one GitHub issue per problem and include:
   note the visible freeze time. Do not trim the report to one classifier line:
   interval deltas and ages across several records are required to locate the
   stalled stage;
+- for a 0.12.15 pause or frozen-last-frame report, additionally keep every
+  `AEROMIRROR_VIDEO_IMPLICIT_RESUME reason=valid-type0` line and note whether
+  visible motion actually resumed. The marker proves that one decrypted and
+  validated access unit triggered a resume request; it does not prove decode,
+  presentation, or a physically fixed freeze by itself;
+- for a 0.12.16 missing-after-idle report, retain the numbered automatic
+  renewal lines, every correlated discovery request/result, lock/unlock and
+  sleep/wake times, PID and ports, and the time of each iPhone Screen Mirroring
+  browse. Note whether the receiver returned before pressing **Restart
+  discovery**; a local ready marker is not remote visibility proof;
 - for layout issues, the phone orientation and the app/media being displayed;
   for Photos also retain the ordered raw/encoded geometry, whether a phone-
   shaped frame preceded or followed the exact media signature, and measure the

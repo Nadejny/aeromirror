@@ -133,9 +133,10 @@ Depending on the review build, the log may include:
 - Bonjour service presence and running state, plus observed receiver
   server-socket initialization;
 - guarded idle-discovery and Windows-unlock maintenance decisions, including
-  whether the first ten-minute stage or the second stage 20 minutes later was
-  scheduled, deferred, canceled, or consumed, and whether timer or unlock used
-  the shared final allowance;
+  the first ten-minute stage and every later 20-minute recurring renewal,
+  whether work was scheduled, deferred, canceled, accepted, ready, failed, or
+  timed out, and whether one of the first two renewals used the bounded legacy
+  process-restart fallback;
 - for a capable 0.12.13 core, the discovery-command capability plus exact
   request/generation/PID/RAOP-port/AirPlay-port deferred, accepted, ready, or
   failed markers. Ready means both records received local callbacks for that
@@ -168,6 +169,12 @@ Depending on the review build, the log may include:
   stage boundary; no single line or `class=healthy` proves visible motion or a
   root cause. These records contain no media payload or pixels, but surrounding
   log lines still require normal privacy review;
+- for 0.12.15, a fixed
+  `AEROMIRROR_VIDEO_IMPLICIT_RESUME reason=valid-type0` line when a complete,
+  decrypted, NAL-validated video unit arrives while the stream is still marked
+  suspended. The same unit continues to the renderer. This marker proves the
+  parser/action boundary only; correlate it with later health deltas, sink and
+  Present progress, and a screen recording before saying visible video resumed;
 - the actual GStreamer decoder/video sink selected at pipeline creation, plus
   renderer, pipeline warnings, and errors.
 
@@ -191,10 +198,11 @@ Please include:
 - whether it happened on first install, first start after reboot, manual
   start, reconnection, or after changing settings;
 - for a missing receiver after idle, the last successful session time, lock,
-  sleep, sign-in and SessionUnlock times, both timed discovery-stage decisions,
-  any unlock fallback decision, every in-process discovery request and terminal
-  generation, PID/ports before and after it, every iPhone browse attempt, and
-  whether the first tap reached Windows before using **Restart discovery**;
+  sleep, sign-in and SessionUnlock times, every numbered timed or unlock
+  renewal, any legacy fallback decision, each in-process discovery request and
+  terminal generation, PID/ports before and after it, every iPhone browse
+  attempt, and whether the first tap reached Windows before using **Restart
+  discovery**;
 - when testing **Restart discovery**, record the replacement PID, ports, fresh
   DNS-SD/BLE startup, and iPhone result. Starting with 0.12.13 this button deliberately
   remains the strong full-process path rather than the narrow automatic DNS-SD
@@ -238,6 +246,10 @@ Please include:
   mirror start through iPhone Stop and note the visible freeze time. Several
   consecutive interval deltas and ages are required to identify the stalled
   stage;
+- for a 0.12.15 pause/freeze run, retain every implicit-resume marker, the
+  preceding pause/action evidence, the next several health intervals, and the
+  exact visible-motion result. Do not omit a marker from a failed run or treat
+  it as proof that decode/Present succeeded;
 - the reviewed and masked `receiver.log`.
 
 Avoid posting only “it crashed.” A timestamp plus the distinction between the

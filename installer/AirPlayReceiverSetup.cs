@@ -17,8 +17,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("AeroMirror Setup")]
 [assembly: AssemblyProduct("AeroMirror")]
 [assembly: AssemblyCompany("AeroMirror open-source project")]
-[assembly: AssemblyVersion("0.12.14.0")]
-[assembly: AssemblyFileVersion("0.12.14.0")]
+[assembly: AssemblyVersion("0.12.16.0")]
+[assembly: AssemblyFileVersion("0.12.16.0")]
 
 namespace AirPlayReceiverSetup
 {
@@ -122,6 +122,7 @@ namespace AirPlayReceiverSetup
                 }
                 return;
             }
+            ScheduleSourceDeletion(args);
             if (args.Length > 0 &&
                 string.Equals(
                     args[0], "/install-silent",
@@ -129,14 +130,11 @@ namespace AirPlayReceiverSetup
             {
                 try
                 {
-                    bool keepStartMenu =
-                        File.Exists(InstallPaths.StartMenuShortcut) ||
-                        File.Exists(InstallPaths.LegacyStartMenuShortcut);
-                    bool keepDesktop =
-                        File.Exists(InstallPaths.DesktopShortcut) ||
-                        File.Exists(InstallPaths.LegacyDesktopShortcut);
+                    ShortcutSelection shortcuts =
+                        InstallerOperations.GetShortcutSelection(true);
                     SetupLog.Write("Silent installation started.");
-                    InstallerOperations.Install(keepStartMenu, keepDesktop);
+                    InstallerOperations.Install(
+                        shortcuts.StartMenu, shortcuts.Desktop);
                     SetupLog.Write("Silent installation completed successfully.");
                 }
                 catch (Exception ex)
@@ -145,19 +143,6 @@ namespace AirPlayReceiverSetup
                     Environment.ExitCode = 2;
                 }
                 return;
-            }
-            foreach (string arg in args)
-            {
-                if (string.Equals(
-                    arg, "/delete-source",
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    MoveFileEx(
-                        Assembly.GetExecutingAssembly().Location,
-                        null,
-                        MoveFileFlags.DelayUntilReboot);
-                    break;
-                }
             }
 
             if (args.Length > 0 &&
@@ -177,6 +162,14 @@ namespace AirPlayReceiverSetup
                 return;
             }
 
+            Version installedVersion = InstallerOperations.GetInstalledVersion();
+            if (InstallerOperations.ShouldRunAutomaticInstall(
+                    updateRequested, installedVersion, SetupForm.SetupVersion))
+            {
+                RunAutomaticInstall(updateRequested);
+                return;
+            }
+
             Application.Run(new SetupForm(updateRequested));
         }
 
@@ -189,6 +182,70 @@ namespace AirPlayReceiverSetup
                     return true;
             }
             return false;
+        }
+
+        private static void ScheduleSourceDeletion(string[] args)
+        {
+            if (!HasArgument(args, "/delete-source"))
+                return;
+            MoveFileEx(
+                Assembly.GetExecutingAssembly().Location,
+                null,
+                MoveFileFlags.DelayUntilReboot);
+        }
+
+        private static void RunAutomaticInstall(bool updateRequested)
+        {
+            string action = updateRequested ? "update" : "reinstall";
+            string executable;
+            try
+            {
+                ShortcutSelection shortcuts =
+                    InstallerOperations.GetShortcutSelection(true);
+                SetupLog.Write(
+                    "Automatic " + action + " started. Start menu shortcut=" +
+                    shortcuts.StartMenu + "; Desktop shortcut=" +
+                    shortcuts.Desktop + ".");
+                executable = InstallerOperations.Install(
+                    shortcuts.StartMenu, shortcuts.Desktop);
+                SetupLog.Write(
+                    "Automatic " + action + " completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write("Automatic " + action + " failed: " + ex);
+                Environment.ExitCode = 2;
+                MessageBox.Show(
+                    "Не удалось автоматически " +
+                    (updateRequested ? "обновить" : "переустановить") +
+                    " AeroMirror.\r\n\r\n" + ex.Message,
+                    "AeroMirror",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(executable)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(executable),
+                    UseShellExecute = true
+                });
+                SetupLog.Write("AeroMirror relaunched after automatic install.");
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write(
+                    "AeroMirror relaunch after automatic install failed: " + ex);
+                Environment.ExitCode = 2;
+                MessageBox.Show(
+                    "AeroMirror обновлён, но не запустился автоматически.\r\n\r\n" +
+                    ex.Message,
+                    "AeroMirror",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
         }
 
         private static void BeginUninstall()
@@ -375,7 +432,7 @@ namespace AirPlayReceiverSetup
 
     internal sealed class SetupForm : Form
     {
-        internal static readonly Version SetupVersion = new Version(0, 12, 14);
+        internal static readonly Version SetupVersion = new Version(0, 12, 16);
         private readonly CheckBox startMenu;
         private readonly CheckBox desktop;
         private readonly CheckBox launch;
@@ -940,6 +997,19 @@ namespace AirPlayReceiverSetup
                 hasDesktop || hasLegacyDesktop);
         }
 
+        internal static bool ShouldRunAutomaticInstall(
+            bool updateRequested,
+            Version installedVersion,
+            Version setupVersion)
+        {
+            if (setupVersion == null)
+                throw new ArgumentNullException("setupVersion");
+            if (installedVersion != null &&
+                installedVersion.CompareTo(setupVersion) > 0)
+                return false;
+            return updateRequested || installedVersion != null;
+        }
+
         internal static void VerifyShortcutSelectionLogic()
         {
             AssertShortcutSelection(
@@ -962,6 +1032,24 @@ namespace AirPlayReceiverSetup
                 ResolveShortcutSelection(
                     true, false, false, false, false),
                 false, false, "update without shortcuts");
+            AssertAutomaticInstall(
+                ShouldRunAutomaticInstall(false, null, SetupForm.SetupVersion),
+                false, "fresh manual install");
+            AssertAutomaticInstall(
+                ShouldRunAutomaticInstall(true, null, SetupForm.SetupVersion),
+                true, "explicit application update");
+            AssertAutomaticInstall(
+                ShouldRunAutomaticInstall(
+                    false, new Version(0, 12, 15), SetupForm.SetupVersion),
+                true, "manual upgrade over an installed version");
+            AssertAutomaticInstall(
+                ShouldRunAutomaticInstall(
+                    false, SetupForm.SetupVersion, SetupForm.SetupVersion),
+                true, "same-version reinstall");
+            AssertAutomaticInstall(
+                ShouldRunAutomaticInstall(
+                    true, new Version(0, 12, 17), SetupForm.SetupVersion),
+                false, "automatic downgrade prevention");
         }
 
         internal static void VerifyUpdateLifecycleLogic()
@@ -1082,6 +1170,17 @@ namespace AirPlayReceiverSetup
             {
                 throw new InvalidOperationException(
                     "Shortcut selection check failed for " + scenario + ".");
+            }
+        }
+
+        private static void AssertAutomaticInstall(
+            bool actual, bool expected, string scenario)
+        {
+            if (actual != expected)
+            {
+                throw new InvalidOperationException(
+                    "Automatic-install policy failed for " + scenario +
+                    ": got " + actual + ", expected " + expected + ".");
             }
         }
 

@@ -77,21 +77,22 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   window-show event, unchanged native-window policy is cached, and the window
   can stay on top and remains on the taskbar by default;
 - debounces Windows network events, keeps a healthy receiver running after a
-  normal disconnect, and retains a bounded idle-discovery sequence: the
-  existing ten-minute stage plus one additional stage 20 minutes later; after
-  the first stage, a Windows session unlock may consume that same final
-  allowance after cooldown, but timer and unlock paths together cannot exceed
-  two maintenance attempts, and active mirroring/client grace preserve due
-  work; the capable core first prepared in 0.12.13 services normal automatic
+  normal disconnect, and in 0.12.16 keeps idle discovery maintenance active:
+  the first eligible re-registration runs after ten minutes and later attempts
+  recur every 20 minutes while the receiver remains idle; a guarded Windows
+  session unlock can request another refresh after cooldown, and active
+  mirroring/client grace preserve due work; the capable core first prepared in
+  0.12.13 services normal automatic
   idle, unlock, and
   discovery-health maintenance by refreshing the paired RAOP/AirPlay DNS-SD
   generation in the same process and on the same listener ports; active
-  clients defer that operation, while unsupported, rejected, timed-out, or
-  repeatedly failed commands retain the bounded full-process fallback;
+  clients defer that operation; only the first two automatic command failures
+  retain the legacy full-process fallback, while later failures keep the
+  listener alive and rearm the recurring schedule;
   **Restart discovery** remains a deliberate full DNS-SD-and-BLE process
   restart, and a real physical IPv4 change also restarts because the separate
   BLE helper receives its advertised address at startup; an incoming high-
-  level AirPlay request re-arms the bounded sequence so it cannot interrupt the
+  level AirPlay request starts a fresh ten-minute epoch so maintenance cannot interrupt the
   next handshake, and a stale end marker from the previous session preserves
   the newer request/PIN grace instead of triggering deferred maintenance;
   after completed lost-client cleanup, the recovered
@@ -132,9 +133,11 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   request/generation/PID/port-correlated discovery results, paired DNS-SD
   generation health, BLE helper lifecycle, and receiver-name byte counts
   without logging the receiver name or mirrored content; the 0.12.14
-  diagnostic candidate adds a two-second numeric media-health summary covering
-  mirror ingress, appsrc, sink, Present, pipeline state, and timestamp outcomes
-  without logging media content or triggering recovery;
+  diagnostic candidate added a two-second numeric media-health summary covering
+  mirror ingress, appsrc, sink, Present, pipeline state, and timestamp outcomes;
+  the 0.12.15 candidate also records a validated-frame implicit-resume action
+  without logging media content; the 0.12.16 shell records the unbounded
+  renewal number while retaining content-free request/PID/port results;
 - keeps streaming local to the LAN; the shell has no account, analytics, or
   cloud component.
 
@@ -155,53 +158,110 @@ officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microso
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
 
-## Local 0.12.14 candidate
+## Local 0.12.16 candidate
 
-The working tree currently targets 0.12.14/`0.12.14.0`. It corrects a confirmed
-native arithmetic defect where repeated video-render attempts could remap an
-already changed remote timestamp and apply the clock offset cumulatively.
-Every retry now starts from one immutable remote timestamp through a signed,
-overflow-checked, session/clock-epoch-protected mapping. Audio and video keep
-independent clock state. This is a source-level fix, not yet proof that the
-physical frozen frame had that cause.
+The working tree currently targets 0.12.16/`0.12.16.0`. Its narrow change is
+the long-idle receiver policy: AeroMirror no longer disables automatic DNS-SD
+re-registration after two attempts. It waits ten minutes once, then refreshes
+the paired RAOP/AirPlay registrations every 20 minutes while idle. Each normal
+refresh stays inside the current core process and preserves both listener
+ports. Mirroring and active-client grace defer the operation.
 
-While a mirror session is active, the core now records one passive numeric
-`AEROMIRROR_VIDEO_HEALTH` line every two seconds. It correlates VCL and codec-
-configuration ingress, pause/resume options, appsrc flow, decoded-sink and
-Direct3D 11 Present progress, timestamp outcomes, monotonic ages, and pipeline
-state by session and geometry generation. It contains no media payload or
-pixels and does not automatically resume, reset, reconnect, crop, or otherwise
-recover a pipeline.
+Only the first two automatic attempts in an idle epoch may use the historical
+full-process fallback when the native refresh is unavailable, times out, or
+fails. Later failures leave the receiver listening and try again on the next
+20-minute deadline. **Restart discovery** remains the explicit strong action
+that restarts DNS-SD and the separate BLE helper, and a physical IPv4 change
+still requires that full restart.
 
-Two clean native builds and an extracted prepared-source rebuild reproduce core
-SHA-256 `5A6C8AEBC381F6090AD87CBB622A370B1BA0F29923B387C72C2AE07D78605F36`.
-Patch/provenance, runtime/loader, live redirected-pipe, complete resilience,
-exact 13-entry local payload, packaged-shell resilience, Setup embedded-input,
-and all three Setup self-check gates pass. Installed update, physical
-Windows/iPhone, exact tag, GitHub Release, and public re-download remain
-pending. The verified local Setup is not public; there is no public 0.12.14
-asset, tag, Release, or `BUILD_REPORT.md`. See the
-[0.12.14 release notes](docs/releases/0.12.14/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.14/TEST_PLAN.md).
+For an already installed copy, an update started inside AeroMirror, a newer
+Setup, or a same-version Setup reinstall proceeds without presenting the three
+shortcut/launch choices again. The installer preserves whichever Start menu
+and desktop shortcuts currently exist and starts AeroMirror after replacement.
+A clean first install still presents the normal choices; installing an older
+version over a newer one still requires explicit confirmation.
 
-The first installed 0.12.13 media run on 2026-08-13 exposed a publication
-blocker: the last rendered frame froze while the same native process and
-control session remained alive and accepted the later iPhone Stop action.
-Old telemetry proves the first H.265 appsrc/sink/D3D11 Present and later
-3840x2160 codec/geometry packets, but cannot identify whether subsequent VCL,
-decode, or Present progress stopped. The tested 0.12.13 candidate remains
-frozen internal history and is not silently replaced or renumbered. The new
-0.12.14 health lines are intended to locate that boundary on the next device
-run; they do not establish that the symptom is fixed.
+The managed Release build and complete resilience suite pass, including the
+ten-minute first deadline, indefinite 20-minute recurrence, a saturating
+counter, Windows-unlock recurrence, anti-churn, readiness and active-session
+guards, and the first-two-attempt fallback boundary. Native source and runtime
+remain the frozen 0.12.15 build. The managed update policy and installer
+self-check pass. A fresh exact 13-entry review package, packaged-shell
+resilience, x64 Setup with byte-exact embedded inputs and all three
+non-installing self-checks, and corresponding-source build also pass after the
+unattended-update change. A local Bonjour-ready result still does not prove
+that an iPhone continuously lists the row; physical two-hour idle, lock/unlock,
+sleep/wake, repeated browse checks, and a real installed update remain pending.
+There is no 0.12.16 tag, public asset, Release, public installer, or
+`BUILD_REPORT.md`. See
+the [0.12.16 release notes](docs/releases/0.12.16/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.16/TEST_PLAN.md).
 
-Local paired-registration readiness is not continuous iPhone visibility and
-does not force iOS browse-cache invalidation. BLE in-process refresh, AWDL,
-AirDrop and Photos inner-content detection/crop remain separate work. The
-native-core audit remains active because of the frozen-frame evidence. Its
-first additional P1 follow-up is natural mirror-worker exit/join ordering; the
-0.12.14 diagnostic slice does not fix that lifecycle gap. The
-public latest download below remains the immutable
-0.12.9 review release.
+## Frozen 0.12.15 native-core candidate
+
+The frozen 0.12.15 source targeted 0.12.15/`0.12.15.0`. It hardens the
+supported default native receiver path from socket accept and HTTP/RTSP SETUP
+through pairing, mirror/RTP/NTP parsing, crypto, worker shutdown, and GStreamer
+renderer ownership. Mirror, HTTP, audio RTP, and NTP now share explicit
+start/exit/stop/join semantics; accepted streams restore blocking mode and use
+Windows-correct timeouts; protocol sizes, peer identity, allocation, and
+partial startup are checked before state is published.
+
+The media-specific recovery is deliberately narrow. After a type-0 video
+access unit has been received completely, decrypted, and NAL-validated, its
+arrival is authoritative evidence that the sender is active. If the renderer
+still appears suspended, the core records
+`AEROMIRROR_VIDEO_IMPLICIT_RESUME reason=valid-type0`, requests a nonblocking
+resume, and delivers that same access unit. It does not use the experimental
+leaky/max appsrc properties or intentionally discard the recovery frame.
+
+Renderer selection, timestamp work, bus callbacks, reset, and destruction now
+use lock-protected retained GStreamer references. A bus is mapped to its actual
+video or audio renderer, and final video destruction waits for callbacks that
+already acquired that renderer. These are source-level lifetime and recovery
+corrections; they do not prove that the reported physical freeze is fixed.
+
+A fresh complete native build, the exact production NIST AES-CTR happy-path
+harness, eight production worker-lifecycle cases, source-bound core contracts,
+and independent frozen-source review pass with no P0/P1 finding in the default
+mirroring path. Two clean compatible builds reproduce core SHA-256
+`38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`;
+patch/provenance materialization passes with libuxplay patch SHA-256
+`E8233FFD59BFC49181D32BBD64A6C94A338FD31939B28A18C7FC7A3B5F14195D`
+and 37 libuxplay/41 total patched-source hashes. The source workflow creates a
+validated 147-entry, 826,213-byte archive with SHA-256
+`DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`.
+Its no-Git extracted tree validates all hashes and a clean 57/57 rebuild
+reproduces the same core. Staged-runtime inspection (199 binaries, 148 DLLs,
+44 features mapped to 27 plug-ins), manual `--loader-test`, the fresh managed
+build, complete receiver resilience, and same-PID/same-port discovery-pipe gate
+pass. The initial package/Setup gate now passes:
+the thin ZIP has exactly 13 entries; the current and packaged shell are byte-
+identical and pass resilience; Setup is x64 `0.12.15.0`, embeds the payload
+  byte-for-byte, and passes all three self-checks. The focused final rebuild
+  against the frozen embedded documentation also passes, including packaged-
+  shell resilience, exact embedded payload/provenance matching, and all three
+  Setup self-checks. Installed update and physical/public gates remain pending.
+  There is no 0.12.15 tag, public
+asset, Release, public installer, or
+`BUILD_REPORT.md`. See the
+[0.12.15 release notes](docs/releases/0.12.15/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.15/TEST_PLAN.md).
+
+The last retained physical result is still the installed 0.12.13 run: one
+H.265 picture appeared and then froze while the native process and control
+session stayed responsive, and iPhone Stop ended the PC session immediately.
+The 0.12.14 health diagnostics remain in 0.12.15, but neither a health class
+nor an implicit-resume marker alone proves visible motion or root cause.
+
+Photos inner-content detection/crop and Camera rotation remain unresolved.
+Terminal join-failure parent lifetime, broader audio/HLS synchronization,
+remaining startup assertions, optional PIN/SRP depth, and tolerant dual
+teardown consolidation remain explicit P2 follow-up. Local discovery readiness
+still cannot force iOS browse-cache invalidation, and BLE in-process refresh,
+AWDL, and AirDrop remain separate. Internal 0.12.10–0.12.14 candidates are not
+renumbered or published; the public latest download below remains immutable
+`v0.12.9`.
 
 ## Installer: recommended
 
@@ -247,12 +307,15 @@ The installer:
   `%LOCALAPPDATA%\Programs\AirPlayReceiverMvp` (the legacy internal path is
   retained so v0.7/v0.8 upgrade in place);
 - adds AeroMirror to Windows **Installed apps**;
-- creates a Start menu shortcut and can optionally create a desktop shortcut;
+- asks about Start menu, desktop, and post-install launch only on a clean first
+  install;
 - closes the setup window before launching the receiver when installation
   finishes;
-- updates an existing installed version in place, preserves the current
-  shortcut choices, and rolls back application files plus installer metadata
-  if replacement fails;
+- updates or reinstalls an existing copy without reopening that option form,
+  preserves the current shortcut choices, relaunches AeroMirror, and rolls back
+  application files plus installer metadata if replacement fails;
+- refuses to downgrade a newer installed version automatically and retains the
+  explicit downgrade confirmation;
 - keeps the exact pinned upstream runtime in a content-addressed local cache
   after SHA-256 verification, so a reinstall or later update using the same
   runtime does not download the 100+ MB archive again;
@@ -371,31 +434,31 @@ installer from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.14 `
+  -Version 0.12.16 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.14 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.14.zip
+  -Version 0.12.16 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.16.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.14.exe
+artifacts\installer\AeroMirror-Setup-0.12.16.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.14`.
+Public release names use three-part semantic versions such as `0.12.16`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.14.0` in a file-property dialog; the AeroMirror UI and GitHub
-Release intentionally show only `0.12.14` if that candidate is later published.
+show `0.12.16.0` in a file-property dialog; the AeroMirror UI and GitHub
+Release intentionally show only `0.12.16` if that candidate is later published.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.14 `
+  -Version 0.12.16 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -508,6 +571,12 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.16/
+      RELEASE_NOTES.md       persistent idle-discovery candidate summary
+      TEST_PLAN.md           recurring visibility and fallback gates
+    0.12.15/
+      RELEASE_NOTES.md       native-core hardening candidate summary
+      TEST_PLAN.md           lifecycle, parser, renderer, and physical gates
     0.12.14/
       RELEASE_NOTES.md       media-liveness diagnostic candidate summary
       TEST_PLAN.md           timestamp, health, and physical freeze gates
@@ -622,13 +691,16 @@ pass; deeper UI extraction should be reviewed separately from receiver fixes.
   continuously attest iPhone visibility or force a phone to discard a cached
   row. The unchanged BLE helper is not refreshed in place, so manual discovery
   and a real physical IPv4 change still use full-process recovery. The older
-  ten-minute then 20-minute/shared-unlock schedule and bounded restart fallback
-  remain. Physical long-idle behavior is still pending.
-- The 0.12.14 diagnostic core fixes one confirmed cumulative video-PTS retry
-  defect and adds passive two-second media-stage health summaries. It has not
-  yet repeated the physical frozen-last-frame run and performs no automatic
-  recovery; do not treat `class=healthy` or any individual counter as visible-
-  motion proof or root-cause confirmation.
+  0.12.16 keeps the first ten-minute deadline and then repeats same-process
+  re-registration every 20 minutes while idle. Only the first two automatic
+  attempts may fall back to a full process restart; later failures retain the
+  listening core and retry. Physical long-idle behavior is still pending.
+- The 0.12.15 candidate retains the 0.12.14 checked video-PTS mapping and
+  passive two-second health summaries, adds explicit worker/parser/renderer
+  ownership, and may request a nonblocking implicit resume only after a fully
+  validated video access unit. It has not yet repeated the physical frozen-
+  last-frame run; do not treat `class=healthy`, an implicit-resume marker, or
+  any individual counter as visible-motion proof or root-cause confirmation.
 - In the first public 0.12.7 physical smoke, a reporter-estimated wall-clock
   Wi-Fi interruption of about ten seconds recovered automatically; the exact
   log interval records a five-second feedback gap. After a reporter-estimated

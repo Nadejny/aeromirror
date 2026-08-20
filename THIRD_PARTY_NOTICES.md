@@ -43,6 +43,20 @@ and they perform no automatic recovery. The immutable video-PTS retry change is
 covered by source and arithmetic regressions, but no claim is made here that it
 resolves the separately observed physical frozen-frame symptom.
 
+The 0.12.15 native-core audit extends the same AeroMirror-authored patch across
+libuxplay's worker lifecycle, sockets, HTTP/RTSP and mirror parsers,
+setup/pairing, RTP/NTP, crypto, buffering, and audio/video renderer integration.
+It adds the `worker_lifecycle` and `mirror_payload_parser` source pairs, pins
+fixed protocol and payload limits, and makes partial construction and teardown
+fail safely. The audited audio renderer is now an intentionally modified and
+hashed source, including caps and GStreamer object-lifetime corrections. A
+sender that has left video suspended may be resumed by the next complete,
+decrypted, validated video access unit before that unit is rendered. These are
+local changes under the existing GPL-covered corresponding-source contract;
+the pinned upstream revisions, redistributed runtime, and third-party license
+scope are unchanged. Physical confirmation of the frozen-frame repair remains
+pending.
+
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
 asset directly from GitHub and verifies it before extraction:

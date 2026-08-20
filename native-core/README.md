@@ -55,6 +55,28 @@ clock mapping. This makes the historical cumulative future-PTS retry defect a
 code-level fix, but it is not evidence that the reported physical frozen-frame
 case is fixed; that remains blocked on a device test with the new health lines.
 
+The 0.12.15 native-core audit candidate expands the reviewed patch across the
+receiver's worker, socket, parser, setup, pairing, RTP/NTP, crypto, buffering,
+and renderer boundaries. New `worker_lifecycle` helpers make start rollback,
+natural exit, one-owner join, self-stop deferral, and terminal join failure
+explicit for HTTP, mirror, RTP, and NTP workers. New `mirror_payload_parser`
+helpers validate packet sizes and H.264/H.265 NAL spans before conversion.
+Accepted sockets use explicit blocking and timeout semantics, source endpoints
+are pinned where the protocol has already established them, and incremental
+HTTP/RTSP plus mirror payload processing now has fixed size and field limits.
+SETUP, pairing, crypto, and stream construction reject incomplete state and
+publish ownership only after successful startup.
+
+The same audit pins the audio renderer as a patched source. It corrects audio
+caps, clock/reference ownership, invalid-buffer handling, pending volume, and
+bus-to-pipeline mapping. Video renderer access now uses synchronized retained
+references across callbacks and teardown. If the sender marks video suspended
+but then supplies a complete decrypted and validated type-0 access unit without
+the usual resume option, that same unit performs one explicit implicit-resume
+transition before delivery. This is a narrow protocol-state repair, not a claim
+that the physical frozen-frame symptom is resolved; that still requires a
+0.12.15 iPhone test.
+
 The receiver's shared AirPlay identity is canonicalized to at most 50 UTF-8
 bytes at a complete character boundary. This keeps the six-byte-MAC RAOP label
 (`MAC@name`) within Bonjour's 63-byte service-label limit while AirPlay, RAOP,
@@ -64,8 +86,9 @@ lengths and truncation state, not the original name.
 
 The wrapper now returns before its legacy settings UI can remove or replace
 externally supplied `-vs` and `-fs` arguments in headless/`--uxplay` mode. The
-reviewed libuxplay patch does not modify `renderers/audio_renderer.c`; its
-unchanged source hash is a protected provenance input.
+0.12.15 libuxplay patch intentionally includes the audited
+`renderers/audio_renderer.c`; every modified or added source is individually
+hashed in `source-provenance.json`.
 
 ## Compatible runtime and build inputs
 
@@ -146,3 +169,13 @@ The runtime builder deliberately stages the hardware H.264/H.265 decoders for
 both D3D11 and D3D12 because the latency profiles select them explicitly.
 The resulting core's `--loader-test` has also passed against the unchanged
 runtime from release `2.0.0.1736`.
+
+For the 0.12.15 prepackage gate, staged inspection covered 199 binaries and
+148 DLLs; all 44 requested GStreamer features resolved to 27 plug-ins, and a
+manual staged `--loader-test` exited 0. The final corresponding-source ZIP has
+147 entries, is 826,213 bytes, and has SHA-256
+`DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`.
+Its extracted no-Git tree validated every pinned hash and completed a clean
+57/57 rebuild reproducing core SHA-256
+`38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`.
+Review payload and Setup verification remain separate pending gates.

@@ -25,22 +25,24 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\AirPlayReceiverMvp
 ```
 
 Running a newer setup performs an in-place update rather than creating a
-second installed application. The current setup:
+second installed application. A same-version Setup performs a reinstall. The
+current setup:
 
-1. detects the installed version and labels the action Install, Update, or
-   Reinstall;
+1. detects the installed version and selects a clean install, unattended
+   update/reinstall, or explicit downgrade-confirmation path;
 2. stops the existing shell and receiver processes;
 3. moves the previous application directory to a temporary backup;
 4. installs and registers the new files;
 5. removes the backup only after success;
 6. restores the previous directory if installation fails.
 
-When AeroMirror launches the setup with `/update`, the installer reads the
-existing Start menu and desktop shortcuts before replacing files. The same
-choices are preselected in the update UI and then recreated: an update does
-not add a Start menu shortcut that the user removed or delete a desktop
-shortcut that the user kept. Legacy shortcut names are recognized and
-migrated to the current AeroMirror name.
+When AeroMirror launches Setup with `/update`, Setup reads the existing Start
+menu and desktop shortcuts before replacing files and runs without an option
+form. Opening a newer Setup over an installed copy or reinstalling the same
+version uses the same unattended path. Only the shortcuts that existed are
+recreated, legacy names are migrated to the current AeroMirror name, and the
+installed shell is launched after success. A clean first install retains the
+interactive options. An older Setup never silently downgrades a newer install.
 
 User settings, logs, the persistent receiver key, and trusted-iPhone register
 are stored separately under `%LOCALAPPDATA%\AirPlayReceiverMvp` and survive
@@ -96,14 +98,28 @@ requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
 passes. The frozen local 0.12.13 candidate remains failed internal history and
-must not be relabelled or silently replaced. For the current internal 0.12.14
-media-liveness diagnostic candidate, use
-[`releases/0.12.14/TEST_PLAN.md`](releases/0.12.14/TEST_PLAN.md). Its exact local
-payload, Setup, embedded-input equality, and all three Setup self-checks pass,
-but it has no tag, public asset, public installer, or `BUILD_REPORT.md`;
-installed/physical acceptance and the normal publication gates remain pending. The
-untagged 0.12.10, 0.12.11, and 0.12.12 candidates remain local history and their
-artifacts are not relabelled. Public `v0.12.9` stays the immutable normal latest release, with exact evidence under
+must not be relabelled or silently replaced. The current internal 0.12.16
+persistent idle-discovery candidate uses
+[`releases/0.12.16/TEST_PLAN.md`](releases/0.12.16/TEST_PLAN.md). Its managed
+build and deterministic resilience contracts pass: the first renewal remains
+ten minutes, later renewals recur every 20 minutes, active clients defer, and
+only automatic renewals one and two may use the legacy process-restart
+fallback. It reuses the frozen 0.12.15 native source, runtime, patch, and
+provenance without modification. The exact 13-entry review payload, packaged-
+shell resilience, versioned corresponding source, x64 `0.12.16.0` Setup,
+byte-exact embedded inputs, all three Setup self-checks, and unattended
+update/reinstall policy pass after the final documentation freeze. Installed
+update and physical long-idle/iPhone visibility remain pending. Publication is
+explicitly authorized but the clean tag, public assets, re-download check, and
+`BUILD_REPORT.md` do not exist yet.
+
+The frozen 0.12.15 native-core candidate retains its complete native,
+reproducibility, staged runtime, managed, discovery-pipe, exact package, and
+Setup evidence under
+[`releases/0.12.15/TEST_PLAN.md`](releases/0.12.15/TEST_PLAN.md), but is not
+relabelled or published after the 0.12.16 correction. The untagged
+0.12.10–0.12.15 candidates remain local history. Public
+`v0.12.9` stays the immutable normal latest Release, with exact evidence under
 `releases/0.12.9/`. Published 0.12.7 evidence and historical 0.11 plans remain
 part of the evidence required before labelling the project 1.0.
 

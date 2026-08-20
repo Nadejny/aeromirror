@@ -469,7 +469,7 @@ namespace AirPlayReceiverMvp
                 !string.Equals(previousSignature, networkSignature,
                     StringComparison.Ordinal);
             if (changed)
-                ResetIdleDiscoveryRenewalLimit();
+                ResetIdleDiscoveryRenewalSchedule();
             if (previousSignature.Length == 0 || changed)
             {
                 Log("Physical network profile: " +

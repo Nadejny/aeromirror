@@ -1,14 +1,171 @@
 # Project state
 
-Last updated: 2026-08-13
+Last updated: 2026-08-20
 
 This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
-## Current local candidate — 0.12.14
+## Current local candidate — 0.12.16
 
-- Status: internal pretag media-liveness diagnostic candidate. Two independent
+- Status: internal pretag persistent idle-discovery maintenance candidate.
+  AeroMirror now keeps the automatic same-process DNS-SD refresh schedule
+  active for the lifetime of an idle receiver instead of stopping after two
+  attempts.
+- Schedule: the first eligible re-registration remains ten minutes after a
+  fresh idle epoch. Every later terminal result rearms a 20-minute recurring
+  deadline. Active mirroring, incoming AirPlay/PIN grace, startup readiness,
+  restart work, and an unknown physical IPv4 defer rather than consume due
+  maintenance.
+- Ownership: the capable frozen 0.12.15 core still replaces the paired RAOP and
+  AirPlay registration generation in the same PID and on the same listener
+  ports. A guarded Windows unlock can request another refresh after any prior
+  renewal. Incoming AirPlay activity or a real network-profile change starts a
+  fresh ten-minute epoch.
+- Failure boundary: only automatic attempts one and two may fall back to the
+  historical full receiver restart when the native command cannot complete.
+  Attempt three and later leave the listening core alive and rearm the
+  20-minute schedule. Manual **Restart discovery** and a physical IPv4 change
+  remain deliberate full DNS-SD-and-BLE process restarts.
+- Installed update behavior: after the user confirms an update in AeroMirror,
+  Setup runs without the shortcut/launch option form, preserves the exact
+  existing Start menu and desktop shortcut state, and relaunches the shell. A
+  newer Setup opened manually and a same-version reinstall use that same path.
+  Clean first install remains interactive, and automatic downgrade is refused.
+- Source targets app/Setup `0.12.16`, Windows PE/file `0.12.16.0`, Setup
+  comparison 0.12.16, and exactly five release-script defaults. Native source,
+  patch, executable, and provenance remain the frozen 0.12.15 inputs: core
+  SHA-256
+  `38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`
+  and libuxplay patch SHA-256
+  `E8233FFD59BFC49181D32BBD64A6C94A338FD31939B28A18C7FC7A3B5F14195D`.
+- Automated status: the managed Release build and complete
+  `ReceiverResilience` suite pass. The deterministic policy checks cover the
+  10-minute first delay, indefinite 20-minute recurrence, counter saturation,
+  Windows unlock, anti-churn, active-session/client-grace deferral, readiness,
+  the first-two-attempt legacy restart boundary, and the unattended
+  update/reinstall decision. Setup's shortcut-selection self-check covers fresh
+  install, update, reinstall, shortcut absence/presence, and downgrade refusal.
+- Live native status: the redirected-pipe refresh passes in PID 30188 on
+  unchanged RAOP/AirPlay port 45023 for request 98569.
+- Package/Setup status: the focused final local gate after the unattended-
+  update change passes. The review ZIP contains exactly 13 expected entries;
+  its packaged shell is x64 `0.12.16.0` and passes complete resilience. The x64
+  `0.12.16.0` Setup embeds the current payload/provenance exactly and
+  `/verify-runtime`, `/verify-shortcut-selection`, and
+  `/verify-update-lifecycle` each exit 0. The corresponding-source workflow
+  also passes. These are pretag identities; release-script and public-download
+  identities belong in the post-publication build report.
+- Physical status: persistent local registration is not proof that an iPhone
+  continuously lists the receiver. A real installed 0.12.16 run must cover at
+  least two hours idle, repeated iPhone browse checks, lock/unlock, sleep/wake,
+  successful mirroring, and manual recovery before visibility is accepted.
+- Immediate next step: commit the reviewed source, create the exact tag, run
+  the clean-tag release script, and publish the explicitly authorized normal
+  GitHub review Release. Do not install it on this PC; installed-update and
+  physical iPhone acceptance remain separate pending rows in
+  `docs/releases/0.12.16/TEST_PLAN.md`.
+
+## Prior frozen internal candidate — 0.12.15
+
+- Status: internal pretag supported-default native-core hardening candidate.
+  A fresh complete CMake/Ninja native build, the exact production crypto
+  happy-path harness, the eight-case production worker-lifecycle harness, and
+  source-bound protocol/parser/renderer contract checks pass. Independent
+  frozen-source review reports no P0/P1 finding in the default mirroring path.
+  Patch/provenance materialization, two clean compatible native builds, final
+  corresponding-source creation and extracted rebuild, staged runtime/loader,
+  fresh managed build, complete receiver resilience, and live discovery-pipe
+  gates also pass. The initial exact review-payload and Setup gate passes.
+  The focused final review-payload and Setup rebuild also passes against the
+  frozen embedded documentation. Installed update, physical Windows/iPhone,
+  exact-tag, GitHub Release, and public re-download gates remain pending.
+- Source targets app/Setup `0.12.15`, Windows PE/file `0.12.15.0`, Setup
+  comparison 0.12.15, and exactly five release-script defaults. Public
+  `v0.12.9` remains the immutable normal latest review Release. Internal
+  0.12.10–0.12.14 source and artifact history is not tagged, reconstructed,
+  or relabelled.
+- Worker lifecycle: mirror, HTTP, audio RTP, and NTP use one explicit
+  running/joining/joined contract. Natural exit preserves join debt, concurrent
+  stop has one join owner, self-stop defers its join, start failure rolls back,
+  and restart cannot overtake the previous worker tail. Accepted mirror and
+  HTTP sockets explicitly restore blocking mode and use Windows-correct
+  timeouts and lifecycle-aware retry loops.
+- Protocol boundary: bounded mirror and HTTP parsing, strict SETUP mode and
+  field validation, atomic mirror/timing/audio publication, RTP/NTP source and
+  length checks, transactional buffers, checked allocation, and recoverable
+  crypto status replace false success, unchecked input, and process-exit
+  failure paths across the supported default receiver flow.
+- Media recovery candidate: after full decryption and NAL validation, a valid
+  type-0 video access unit proves sender activity. If the stream is still
+  marked suspended, the core requests one nonblocking implicit resume and
+  delivers that same access unit. No leaky/max appsrc experiment remains, so
+  the candidate does not intentionally discard a recovery frame.
+- Renderer ownership: video operations take lock-protected GStreamer
+  references before timestamp work; bus callbacks map to their owning
+  renderer; final teardown waits for callbacks already holding it; and unused
+  codec objects remain alive until final destruction. Audio bus handling is
+  likewise mapped to the originating pipeline. These changes correct
+  source-level lifetime races but do not prove the physical freeze is gone.
+- Native evidence: both clean compatible builds reproduce executable SHA-256
+  `38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`.
+  The materialized libuxplay patch SHA-256 is
+  `E8233FFD59BFC49181D32BBD64A6C94A338FD31939B28A18C7FC7A3B5F14195D`;
+  provenance pins 37 libuxplay files and 41 patched source files in total.
+  The final 147-entry corresponding-source ZIP is 826,213 bytes with SHA-256
+  `DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`.
+  Its no-Git extracted tree validates every pinned hash, and a clean 57/57
+  rebuild reproduces the same core SHA-256.
+- Runtime and managed evidence: staged inspection covers 199 binaries, 148
+  DLLs, and 44 requested GStreamer features resolving to 27 plug-ins. A manual
+  staged `--loader-test` exits 0. The fresh managed build and full
+  `ReceiverResilience` suite pass after its D3D11 textual contract was updated
+  to the new reference-safe snapshot; product implementation was unchanged by
+  that test correction. The live discovery-pipe case passes with the same PID
+  38712 and AirPlay port 43214 for request 98569.
+- Initial package evidence: the thin ZIP contains exactly 13 entries, is
+  1,169,388 bytes, and has SHA-256
+  `2123412734FD089F1B65A41DC0451A8105349BED5778B53211340A997500141C`.
+  The packaged shell is 753,152 bytes with SHA-256
+  `330EA373212FA0C47B0C25747DACF3F45A27959D56F6643569AD13889E606B81`,
+  equals the current shell, and passes the complete resilience suite.
+- Initial Setup evidence: the x64 `0.12.15.0` Setup is 1,397,760 bytes with
+  SHA-256
+  `BCFFBC8BAE6453A437783A82A6EB307C701CA422A2DBDC5019E3E7F0D6A397E7`.
+  Its embedded payload is byte-exact, and `/verify-runtime`,
+  `/verify-shortcut-selection`, and `/verify-update-lifecycle` each exit 0.
+  These remain the initial prepackage identities, not the final focused-build
+  hashes.
+- Focused package evidence: `package-review` passes again with exactly 13 ZIP
+  entries. The packaged shell matches the built shell byte-for-byte, and the
+  complete `ReceiverResilience` suite passes from a fresh PowerShell process.
+  Setup rebuilds as x64 `0.12.15.0`; its embedded payload and
+  `source-provenance.json` hashes exactly match the reviewed inputs, and
+  `/verify-runtime`, `/verify-shortcut-selection`, and
+  `/verify-update-lifecycle` each exit 0. Final focused artifact sizes and
+  SHA-256 values are intentionally left for the post-documentation gate
+  handoff; no embedded source document changed after this rebuild.
+- Physical status: no 0.12.15 device run has occurred. The last retained device
+  evidence is still the installed 0.12.13 run: one H.265 picture appeared and
+  then froze while the native process and control session stayed responsive,
+  and iPhone Stop ended the PC session immediately. A current log must show
+  `AEROMIRROR_VIDEO_IMPLICIT_RESUME`, health progression, and real visible
+  motion together before the freeze can be called fixed.
+- Scope boundary and P2 backlog: Photos inner-content detection/crop and Camera
+  rotation remain unresolved. Terminal join-failure parent lifetime, broader
+  audio/HLS synchronization, remaining startup assertions, optional PIN/SRP
+  depth, and consolidation of tolerant dual teardown paths remain explicit P2
+  follow-up. Long-idle discovery, in-process BLE refresh, AWDL/peer-to-peer
+  AirPlay, AirDrop, Windows 10 first-install diagnosis, and signing also remain
+  separate.
+- Former next step: the frozen 0.12.15 candidate was ready for its physical
+  plan, but the later persistent-discovery correction advanced the working tree
+  to 0.12.16. Its source and artifacts remain exact internal history and are
+  not relabelled or published.
+
+## Prior frozen internal candidate — 0.12.14
+
+- Status: superseded internal pretag media-liveness diagnostic candidate. Two independent
   clean compatible native builds, an extracted prepared-source rebuild,
   patch/provenance, runtime/loader, live redirected-pipe, and complete receiver
   resilience gates pass. The exact 13-entry local payload, packaged-shell
@@ -17,7 +174,7 @@ next step changes.
   stale-claim, diff, and stable-input gates pass. Installed update, physical
   Windows/iPhone, exact-tag, GitHub Release, and public re-download gates remain
   pending.
-- Source targets app/Setup `0.12.14`, Windows PE/file `0.12.14.0`, Setup
+- Its frozen source targets app/Setup `0.12.14`, Windows PE/file `0.12.14.0`, Setup
   comparison 0.12.14, and exactly five release-script defaults. Public
   `v0.12.9` remains the immutable normal latest review Release. Internal
   0.12.10–0.12.13 history is not tagged, reconstructed, or relabelled.
@@ -51,11 +208,9 @@ next step changes.
   fixed here. Photos inner-content/crop, Camera orientation, physical idle
   discovery, BLE in-process refresh, AWDL/peer-to-peer AirPlay, and AirDrop also
   remain separate.
-- Immediate next step: install the verified local 0.12.14 candidate only when
-  ready to run the physical plan in
-  `docs/releases/0.12.14/TEST_PLAN.md`. Do not publish or add
-  `BUILD_REPORT.md` before separate package, device, tag, authorization, and
-  public-asset gates.
+- Its former immediate next step was the focused 0.12.14 physical plan. That
+  plan is superseded by 0.12.15; the frozen 0.12.14 artifacts are not
+  relabelled, tagged, or published, and no 0.12.14 `BUILD_REPORT.md` exists.
 
 ## Prior frozen internal candidate — 0.12.13
 

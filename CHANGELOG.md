@@ -1,5 +1,142 @@
 # Changelog
 
+## 0.12.16 — persistent idle discovery maintenance candidate
+
+### Candidate scope
+
+- AeroMirror no longer stops automatic AirPlay re-registration after two idle
+  maintenance attempts. The first eligible refresh remains ten minutes after
+  the receiver becomes idle; every later eligible refresh is scheduled 20
+  minutes after the previous terminal result for as long as the receiver keeps
+  running.
+- Every normal automatic attempt still prefers the acknowledged native
+  `refresh-discovery` command. It replaces the paired RAOP/AirPlay DNS-SD
+  registration generation inside the existing core process and preserves the
+  current listener ports. Active mirroring and AirPlay client grace defer due
+  work rather than interrupting a connection.
+- The legacy full-process restart fallback is limited to the first two
+  automatic attempts in one idle epoch. Later command unavailability, timeout,
+  or failure leaves the listening receiver alive and rearms the recurring
+  schedule instead of creating indefinite process churn. Manual **Restart
+  discovery** and a real physical IPv4 change remain explicit full DNS-SD-and-
+  BLE restarts.
+- A guarded Windows unlock may request another same-process refresh after any
+  completed idle renewal, subject to the existing ten-minute cooldown,
+  readiness, physical-network, restart, mirroring, and client-grace checks.
+  Incoming AirPlay activity and a real network-profile change reset the
+  recurring epoch so the next automatic deadline starts again at ten minutes.
+- An update started from AeroMirror, a newer Setup opened over an installed
+  copy, and a same-version reinstall now run without showing the shortcut and
+  launch option form. Setup preserves the exact existing Start menu and desktop
+  shortcut choices and relaunches AeroMirror after replacement. A first install
+  remains interactive, and a newer installed version is never downgraded
+  automatically.
+
+### Compatibility and verification status
+
+- Source targets app/Setup `0.12.16`, PE/file `0.12.16.0`, Setup comparison
+  0.12.16, and exactly five 0.12.16 release-script defaults. The frozen
+  0.12.15 native-core source, runtime, patch, and provenance are reused without
+  modification.
+- The managed Release build and complete `ReceiverResilience` suite pass. The
+  deterministic discovery tests cover the first ten-minute deadline,
+  indefinite 20-minute recurrence, saturating process-lifetime counter,
+  unlock recurrence, activity deferral, cooldown/readiness guards, and the
+  first-two-attempt legacy restart boundary. The installer self-check also
+  covers fresh-install interactivity, unattended update/reinstall selection,
+  exact shortcut preservation, relaunch, and automatic-downgrade prevention.
+- The earlier 0.12.16 package identities were invalidated by the installer
+  behavior change. A fresh exact 13-entry payload, packaged-shell resilience
+  run, x64 Setup with byte-exact embedded inputs and all three non-installing
+  self-checks, and corresponding-source build now pass. Final public asset
+  identities are recorded outside the embedded documentation.
+- This is a best-effort periodic DNS-SD re-registration policy, not proof that
+  an iPhone continuously lists the receiver. Physical long-idle, sleep/unlock,
+  router, and real iPhone browse-cache acceptance remain pending.
+- Public `v0.12.9` remains the immutable normal latest Release. The frozen
+  0.12.15 candidate is not relabelled; 0.12.16 has no tag, GitHub Release,
+  public asset, public installer, or `BUILD_REPORT.md`.
+
+## 0.12.15 — native-core lifecycle and parser hardening candidate
+
+### Candidate scope
+
+- The supported default AirPlay path now uses one explicit worker-lifecycle
+  contract for mirror, HTTP, audio RTP, and NTP threads. Natural exit preserves
+  join debt, concurrent stop has one join owner, self-stop is deferred, failed
+  startup rolls back its socket/thread state, and a new start is refused until
+  the prior worker has been joined.
+- Accepted mirror and HTTP sockets are restored to blocking mode explicitly;
+  Windows timeout values and retryable receive/send results are handled without
+  treating a fragmented request as a disconnect. Mirror payload EOF returns to
+  accept, while fatal media failure remains distinct from a normal stop.
+- Mirror, HTTP/RTSP, SETUP, pairing, FairPlay, RTP, NTP, metadata, cover-art,
+  buffer, allocation, and crypto boundaries now reject missing, oversized,
+  inconsistent, or failed inputs with bounded status/error paths. Session
+  publication is atomic: partial mirror, timing, or audio startup is rolled
+  back instead of returning a false successful SETUP response.
+- A fully decrypted and NAL-validated video access unit is now authoritative
+  evidence that the sender is active. If the renderer is still marked paused,
+  the core requests one nonblocking implicit resume and then delivers that same
+  access unit; it does not discard the recovery frame or use a leaky appsrc
+  queue.
+- Video renderer access now takes lock-protected GStreamer references before
+  timestamp work. Bus callbacks are mapped to their owning renderer, teardown
+  waits for callbacks already holding that renderer, and unused codec renderer
+  objects stay alive until final destruction. Audio bus handling uses the same
+  owning-pipeline mapping rather than a process-global current renderer.
+
+### Compatibility and verification status
+
+- A fresh complete native CMake/Ninja build passes. The exact production
+  `crypto.c` passes a NIST AES-CTR known-answer test across a 5+11-byte split
+  and after reset. The production worker-lifecycle helper passes eight
+  executable create/exit/stop/join scenarios. Source-bound protocol, parser,
+  ownership, and renderer contract checks pass.
+- Independent frozen-source review approves the supported default mirroring
+  path with no P0/P1 finding. This is source/build evidence only: no physical
+  Windows/iPhone run has yet shown that the reported frozen-last-frame symptom
+  is fixed.
+- Two clean compatible native builds reproduce executable SHA-256
+  `38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`.
+  Patch/provenance materialization passes with libuxplay patch SHA-256
+  `E8233FFD59BFC49181D32BBD64A6C94A338FD31939B28A18C7FC7A3B5F14195D`,
+  37 pinned libuxplay files, and 41 patched-source hashes in total. The source
+  archive workflow creates 147 entries and validates their inputs/hashes. The
+  final ZIP is 826,213 bytes with SHA-256
+  `DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`;
+  its no-Git extracted tree passes hash validation and a clean 57/57 rebuild
+  reproduces the same core.
+- Staged-runtime inspection passes across 199 binaries, 148 DLLs, and 44
+  requested GStreamer features mapped to 27 plug-ins; a manual staged
+  `--loader-test` exits 0. A fresh managed build, the complete receiver
+  resilience suite with its reference-safe D3D11 snapshot assertion, and a
+  live discovery-pipe refresh all pass. The latter preserves PID 38712 and
+  AirPlay port 43214 for request 98569.
+- Source targets app/Setup `0.12.15`, PE/file `0.12.15.0`, Setup comparison
+  0.12.15, and exactly five 0.12.15 release-script defaults. The initial thin
+  package contains exactly 13 entries and its packaged shell passes resilience.
+  The initial x64 Setup has byte-exact embedded input, and all three Setup
+  self-checks exit 0. The focused final package/Setup rebuild against the
+  frozen embedded documentation also passes. Installed update, physical-device,
+  and public release gates remain pending.
+- Initial artifact identities are retained for traceability: thin ZIP
+  1,169,388 bytes/SHA-256
+  `2123412734FD089F1B65A41DC0451A8105349BED5778B53211340A997500141C`;
+  packaged/current shell 753,152 bytes/SHA-256
+  `330EA373212FA0C47B0C25747DACF3F45A27959D56F6643569AD13889E606B81`;
+  Setup 1,397,760 bytes/SHA-256
+  `BCFFBC8BAE6453A437783A82A6EB307C701CA422A2DBDC5019E3E7F0D6A397E7`.
+  These are the initial gate identities; the final focused-build identities are
+  retained with the local handoff evidence.
+- Internal 0.12.10–0.12.14 candidates remain unrelabelled, unpublished
+  history. Public `v0.12.9` remains the immutable normal latest Release; there
+  is no 0.12.15 tag, GitHub Release, public asset, or `BUILD_REPORT.md`.
+- Photos inner-content detection/crop and Camera rotation remain unresolved.
+  Deferred P2 work includes terminal join-failure parent lifetime, broader
+  audio/HLS synchronization, remaining startup assertions, optional PIN/SRP
+  depth, and consolidation of tolerant dual teardown paths.
+
 ## 0.12.14 — media-liveness diagnostic candidate
 
 ### Candidate scope

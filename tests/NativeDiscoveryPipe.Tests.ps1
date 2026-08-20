@@ -48,6 +48,10 @@ function Find-FreePortBase {
 
 $core = (Resolve-Path -LiteralPath $CorePath).Path
 $runtime = (Resolve-Path -LiteralPath $RuntimeRoot).Path
+$existingCores = @(Get-Process -Name "uxplay-windows" -ErrorAction SilentlyContinue)
+Assert-True ($existingCores.Count -eq 0) (
+    "native discovery harness requires exclusive access to the machine-wide " +
+    "BLE status file; stop every installed/test uxplay-windows process first")
 $portBase = Find-FreePortBase
 $inputNameBytes = [Text.Encoding]::UTF8.GetByteCount($ReceiverName)
 $arguments =
