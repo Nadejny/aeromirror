@@ -71,7 +71,10 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   unless the user turns it off; the exact correlated Photos/media signature
   automatically shapes the outer window temporarily without becoming trusted
   device orientation or making the provisional landscape persistable; the
-  former schema-12 Photos-specific A/B key and checkbox are retired;
+  former schema-12 Photos-specific A/B key and checkbox are retired; the
+  0.12.17 review release adds property-backed native fullscreen and an
+  explicit, non-persisted 100–250% uniform zoom only for that exact Photos
+  canvas, resetting it when the canvas ends or the renderer restarts;
   the last normal position, size, and DPI are restored on the next session and
   clamped into an available monitor; saved bounds are applied from the early
   window-show event, unchanged native-window policy is cached, and the window
@@ -157,6 +160,34 @@ not the runtime downloaded by the public network installer. Qt 6.10.1
 officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microsoft's normal consumer support lifecycle,
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
+
+## Current 0.12.17 review release
+
+The source targets 0.12.17/`0.12.17.0`. This normal-channel review build is for
+physical Photos presentation testing; automated checks do not claim that the
+Photos/Camera matrix has passed. Published `v0.12.16` assets remain immutable.
+
+0.12.17 adds an **Отображение трансляции** tray submenu. **Полный экран**
+changes the selected Direct3D 11 sink through its real fullscreen property.
+The photo controls apply equal X/Y scale from 100% to 250% only while the exact
+recorded Photos 3840x2160 media canvas is active. The scale is not saved and
+returns to 100% when the stream returns to a normal device frame or a new
+renderer session starts.
+
+This is deliberately an explicit presentation tool, not automatic content
+detection. Fullscreen cannot remove bars encoded inside the iPhone canvas;
+zoom crops the canvas edges and may crop Photos controls or genuine image
+content. AeroMirror still does not enable automatic crop, pixel analysis, or
+automatic rotation metadata handling.
+
+Managed/native contract tests, two reproducible native builds, staged runtime
+inspection, and the loader test pass. Physical iPhone Photos, Camera,
+orientation, fullscreen, and zoom checks remain pending. The 147-entry
+corresponding-source ZIP and its no-Git clean rebuild pass; package, Setup,
+and packaged-shell tests also pass. Installed and physical-device acceptance
+remain pending. See the
+[0.12.17 release notes](docs/releases/0.12.17/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.17/TEST_PLAN.md).
 
 ## Public 0.12.16 review release
 
@@ -261,8 +292,8 @@ remaining startup assertions, optional PIN/SRP depth, and tolerant dual
 teardown consolidation remain explicit P2 follow-up. Local discovery readiness
 still cannot force iOS browse-cache invalidation, and BLE in-process refresh,
 AWDL, and AirDrop remain separate. Internal 0.12.10–0.12.15 candidates are not
-renumbered or published; the public latest download below is immutable
-`v0.12.16`.
+renumbered or published. The 0.12.17 review release adds presentation controls;
+published 0.12.16 assets remain immutable history.
 
 ## Installer: recommended
 
@@ -271,32 +302,30 @@ For normal use, open the
 and download:
 
 ```text
-AeroMirror-Setup-0.12.16.exe
+AeroMirror-Setup-0.12.17.exe
 ```
 
-`v0.12.16` is the normal latest updater-visible public review Release. Its
-managed and native contracts, source/provenance, Setup lifecycle, exact tag,
-four-asset set, checksums, API digests, canonical/legacy latest routes, and
-fresh public re-download gates pass. It keeps idle same-process discovery
-maintenance recurring, preserves existing shortcut choices during unattended
-update/reinstall, and carries the frozen 0.12.15 native hardening. A real
-installed update/reinstall and physical Windows/iPhone discovery, media,
-Photos, and reconnect acceptance remain pending.
+`v0.12.17` is the normal updater-visible review Release for physical Photos
+presentation testing. Its managed/native contracts, reproducible source,
+13-entry review package, and Setup lifecycle pass. It keeps 0.12.16 recurring
+same-process discovery maintenance and adds native fullscreen plus explicit
+Photos zoom. Installed-update and physical Photos/Camera/rotation acceptance
+remain pending; published 0.12.16 assets are not replaced.
 
-Exact tag, asset-size, and SHA-256 evidence is in the
-[0.12.16 build report](docs/releases/0.12.16/BUILD_REPORT.md). Scope and pending
-physical acceptance are in the
-[0.12.16 release notes](docs/releases/0.12.16/RELEASE_NOTES.md) and
-[test plan](docs/releases/0.12.16/TEST_PLAN.md). The historical
+Scope and pending physical acceptance are in the
+[0.12.17 release notes](docs/releases/0.12.17/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.17/TEST_PLAN.md). Exact tag, public assets,
+digests, and re-download evidence are recorded in a build report only after
+publication. The historical
 [0.12.8 release notes](docs/releases/0.12.8/RELEASE_NOTES.md) and
 [test plan](docs/releases/0.12.8/TEST_PLAN.md) remain available; 0.12.8 was
 never tagged or published. Published 0.12.7 remains immutable history.
 
-The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.16 still
+The canonical repository is now `pyram1da/aeromirror`. AeroMirror 0.12.17 still
 contains the former `Nadejny/aeromirror` updater slug; GitHub redirects its
-`releases/latest` API to the canonical repository. Canonical and legacy API
-and HTML/latest Setup routes return the same public `v0.12.16` Release ID
-`373875353`, tag, and Setup bytes.
+`releases/latest` API to the canonical repository. Canonical and legacy API,
+HTML/latest, and Setup routes are checked for the exact new Release after
+publication.
 
 The installer:
 
@@ -435,31 +464,31 @@ installer from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.16 `
+  -Version 0.12.17 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.16 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.16.zip
+  -Version 0.12.17 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.17.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.16.exe
+artifacts\installer\AeroMirror-Setup-0.12.17.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.16`.
+Public release names use three-part semantic versions such as `0.12.17`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.16.0` in a file-property dialog; the AeroMirror UI and published
-GitHub Release intentionally show only `0.12.16`.
+show `0.12.17.0` in a file-property dialog; the AeroMirror UI and published
+GitHub Release intentionally show only `0.12.17`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.16 `
+  -Version 0.12.17 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -467,12 +496,13 @@ both explicit inputs:
 `package.ps1` now rejects a runtime without the reviewed headless build
 manifest, requires the patched executable explicitly, verifies its hash after
 staging, and writes a versioned local ZIP. Do not attach that offline ZIP to
-the 0.11 review Release. The network installer instead downloads the unchanged
-pinned upstream asset at install time and verifies the locked SHA-256.
+the current review Release. The network installer instead downloads the
+unchanged pinned upstream asset at install time and verifies the locked
+SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.9.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.17.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -481,16 +511,16 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.9\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.17\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
   -MsysRoot C:\path\to\msys64
 ```
 
-The script validates both reviewed patch files, every modified source file,
-the separately pinned unchanged native audio renderer, the distinct public
-GStreamer 1.28.1 and build-time GStreamer 1.28.5 contracts, the bundled
+The script validates both reviewed patch files, every pinned modified source
+and build input, the distinct public GStreamer 1.28.1 and build-time GStreamer
+1.28.5 contracts, the bundled
 Bonjour header and `dnssd.def` against
 `source-provenance.json`. It copies the verified header into the prepared
 Bonjour SDK layout, generates the x64 `dnssd.lib` import library with MSYS2
@@ -572,6 +602,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.17/
+      RELEASE_NOTES.md       Photos presentation review-release summary
+      TEST_PLAN.md           fullscreen, zoom, rotation, and package gates
     0.12.16/
       RELEASE_NOTES.md       persistent idle-discovery review summary
       TEST_PLAN.md           recurring visibility and fallback gates
@@ -855,13 +888,13 @@ The current license inventory is an engineering review, not legal advice.
 
 ## Sharing a build
 
-For the public 0.12.9 review Release, share the GitHub Release page or its
+For the public 0.12.17 review Release, share the GitHub Release page or its
 network Setup—not a loose `AeroMirror.exe`. Project policy keeps these assets
 together and immutable:
 
-- `AeroMirror-Setup-0.12.9.exe`;
-- `AeroMirror-source-0.12.9.zip`;
-- `AeroMirror-native-source-0.12.9.zip`;
+- `AeroMirror-Setup-0.12.17.exe`;
+- `AeroMirror-source-0.12.17.zip`;
+- `AeroMirror-native-source-0.12.17.zip`;
 - `SHA256SUMS.txt`.
 
 The native source archive contains the exact prepared `uxplay-windows` and

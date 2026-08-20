@@ -489,15 +489,18 @@ namespace AirPlayReceiverMvp
                     {
                         try
                         {
-                            if (request != Interlocked.Read(
-                                    ref coreDiscoveryRefreshPendingRequest) ||
-                                processId != Interlocked.CompareExchange(
-                                    ref activeCorePid, 0, 0))
-                                return;
-                            process.StandardInput.WriteLine(
-                                "AEROMIRROR_COMMAND refresh-discovery request=" +
-                                request);
-                            process.StandardInput.Flush();
+                            lock (coreCommandSync)
+                            {
+                                if (request != Interlocked.Read(
+                                        ref coreDiscoveryRefreshPendingRequest) ||
+                                    processId != Interlocked.CompareExchange(
+                                        ref activeCorePid, 0, 0))
+                                    return;
+                                process.StandardInput.WriteLine(
+                                    "AEROMIRROR_COMMAND refresh-discovery request=" +
+                                    request);
+                                process.StandardInput.Flush();
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -514,6 +517,47 @@ namespace AirPlayReceiverMvp
                     if (request == Interlocked.Read(
                             ref coreDiscoveryRefreshPendingRequest))
                         ClearNativeDiscoveryRefreshRequestLocked();
+                    return false;
+                }
+            }
+        }
+
+        private bool TryWriteNativeVideoCommand(
+            string command, string description)
+        {
+            if (string.IsNullOrWhiteSpace(command) ||
+                command.IndexOfAny(new[] { '\r', '\n' }) >= 0)
+                return false;
+            Process process = coreProcess;
+            if (process == null || !IsCoreRunning)
+                return false;
+            if (coreCommandSync == null)
+                coreCommandSync = new object();
+            lock (coreCommandSync)
+            {
+                int processId;
+                try { processId = process.Id; }
+                catch { return false; }
+                if (!object.ReferenceEquals(coreProcess, process) ||
+                    !IsCoreRunning || restartPending ||
+                    Interlocked.CompareExchange(
+                        ref restartStopInProgress, 0, 0) == 1 ||
+                    Interlocked.CompareExchange(ref activeCorePid, 0, 0) !=
+                        processId)
+                    return false;
+                try
+                {
+                    process.StandardInput.WriteLine(
+                        "AEROMIRROR_COMMAND " + command);
+                    process.StandardInput.Flush();
+                    Log("Native video command requested; " + description +
+                        ", PID " + processId + ".");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Log("Native video command failed; " + description +
+                        ": " + ex.Message);
                     return false;
                 }
             }
@@ -2005,6 +2049,7 @@ namespace AirPlayReceiverMvp
             appliedVideoFitSize = Size.Empty;
             appliedVideoFitTargetKind = RendererFitTargetKind.None;
             appliedVideoOrientation = 0;
+            Interlocked.Exchange(ref streamZoomPermille, 1000);
         }
 
         private void ResetIdleDiscoveryRenewalSchedule()

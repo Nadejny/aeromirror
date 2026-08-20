@@ -413,10 +413,21 @@ The marker reports the encoded stream dimensions; it is not remote-control
 input, pixel-aspect metadata, or a guarantee that an iPhone application itself
 has not letterboxed content inside the video frame. In particular, Photos may
 place a small image and black bars inside the encoded `3840x2160` canvas. The
-managed shell can choose the outer window aspect but cannot safely crop or zoom
-that inner content without a native content rectangle or validated pixel
-analysis. A future versioned IPC contract should replace stdout parsing and
-expose explicit stream, orientation, and content-layout events.
+managed shell can choose the outer window aspect but cannot automatically
+identify or crop that inner content without a native content rectangle or
+validated pixel analysis. The 0.12.17 candidate therefore exposes only an
+explicit uniform 100–250% native scale for the exact replay-backed Photos
+media-canvas class. It can crop the canvas at the user's request, is never
+persisted, and resets when the class ends or renderer lifecycle restarts.
+
+Presentation commands share the redirected standard-input control channel with
+discovery commands. The shell serializes writes and revalidates current process
+identity; the wrapper accepts exact fullscreen/scale grammar; libuxplay attaches
+the work to its active GLib owner and takes a retained selected-sink reference
+before changing D3D11 properties. The control is deliberately not a general
+window-input injection path. A future versioned IPC contract should replace
+stdout parsing and expose explicit stream, orientation, and content-layout
+events before any automatic crop or rotation policy is considered.
 
 ## Renderer pipeline selection
 

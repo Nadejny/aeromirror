@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "uxplayWindowsCommit": "8cf3424b438424bc99a89155bd29a789f48a43c0",
   "libuxplayCommit": "437f37514257d9cb513ac7fbdee743b4da85852e",
-  "uxplayWindowsPatchSha256": "b8ebf8d65165d9edfba63a6fd5b087c4efec3067f48eb8c048a89f0b2fd42506",
-  "libuxplayPatchSha256": "e8233ffd59bfc49181d32bbd64a6c94a338fd31939b28a18c7fc7a3b5f14195d",
-  "headlessExecutableSha256": "38c6a63ce3ca40d3d1e23e5ecb5e0d152f9978986c4384a780c5767eae0650a4",
+  "uxplayWindowsPatchSha256": "8f48a4e72d765b0549119bc6366cb970384bab8116b4430ce60ed67228213f9c",
+  "libuxplayPatchSha256": "91af80a36c7d4eceb6470a1394722f2ec98312407dfa51a9929fc40e4b220cf5",
+  "headlessExecutableSha256": "53b13433b9308547d491417f11692361dfc5b6ebfbda018b8d3eee7b4436436f",
   "qtBuildVersion": "6.10.1",
   "runtimeGStreamerVersion": "1.28.1",
   "buildGStreamerVersion": "1.28.5",
@@ -20,7 +20,7 @@
   "patchedSources": {
     "src/airplayworker.cpp": "88db21f7fe0b52d73a501721576d057a474c89bdb36282b6e88eb248699f72a6",
     "src/main.cpp": "78a38cc55e74cd80f79fa16e62625936c6f9ccbf89a86b08d419f4e5187aca96",
-    "src/mainwindow.cpp": "e2f3f300370dca7f3601dadb838b70031a90e974757b9b1ad3b7101b3b1520c2",
+    "src/mainwindow.cpp": "ef0bd7a7e522c97e27ace5988d8e5b75646265d350cfecf56789463b54993e4a",
     "src/mainwindow.h": "f684799640fa3530a2f4446abb38b7193fb4bf8a710446fc55fa424cc4856768",
     "libuxplay/lib/crypto.c": "f6f0d6b7761d81ac5572ea7cc3ba54e3ab9f000830c12a62ff00815091cb048f",
     "libuxplay/lib/crypto.h": "bbb06b17469ac659fa0aa68b782a56d89c6acc703b4d848520ddedb4fce89b4e",
@@ -55,10 +55,10 @@
     "libuxplay/lib/worker_lifecycle.c": "9d3c57aaf70443fd6af8e2a1fd1fc23a82888f2f1498db01fe3608cf6b849489",
     "libuxplay/lib/worker_lifecycle.h": "e593f1a64b9342940f4b525af29b11d10c667665aa0e76d0280f2156ae753639",
     "libuxplay/renderers/audio_renderer.c": "06580c11aec7a5584f9393c7af6f0f73a5e8a12dfb23e398d507a216d8a3ed13",
-    "libuxplay/renderers/video_renderer.c": "bfd5026804e8542908184fd44ca17bd1541fea00ae0d56adc19d3866d5c3d717",
-    "libuxplay/renderers/video_renderer.h": "4d63e2a6314b09034008d15839aed5f0500ced5f5f91dbf0dfaf9c8218c0a6bb",
-    "libuxplay/uxplay.cpp": "e8f8d8e2c1e9b915d4b29bd8147d8cfd7d13b9f1f144e0be74da177b7fa6d6f3",
-    "libuxplay/uxplay_api.h": "4dfd7762c1da8ba9e45f6c23832403ad5bbb3b3dda096f0e15adf0a432ebf2f6"
+    "libuxplay/renderers/video_renderer.c": "d48fbebe8b5a920ae6e8093b9d25828242c5443397a92de85af6872663aa816c",
+    "libuxplay/renderers/video_renderer.h": "a51bf6875aebf68a50a5a23207ea32b03441967c9d34381b8c3250b33e343705",
+    "libuxplay/uxplay.cpp": "7e44cd60f3156c93bbcc578d049953048d4f32e9279519632ace007d8160f3bb",
+    "libuxplay/uxplay_api.h": "6a7e8363b3c8adba305c450d65c10bb302ed9ce87039d571f96af8deb8bd61e4"
   },
   "protectedSources": {},
   "buildInputs": {

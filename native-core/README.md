@@ -77,6 +77,15 @@ transition before delivery. This is a narrow protocol-state repair, not a claim
 that the physical frozen-frame symptom is resolved; that still requires a
 0.12.15 iPhone test.
 
+The internal 0.12.17 extension keeps those protocol and lifetime changes and
+adds two presentation commands to the existing headless pipe. The wrapper
+parses exact fullscreen/scale grammar; libuxplay queues work on the active GLib
+owner; and the renderer takes a retained selected D3D11 sink reference before
+changing its documented `fullscreen`, `scale-x`, or `scale-y` properties.
+Scale is equal on both axes, limited to 100–250%, and reset on renderer start.
+This is an explicit user crop, not automatic Photos content detection or a
+Camera-rotation fix.
+
 The receiver's shared AirPlay identity is canonicalized to at most 50 UTF-8
 bytes at a complete character boundary. This keeps the six-byte-MAC RAOP label
 (`MAC@name`) within Bonjour's 63-byte service-label limit while AirPlay, RAOP,

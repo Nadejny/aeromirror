@@ -6,6 +6,46 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
+## Current internal candidate — 0.12.17
+
+- Status: locally packaged and explicitly authorized for a normal-channel
+  review publication, but still uninstalled, untagged, and unpublished at this
+  checkpoint. Public `v0.12.16` remains immutable until `v0.12.17` is created.
+- User behavior: the tray exposes native fullscreen plus 100–250% uniform zoom
+  for only the exact observed Photos `3840x2160 aux=0x0 encoded=3840x2160`
+  media canvas. Zoom is explicit, session-scoped, and resets when that class
+  ends or a new renderer session starts.
+- Ownership: the managed shell serializes command writes and the headless
+  wrapper accepts a narrow command grammar. Libuxplay attaches presentation
+  work to the active GLib context and takes a retained selected D3D11 sink
+  reference before changing fullscreen or equal X/Y scale properties.
+- Evidence: managed Release and complete resilience pass; the worker and native
+  core/crypto contract suites pass. Two clean compatible 57/57 builds reproduce
+  core SHA-256
+  `53B13433B9308547D491417F11692361DFC5B6EBFBDA018B8D3EEE7B4436436F`.
+  Staging checks 199 binaries and 148 DLLs, maps 44 requested features to 27
+  plug-ins, and the loader test exits 0. Wrapper patch SHA-256 is
+  `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
+  libuxplay patch SHA-256 is
+  `91AF80A36C7D4ECEB6470A1394722F2EC98312407DFA51A9929FC40E4B220CF5`.
+  The 147-entry corresponding-source ZIP is 828,175 bytes with SHA-256
+  `3F1AD0754648E94C0BC989B168B30B6D98A552171C3E4DDF39CB9348EC2036F3`;
+  its no-Git tree validates every pinned hash and rebuilds 57/57 to the same
+  reviewed core. The exact 13-entry review payload, packaged-shell resilience,
+  x64 `0.12.17.0` Setup, byte-exact embedding, and all three non-installing
+  Setup self-checks pass.
+- Boundary: fullscreen enlarges the outer renderer only. Manual zoom crops the
+  iPhone-provided canvas and cannot distinguish real dark content from encoded
+  bars. Automatic crop, pixel inspection, and `rotate-method=auto` remain off;
+  Camera orientation and the physical Photos result are unresolved.
+- Version: shell/Setup source targets `0.12.17.0`, Setup comparison 0.12.17,
+  and exactly five script defaults target 0.12.17.
+- Pending: installed update, physical Photos and Camera matrix, exact tag,
+  publication, API digests, and public re-download equality.
+- Immediate next step: freeze the source, create the exact annotated tag and
+  four public assets, publish the normal review Release, verify public bytes,
+  then retain the user's physical fullscreen/zoom/rotation evidence.
+
 ## Latest public review release — 0.12.16
 
 - Status: published normal updater-visible persistent idle-discovery review

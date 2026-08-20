@@ -727,6 +727,10 @@ namespace AirPlayReceiverMvp
             bool ambiguousMediaCanvas;
             Size videoSize = GetStableVideoSize(
                 out videoSizeSequence, out ambiguousMediaCanvas);
+            if (!ambiguousMediaCanvas &&
+                Interlocked.CompareExchange(
+                    ref streamZoomPermille, 0, 0) != 1000)
+                ResetPhotosZoom(false);
             bool orientationAuthoritative;
             bool suppressionChanged;
             Size automaticVideoSize = ResolveAutomaticVideoSize(
@@ -1002,6 +1006,97 @@ namespace AirPlayReceiverMvp
             if (notifyIfMissing && settings.Notify)
                 tray.ShowBalloonTip(3000, AppTitle,
                     "Окно трансляции пока не найдено. Подключите iPhone и повторите.",
+                    ToolTipIcon.Info);
+        }
+
+        private void ToggleStreamWindowFullscreen(bool notifyIfMissing)
+        {
+            if (!IsCoreRunning)
+            {
+                if (notifyIfMissing && settings.Notify)
+                    tray.ShowBalloonTip(3000, AppTitle,
+                        "Сначала подключите iPhone: окно трансляции пока не открыто.",
+                        ToolTipIcon.Info);
+                return;
+            }
+
+            IntPtr window = IntPtr.Zero;
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                if (TryGetRendererWindow(out window))
+                    break;
+                if (attempt < 4)
+                    Thread.Sleep(150);
+            }
+
+            if (window != IntPtr.Zero &&
+                TryWriteNativeVideoCommand(
+                    "video-fullscreen-toggle", "fullscreen toggle"))
+            {
+                Log("Requested renderer fullscreen toggle.");
+                return;
+            }
+
+            Log("Renderer fullscreen toggle skipped: no visible renderer " +
+                "window accepted the native command.");
+            if (notifyIfMissing && settings.Notify)
+                tray.ShowBalloonTip(3000, AppTitle,
+                    "Окно трансляции пока не найдено. Подключите iPhone и повторите.",
+                    ToolTipIcon.Info);
+        }
+
+        private void AdjustPhotosZoom(int deltaPermille, bool notifyIfMissing)
+        {
+            long sequence;
+            bool ambiguousMediaCanvas;
+            GetStableVideoSize(out sequence, out ambiguousMediaCanvas);
+            if (!ambiguousMediaCanvas)
+            {
+                if (notifyIfMissing && settings.Notify)
+                    tray.ShowBalloonTip(3000, AppTitle,
+                        "Увеличение доступно только для отдельного холста с фото.",
+                        ToolTipIcon.Info);
+                return;
+            }
+
+            int current = Interlocked.CompareExchange(
+                ref streamZoomPermille, 0, 0);
+            int next = Math.Max(1000, Math.Min(2500,
+                current + deltaPermille));
+            if (next == current)
+                return;
+            if (TryWriteNativeVideoCommand(
+                    "video-scale permille=" + next,
+                    "Photos scale " + next + "/1000"))
+            {
+                Interlocked.Exchange(ref streamZoomPermille, next);
+                Log("Photos media-canvas scale set to " +
+                    (next / 10) + "% for the current session.");
+                return;
+            }
+
+            if (notifyIfMissing && settings.Notify)
+                tray.ShowBalloonTip(3000, AppTitle,
+                    "Не удалось изменить масштаб: окно трансляции пока не готово.",
+                    ToolTipIcon.Info);
+        }
+
+        private void ResetPhotosZoom(bool notifyIfMissing)
+        {
+            int current = Interlocked.CompareExchange(
+                ref streamZoomPermille, 0, 0);
+            if (current == 1000)
+                return;
+            if (TryWriteNativeVideoCommand(
+                    "video-scale permille=1000", "Photos scale reset"))
+            {
+                Interlocked.Exchange(ref streamZoomPermille, 1000);
+                Log("Photos media-canvas scale reset to 100%.");
+                return;
+            }
+            if (notifyIfMissing && settings.Notify)
+                tray.ShowBalloonTip(3000, AppTitle,
+                    "Не удалось сбросить масштаб: окно трансляции пока не готово.",
                     ToolTipIcon.Info);
         }
 

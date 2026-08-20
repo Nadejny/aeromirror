@@ -142,7 +142,7 @@ index d659491..4baac87 100644
      return app.exec();
  }
 diff --git a/src/mainwindow.cpp b/src/mainwindow.cpp
-index aeb732d..0102681 100644
+index aeb732d..d1489fc 100644
 --- a/src/mainwindow.cpp
 +++ b/src/mainwindow.cpp
 @@ -1,6 +1,8 @@
@@ -235,7 +235,7 @@ index aeb732d..0102681 100644
              }
          }
          m_worker = nullptr;
-@@ -432,7 +469,62 @@ void MainWindow::onAirplayStopped() {
+@@ -432,7 +469,94 @@ void MainWindow::onAirplayStopped() {
  }
  
  void MainWindow::onAirplayError(const QString &message) {
@@ -249,8 +249,10 @@ index aeb732d..0102681 100644
 +
 +void MainWindow::startCommandReader() {
 +    m_commandReader = std::thread([]() {
-+        const std::regex command(
++        const std::regex discoveryCommand(
 +            "^AEROMIRROR_COMMAND refresh-discovery request=([1-9][0-9]{0,19})$");
++        const std::regex scaleCommand(
++            "^AEROMIRROR_COMMAND video-scale permille=([1-9][0-9]{3})$");
 +        HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
 +        if (input == NULL || input == INVALID_HANDLE_VALUE) return;
 +        std::string pending;
@@ -277,9 +279,39 @@ index aeb732d..0102681 100644
 +                    continue;
 +                }
 +                std::smatch match;
++
++                if (line == "AEROMIRROR_COMMAND video-fullscreen-toggle") {
++                    if (!request_video_fullscreen_toggle()) {
++                        fprintf(stderr,
++                                "AEROMIRROR_COMMAND_REJECTED "
++                                "command=video-fullscreen-toggle "
++                                "reason=busy-or-not-ready\n");
++                        fflush(stderr);
++                    }
++                    continue;
++                }
++
++                if (std::regex_match(line, match, scaleCommand)) {
++                    unsigned long scale = 0;
++                    try {
++                        scale = std::stoul(match[1].str());
++                    } catch (...) {
++                        scale = 0;
++                    }
++                    if (!scale || scale > 0xffffffffUL ||
++                        !request_video_scale((unsigned int) scale)) {
++                        fprintf(stderr,
++                                "AEROMIRROR_COMMAND_REJECTED "
++                                "command=video-scale reason=%s\n",
++                                scale ? "busy-or-invalid" : "invalid");
++                        fflush(stderr);
++                    }
++                    continue;
++                }
++
 +                unsigned long long request = 0;
 +                try {
-+                    if (std::regex_match(line, match, command)) {
++                    if (std::regex_match(line, match, discoveryCommand)) {
 +                        request = std::stoull(match[1].str());
 +                    }
 +                } catch (...) {
@@ -299,7 +331,7 @@ index aeb732d..0102681 100644
  }
  
  void MainWindow::toggleAutostart(bool checked) {
-@@ -456,32 +548,133 @@ void MainWindow::setAutostart(bool enabled) {
+@@ -456,32 +580,133 @@ void MainWindow::setAutostart(bool enabled) {
  }
  
  void MainWindow::startBluetoothBeacon(const QString &path) {
@@ -440,7 +472,7 @@ index aeb732d..0102681 100644
      if (m_beacon->state() != QProcess::NotRunning) {
          m_beacon->terminate();
          if (!m_beacon->waitForFinished(500)) {
-@@ -490,9 +683,11 @@ void MainWindow::stopBluetoothBeacon() {
+@@ -490,9 +715,11 @@ void MainWindow::stopBluetoothBeacon() {
              m_beacon->waitForFinished(100);
          }
      }

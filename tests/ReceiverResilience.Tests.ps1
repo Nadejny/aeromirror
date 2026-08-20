@@ -84,6 +84,42 @@ Assert-True ($nativePatchSource.Contains("DNSServiceProcessResult") -and
     $wrapperPatchSource.Contains("requestInterruption()")) `
     "reviewed native patches retain callback pumping, coherent identity, loop-reset command persistence, redirected pipe IPC, and graceful stop"
 Assert-True ($wrapperPatchSource.Contains(
+        'AEROMIRROR_COMMAND video-fullscreen-toggle') -and
+    $wrapperPatchSource.Contains('request_video_fullscreen_toggle()') -and
+    $wrapperPatchSource.Contains(
+        'AEROMIRROR_COMMAND video-scale permille=') -and
+    $wrapperPatchSource.Contains(
+        'request_video_scale((unsigned int) scale)') -and
+    $nativePatchSource.Contains(
+        'static gboolean aeromirror_apply_presentation_command') -and
+    $nativePatchSource.Contains(
+        'static int aeromirror_queue_presentation_command') -and
+    $nativePatchSource.Contains('g_idle_source_new()') -and
+    $nativePatchSource.Contains(
+        'g_source_attach(source, context)') -and
+    $nativePatchSource.Contains(
+        'video_renderer_toggle_fullscreen(&fullscreen_state)') -and
+    $nativePatchSource.Contains(
+        'video_renderer_set_scale(command->value)') -and
+    $nativePatchSource.Contains(
+        'AEROMIRROR_VIDEO_FULLSCREEN state=%d result=%s') -and
+    $nativePatchSource.Contains(
+        'AEROMIRROR_VIDEO_SCALE permille=%u result=%s')) `
+    "fullscreen and Photos scale commands are parsed narrowly and marshalled to the native GLib owner"
+Assert-True ($nativePatchSource.Contains(
+        'bool video_renderer_toggle_fullscreen(bool *fullscreen)') -and
+    $nativePatchSource.Contains(
+        '"fullscreen-toggle-mode", (guint) 6') -and
+    $nativePatchSource.Contains('"fullscreen", next') -and
+    $nativePatchSource.Contains(
+        'bool video_renderer_set_scale(unsigned int permille)') -and
+    $nativePatchSource.Contains(
+        'if (permille < 1000 || permille > 2500) return false;') -and
+    $nativePatchSource.Contains('"scale-x", scale') -and
+    $nativePatchSource.Contains('"scale-y", scale') -and
+    $nativePatchSource.Contains('aeromirror_reset_present_scale();')) `
+    "the selected D3D11 sink uses property-backed fullscreen and bounded uniform zoom that resets at renderer start"
+Assert-True ($wrapperPatchSource.Contains(
         "QByteArray m_beaconOutputBuffer") -and
     $wrapperPatchSource.Contains(
         "consumeBluetoothBeaconOutput(false)") -and
@@ -563,9 +599,10 @@ Assert-True ($settingsFormSource.Contains(
     $installerSource.Contains("RunAutomaticInstall(updateRequested);") -and
     $installerSource.Contains(
         "InstallerOperations.GetShortcutSelection(true)") -and
+    $installerSource.Contains("SetupVersion.Build + 1") -and
     $installerSource.Contains(
         "AeroMirror relaunched after automatic install.")) `
-    "application updates and installed-version reinstalls run without the option form, preserve shortcut choices, and relaunch AeroMirror"
+    "application updates and installed-version reinstalls run without the option form, preserve shortcut choices, retain version-independent downgrade verification, and relaunch AeroMirror"
 Assert-True ($source.Contains("discoveryRefreshAfterNetworkCheck")) `
     "manual discovery refresh survives an unavailable physical network"
 $manualDiscoveryStart = $receiverContextSource.IndexOf(
@@ -888,6 +925,19 @@ Assert-True ($source.Contains("pendingManualFitDueTicks") -and
 Assert-True ($source.Contains("autoFit = MakeCheckBox(") -and
     $source.Contains("FitStreamWindow(true)")) `
     "automatic aspect fitting retains a settings control and manual tray fallback"
+Assert-True ([regex]::Matches(
+        $receiverContextSource,
+        'ToggleStreamWindowFullscreen\s*\(\s*true\s*\)').Count -eq 1 -and
+    $source.Contains('"video-fullscreen-toggle"') -and
+    $source.Contains('"video-scale permille=" + next') -and
+    $source.Contains('"video-scale permille=1000"') -and
+    $source.Contains("TryWriteNativeVideoCommand(") -and
+    $receiverCoreSource.Contains("lock (coreCommandSync)") -and
+    $source.Contains("ref streamZoomPermille, 0, 0") -and
+    $source.Contains("Math.Min(2500") -and
+    -not $source.Contains("WM_SYSKEYDOWN") -and
+    -not $source.Contains("PostMessage(")) `
+    "the tray uses bounded native fullscreen and session-scoped Photos zoom commands without restarting the receiver"
 Assert-True ($source.Contains("internal sealed class LostConnectionForm") -and
     $lostConnectionUiSource.Contains("titleLabel.Text =") -and
     $lostConnectionUiSource.Contains("detailLabel.Text =") -and

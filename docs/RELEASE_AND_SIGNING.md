@@ -97,7 +97,13 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. The frozen local 0.12.13 candidate remains failed internal history and
+passes. The 0.12.17 Photos-presentation candidate is uninstalled and remains a
+review build until its physical matrix passes; its status is tracked in
+[`releases/0.12.17/TEST_PLAN.md`](releases/0.12.17/TEST_PLAN.md). It must not
+alter or replace any `v0.12.16` asset. The user explicitly authorized a normal
+updater-visible review publication on 2026-08-20 before the physical matrix;
+the Release must state that limitation and must not claim acceptance. The frozen local 0.12.13
+candidate remains failed internal history and
 must not be relabelled or silently replaced. The public 0.12.16 persistent
 idle-discovery review Release uses
 [`releases/0.12.16/TEST_PLAN.md`](releases/0.12.16/TEST_PLAN.md). Its managed

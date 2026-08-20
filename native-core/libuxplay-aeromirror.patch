@@ -9355,7 +9355,7 @@ index 7568bcd..2b7a5c2 100644
  }
  
 diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
-index ea1c450..cf7bea0 100644
+index ea1c450..058c345 100644
 --- a/renderers/video_renderer.c
 +++ b/renderers/video_renderer.c
 @@ -75,12 +75,20 @@ typedef enum {
@@ -9379,7 +9379,7 @@ index ea1c450..cf7bea0 100644
      int id;
      char *uri;
      gboolean eos;
-@@ -95,12 +103,493 @@ struct video_renderer_s {
+@@ -95,12 +103,529 @@ struct video_renderer_s {
  
  static video_renderer_t *renderer = NULL;
  static video_renderer_t *renderer_type[NCODECS] = {0};
@@ -9418,6 +9418,42 @@ index ea1c450..cf7bea0 100644
 +    }
 +    g_mutex_unlock(&renderer_lock);
 +    return found;
++}
++
++static GstElement *aeromirror_snapshot_selected_present_sink() {
++    GstElement *sink = NULL;
++    g_mutex_lock(&renderer_lock);
++    if (renderer && renderer->aeromirror_present_sink) {
++        sink = GST_ELEMENT(
++            gst_object_ref(renderer->aeromirror_present_sink));
++    }
++    g_mutex_unlock(&renderer_lock);
++    return sink;
++}
++
++static void aeromirror_reset_present_scale() {
++    GstElement *sinks[NCODECS] = {0};
++    g_mutex_lock(&renderer_lock);
++    for (int i = 0; i < n_renderers; i++) {
++        if (renderer_type[i] &&
++            renderer_type[i]->aeromirror_present_sink) {
++            sinks[i] = GST_ELEMENT(gst_object_ref(
++                renderer_type[i]->aeromirror_present_sink));
++        }
++    }
++    g_mutex_unlock(&renderer_lock);
++    for (int i = 0; i < n_renderers; i++) {
++        if (!sinks[i]) continue;
++        if (g_object_class_find_property(
++                G_OBJECT_GET_CLASS(sinks[i]), "scale-x") &&
++            g_object_class_find_property(
++                G_OBJECT_GET_CLASS(sinks[i]), "scale-y")) {
++            g_object_set(sinks[i],
++                         "scale-x", (gfloat) 1.0,
++                         "scale-y", (gfloat) 1.0, NULL);
++        }
++        gst_object_unref(sinks[i]);
++    }
 +}
 +
 +static video_renderer_t *aeromirror_acquire_renderer_for_bus(
@@ -9873,7 +9909,7 @@ index ea1c450..cf7bea0 100644
  static void append_videoflip (GString *launch, const videoflip_t *flip, const videoflip_t *rot) {
      /* videoflip image transform */
      switch (*flip) {
-@@ -177,6 +666,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
+@@ -177,6 +702,9 @@ void video_renderer_size(float *f_width_source, float *f_height_source, float *f
      height_source = (unsigned short) *f_height_source;
      width = (unsigned short) *f_width;
      height = (unsigned short) *f_height;
@@ -9883,7 +9919,7 @@ index ea1c450..cf7bea0 100644
      logger_log(logger, LOGGER_DEBUG, "begin video stream wxh = %dx%d; source %dx%d", width, height, width_source, height_source);
  }
  
-@@ -399,7 +891,19 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
+@@ -399,7 +927,19 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
              gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
              renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
              g_assert(renderer_type[i]->appsrc);
@@ -9904,7 +9940,7 @@ index ea1c450..cf7bea0 100644
              g_string_free(launch, TRUE);
              gst_caps_unref(caps);
              gst_object_unref(clock);
-@@ -444,7 +948,9 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
+@@ -444,7 +984,9 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
          if (ret == GST_STATE_CHANGE_SUCCESS) {
              logger_log(logger, LOGGER_DEBUG, "Initialized GStreamer video renderer %d", i + 1);
              if (hls_video && i == 0) {
@@ -9914,7 +9950,7 @@ index ea1c450..cf7bea0 100644
              }
          } else {
              logger_log(logger, LOGGER_ERR, "Failed to initialize GStreamer video renderer %d", i + 1);
-@@ -458,47 +964,108 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
+@@ -458,47 +1000,149 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
  }
  
  void video_renderer_pause() {
@@ -9969,13 +10005,54 @@ index ea1c450..cf7bea0 100644
 +            gst_video_pipeline_base_time = base_time;
 +        }
 +        g_mutex_unlock(&renderer_lock);
-     }
++    }
 +    if (appsrc) gst_object_unref(appsrc);
 +    gst_object_unref(pipeline);
++}
++
++bool video_renderer_toggle_fullscreen(bool *fullscreen) {
++    if (fullscreen) *fullscreen = false;
++    GstElement *sink = aeromirror_snapshot_selected_present_sink();
++    if (!sink) return false;
++    GObjectClass *klass = G_OBJECT_GET_CLASS(sink);
++    if (!g_object_class_find_property(klass, "fullscreen") ||
++        !g_object_class_find_property(
++            klass, "fullscreen-toggle-mode")) {
++        gst_object_unref(sink);
++        return false;
+     }
++    gboolean current = FALSE;
++    g_object_get(sink, "fullscreen", &current, NULL);
++    gboolean next = current ? FALSE : TRUE;
++    g_object_set(sink,
++                 "fullscreen-toggle-mode", (guint) 6,
++                 "fullscreen", next, NULL);
++    if (fullscreen) *fullscreen = next ? true : false;
++    gst_object_unref(sink);
++    return true;
++}
++
++bool video_renderer_set_scale(unsigned int permille) {
++    if (permille < 1000 || permille > 2500) return false;
++    GstElement *sink = aeromirror_snapshot_selected_present_sink();
++    if (!sink) return false;
++    GObjectClass *klass = G_OBJECT_GET_CLASS(sink);
++    if (!g_object_class_find_property(klass, "scale-x") ||
++        !g_object_class_find_property(klass, "scale-y")) {
++        gst_object_unref(sink);
++        return false;
++    }
++    gfloat scale = (gfloat) permille / 1000.0f;
++    g_object_set(sink,
++                 "scale-x", scale,
++                 "scale-y", scale, NULL);
++    gst_object_unref(sink);
++    return true;
  }
  
  void video_renderer_start() {
 +    /* A renderer lifecycle boundary cannot inherit queued proof metadata. */
++    aeromirror_reset_present_scale();
 +    video_renderer_cancel_recovery();
 +    g_atomic_int_set(&aeromirror_active_renderer_id, 0);
 +    g_atomic_int_set(&aeromirror_active_present_proof_ready, 0);
@@ -10043,7 +10120,7 @@ index ea1c450..cf7bea0 100644
      first_packet = true;
  #ifdef X_DISPLAY_FIX
      X11_search_attempts = 0;
-@@ -569,32 +1136,74 @@ int video_renderer_cycle() {
+@@ -569,32 +1213,74 @@ int video_renderer_cycle() {
  
  void video_renderer_display_jpeg(const void *data, int *data_len) {
      GstBuffer *buffer = NULL;
@@ -10127,7 +10204,7 @@ index ea1c450..cf7bea0 100644
      /* first four bytes of valid  h264  video data are 0x00, 0x00, 0x00, 0x01.    *
       * nal_count is the number of NAL units in the data: short SPS, PPS, SEI NALs *
       * may  precede a VCL NAL. Each NAL starts with 0x00 0x00 0x00 0x01 and is    *
-@@ -606,20 +1215,144 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+@@ -606,20 +1292,144 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
              logger_log(logger, LOGGER_INFO, "Begin streaming to GStreamer video pipeline");
              first_packet = false;
          }
@@ -10279,7 +10356,7 @@ index ea1c450..cf7bea0 100644
              X11_search_attempts++;
              logger_log(logger, LOGGER_DEBUG, "Looking for X11 UxPlay Window, attempt %d", (int) X11_search_attempts);
              get_x_window(renderer->gst_window, renderer->server_name);
-@@ -630,12 +1363,17 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+@@ -630,12 +1440,17 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
                  }
              }
          }
@@ -10297,7 +10374,7 @@ index ea1c450..cf7bea0 100644
  }
  
  void video_renderer_hls_ready() {
-@@ -652,14 +1390,22 @@ void video_renderer_hls_ready() {
+@@ -652,14 +1467,22 @@ void video_renderer_hls_ready() {
  }
  
  void video_renderer_stop() {
@@ -10325,7 +10402,7 @@ index ea1c450..cf7bea0 100644
  }
  
  void video_renderer_set_device_model(const char *model, const char *name) {
-@@ -684,21 +1430,37 @@ void video_renderer_set_track_metadata(const char *title, const char *artist, co
+@@ -684,21 +1507,37 @@ void video_renderer_set_track_metadata(const char *title, const char *artist, co
      }
      
      g_string_replace (metadata, "&", "&amp;", 0);   //fix pango problem with "&" in text
@@ -10369,7 +10446,7 @@ index ea1c450..cf7bea0 100644
                  gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
              }
              ret = gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-@@ -711,12 +1473,19 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
+@@ -711,12 +1550,19 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
              gst_object_unref (renderer->appsrc);
              renderer->appsrc = NULL;
          }
@@ -10391,7 +10468,7 @@ index ea1c450..cf7bea0 100644
  #ifdef X_DISPLAY_FIX
          if (renderer->gst_window){
  	  // free_X11_Display(renderer->gst_window);   without this, a memory leak; with it, a coredump
-@@ -734,10 +1503,24 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
+@@ -734,10 +1580,24 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
  }
  
  void video_renderer_destroy() {
@@ -10420,7 +10497,7 @@ index ea1c450..cf7bea0 100644
      }
  }
  
-@@ -789,22 +1572,21 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -789,22 +1649,21 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
      const gchar *old_state_name = no_state, *new_state_name = no_state;
      if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_STATE_CHANGED) {
          GstState old_state, new_state;
@@ -10452,7 +10529,7 @@ index ea1c450..cf7bea0 100644
          if (logger_debug) {
              g_print("GStreamer(UNKNOWN, now destroyed?) bus message: %s %s %s %s\n",
                       GST_MESSAGE_SRC_NAME(message), GST_MESSAGE_TYPE_NAME(message), old_state_name, new_state_name);
-@@ -812,11 +1594,37 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -812,11 +1671,37 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
          return TRUE;
      }
  
@@ -10493,7 +10570,7 @@ index ea1c450..cf7bea0 100644
          if (hls_requested_start_position && pos >= hls_requested_start_position) {
              hls_requested_start_position = 0;
          }
-@@ -846,12 +1654,15 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -846,12 +1731,15 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
          }
      }
  
@@ -10513,7 +10590,7 @@ index ea1c450..cf7bea0 100644
      }
  
      switch (GST_MESSAGE_TYPE (message)) {
-@@ -869,10 +1680,16 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -869,10 +1757,16 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                  renderer->buffering_level = percent;
                  logger_log(logger, LOGGER_DEBUG, "Buffering :%d percent done", percent);
                  if (percent < 100) {
@@ -10532,7 +10609,7 @@ index ea1c450..cf7bea0 100644
                  }
              }
          }
-@@ -880,14 +1697,16 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -880,14 +1774,16 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
      case GST_MESSAGE_ERROR: {
          GError *err = NULL;
          gchar *debug = NULL;
@@ -10553,7 +10630,7 @@ index ea1c450..cf7bea0 100644
              logger_log(logger, LOGGER_INFO,
                       "*** This is a generic GStreamer error that usually means that GStreamer\n"
                       "*** was unable to construct a working video pipeline.\n\n"
-@@ -897,14 +1716,16 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -897,14 +1793,16 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                       "*** to select a videosink of your choice (see \"man uxplay\").\n\n"
                       "*** Raspberry Pi models 4B and earlier using Video4Linux2 may need \"-bt709\" uxplay option");
          }
@@ -10574,7 +10651,7 @@ index ea1c450..cf7bea0 100644
              g_main_loop_quit( (GMainLoop *) loop);
          }
          break;
-@@ -914,7 +1735,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -914,7 +1812,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
          logger_log(logger, LOGGER_INFO, "GStreamer: End-Of-Stream (video)");
          if (hls_video) {
              gst_bus_set_flushing(bus, TRUE);
@@ -10585,7 +10662,7 @@ index ea1c450..cf7bea0 100644
              renderer->eos = TRUE;
          }
          break;
-@@ -934,7 +1757,8 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -934,7 +1834,8 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
              hls_playing = TRUE;
              GstQuery *query = NULL;
              query = gst_query_new_seeking(GST_FORMAT_TIME);
@@ -10595,7 +10672,7 @@ index ea1c450..cf7bea0 100644
  	        gst_query_parse_seeking (query, NULL, &hls_seek_enabled, &hls_seek_start, &hls_seek_end);
                  if (hls_seek_enabled) {
                      g_print ("Seeking is ENABLED from %" GST_TIME_FORMAT " to %" GST_TIME_FORMAT "\n",
-@@ -947,8 +1771,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -947,8 +1848,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
              }
              gst_query_unref (query);
  
@@ -10607,7 +10684,7 @@ index ea1c450..cf7bea0 100644
              }
  
          }
-@@ -1009,58 +1834,127 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
+@@ -1009,58 +1911,127 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
        /* unhandled message */
          break;
      }
@@ -10752,7 +10829,7 @@ index ea1c450..cf7bea0 100644
  }
      
 diff --git a/renderers/video_renderer.h b/renderers/video_renderer.h
-index fd48415..37c0fd6 100644
+index fd48415..37a799c 100644
 --- a/renderers/video_renderer.h
 +++ b/renderers/video_renderer.h
 @@ -47,6 +47,23 @@ typedef enum videoflip_e {
@@ -10779,7 +10856,13 @@ index fd48415..37c0fd6 100644
  void video_renderer_init (logger_t *logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char *rtp_pipeline,
                            const char *decoder, const char *converter, const char *videosink, const char *videosink_options,
                            bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support,
-@@ -64,6 +81,12 @@ int video_renderer_cycle ();
+@@ -60,10 +77,18 @@ void video_renderer_hls_ready ();
+ void video_renderer_seek(float position);
+ void video_renderer_set_start(float position);
+ void video_renderer_resume ();
++bool video_renderer_toggle_fullscreen(bool *fullscreen);
++bool video_renderer_set_scale(unsigned int permille);
+ int video_renderer_cycle ();
  bool video_renderer_is_paused();
  bool video_renderer_eos_watch();
  uint64_t  video_renderer_render_buffer (unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time);
@@ -10792,13 +10875,13 @@ index fd48415..37c0fd6 100644
  void video_renderer_display_jpeg(const void *data, int *data_len);
  void video_renderer_flush ();
  unsigned int video_renderer_listen(void *loop, int id);
-@@ -79,4 +102,3 @@ bool video_renderer_eos_watch();
+@@ -79,4 +104,3 @@ bool video_renderer_eos_watch();
  #endif
  
  #endif //VIDEO_RENDERER_H
 -
 diff --git a/uxplay.cpp b/uxplay.cpp
-index d10edd4..2859654 100644
+index d10edd4..381c9df 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
 @@ -28,6 +28,8 @@
@@ -10916,10 +10999,20 @@ index d10edd4..2859654 100644
  static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
  static bool reset_httpd = false;
  static bool monitor_progress = false;
-@@ -206,6 +262,113 @@ static std::string ble_filename = "";
+@@ -206,6 +262,123 @@ static std::string ble_filename = "";
  static std::string rtp_pipeline = "";
  static std::string audio_rtp_pipeline = "";
  static GMainLoop *gmainloop = NULL;
++
++typedef enum {
++    AEROMIRROR_PRESENTATION_FULLSCREEN = 1,
++    AEROMIRROR_PRESENTATION_SCALE = 2
++} aeromirror_presentation_command_kind_t;
++
++typedef struct {
++    aeromirror_presentation_command_kind_t kind;
++    unsigned int value;
++} aeromirror_presentation_command_t;
 +
 +static void aeromirror_reset_video_clock(uint64_t generation) {
 +    (void) generation;
@@ -11030,7 +11123,7 @@ index d10edd4..2859654 100644
  static bool mux_to_file = false;
  static std::string mux_filename = "recording";
  
-@@ -230,33 +393,86 @@ static float previous_hls_position = 0.0f;
+@@ -230,26 +403,62 @@ static float previous_hls_position = 0.0f;
  
  /* logging */
  
@@ -11073,9 +11166,9 @@ index d10edd4..2859654 100644
 +    line[length] = '\0';
 +    fwrite(line, 1, length, stdout);
 +    fflush(stdout);
-     va_end(vargs);
- }
- 
++    va_end(vargs);
++}
++
 +/* Discovery markers are a machine-readable line protocol embedded in
 + * ordinary UxPlay stdout.  Audio progress uses a carriage return without a
 + * newline, so every protocol write begins with a newline and emits the whole
@@ -11087,17 +11180,17 @@ index d10edd4..2859654 100644
 +    va_list vargs;
 +    va_start(vargs, format);
 +    int body_length = vsnprintf(line + 1, sizeof(line) - 2, format, vargs);
-+    va_end(vargs);
+     va_end(vargs);
 +    size_t length = 1 + (size_t) std::max(0, std::min(
 +        body_length, (int) sizeof(line) - 3));
 +    line[length++] = '\n';
 +    line[length] = '\0';
 +    fwrite(line, 1, length, stdout);
 +    fflush(stdout);
-+}
-+
+ }
+ 
  #define LOGD(...) log(LOGGER_DEBUG, __VA_ARGS__)
- #define LOGI(...) log(LOGGER_INFO, __VA_ARGS__)
+@@ -257,6 +466,23 @@ static void log(int level, const char* format, ...) {
  #define LOGW(...) log(LOGGER_WARNING, __VA_ARGS__)
  #define LOGE(...) log(LOGGER_ERR, __VA_ARGS__)
  
@@ -11121,7 +11214,7 @@ index d10edd4..2859654 100644
  #ifdef DBUS
  static void dbus_screensaver_inhibiter(bool inhibit) {
      g_assert(inhibit != dbus_last_message);
-@@ -535,8 +751,12 @@ static void dump_video_to_file(unsigned char *data, int datalen) {
+@@ -535,8 +761,12 @@ static void dump_video_to_file(unsigned char *data, int datalen) {
  }
  
  static gboolean feedback_callback(gpointer loop) {
@@ -11136,7 +11229,7 @@ index d10edd4..2859654 100644
              LOGI("***ERROR lost connection with client (network problem?)");
              LOGI("   Interval since last client feedback request exceeds limit of %u seconds", missed_feedback_limit);
              LOGI("   Sometimes the network connection may recover after a longer delay:\n"
-@@ -549,12 +769,156 @@ static gboolean feedback_callback(gpointer loop) {
+@@ -549,12 +779,156 @@ static gboolean feedback_callback(gpointer loop) {
              full_video_reset = true;
              g_main_loop_quit((GMainLoop *) loop);
              return TRUE;
@@ -11297,7 +11390,7 @@ index d10edd4..2859654 100644
      }
      return TRUE;
  }
-@@ -676,6 +1040,15 @@ static void main_loop()  {
+@@ -676,6 +1050,15 @@ static void main_loop()  {
      //GMainLoop *loop = g_main_loop_new(NULL,FALSE);
      g_loop = g_main_loop_new(NULL, FALSE);
      GMainLoop *loop = g_loop;
@@ -11313,7 +11406,7 @@ index d10edd4..2859654 100644
      relaunch_video = false;
      monitor_progress = false;
      reset_loop = false;
-@@ -721,8 +1094,12 @@ static void main_loop()  {
+@@ -721,8 +1104,12 @@ static void main_loop()  {
          }
      }
  
@@ -11327,7 +11420,7 @@ index d10edd4..2859654 100644
      guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
  
  #ifdef _WIN32
-@@ -735,7 +1112,9 @@ static void main_loop()  {
+@@ -735,7 +1122,9 @@ static void main_loop()  {
      guint sigint_watch_id = g_unix_signal_add(SIGINT, (GSourceFunc) sigint_callback, (gpointer) loop);
      guint sighup_watch_id = g_unix_signal_add(SIGHUP, (GSourceFunc) sigint_callback, (gpointer) loop);
  #endif
@@ -11338,7 +11431,7 @@ index d10edd4..2859654 100644
  
  #ifdef _WIN32
      gmainloop = NULL;
-@@ -759,6 +1138,11 @@ static void main_loop()  {
+@@ -759,6 +1148,11 @@ static void main_loop()  {
      if (progress_id > 0) g_source_remove(progress_id);
      if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
      if (feedback_watch_id > 0) g_source_remove(feedback_watch_id);
@@ -11350,7 +11443,7 @@ index d10edd4..2859654 100644
      g_main_loop_unref(loop);
  }    
  
-@@ -1917,40 +2301,11 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
+@@ -1917,40 +2311,11 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
  }
  
  static int register_dnssd() {
@@ -11394,7 +11487,7 @@ index d10edd4..2859654 100644
      }
  
      LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
-@@ -1960,8 +2315,21 @@ static int register_dnssd() {
+@@ -1960,8 +2325,21 @@ static int register_dnssd() {
  
  static void unregister_dnssd() {
      if (dnssd) {
@@ -11418,7 +11511,7 @@ index d10edd4..2859654 100644
      }
      return;
  }
-@@ -1971,6 +2339,7 @@ static void stop_dnssd() {
+@@ -1971,6 +2349,7 @@ static void stop_dnssd() {
          unregister_dnssd();
          dnssd_destroy(dnssd);
          dnssd = NULL;
@@ -11426,7 +11519,7 @@ index d10edd4..2859654 100644
  	return;
      }	
  }
-@@ -1993,17 +2362,27 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -1993,17 +2372,27 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
          return 1;
      }
  
@@ -11456,7 +11549,7 @@ index d10edd4..2859654 100644
      dnssd_set_airplay_features(dnssd,  6, 1); // 
      dnssd_set_airplay_features(dnssd,  7, 1); // mirroring supported
  
-@@ -2013,7 +2392,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -2013,7 +2402,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
      dnssd_set_airplay_features(dnssd, 11, 1); // audio packet redundancy supported
  
      dnssd_set_airplay_features(dnssd, 12, 1); // FaiPlay secure auth supported 
@@ -11465,15 +11558,15 @@ index d10edd4..2859654 100644
      dnssd_set_airplay_features(dnssd, 14, 1); // Authentication bit 4:  FairPlay authentication
      dnssd_set_airplay_features(dnssd, 15, 1); // Metadata bit 1 support:   Artwork 
  
-@@ -2089,9 +2468,249 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
+@@ -2089,9 +2478,318 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
  
      /* bit 27 of Features determines whether the AirPlay2 client-pairing protocol will be used (1) or not (0) */
      dnssd_set_airplay_features(dnssd, 27, (int) setup_legacy_pairing);
 +    LOGI("AEROMIRROR_MIRROR_ONLY_FEATURES_READY features=0x%llX",
 +         dnssd_get_airplay_features(dnssd));
-+    return 0;
-+}
-+
+     return 0;
+ }
+ 
 +static gboolean aeromirror_owner_ready(gpointer data) {
 +    (void) data;
 +    if (do_shutdown.load()) return G_SOURCE_REMOVE;
@@ -11500,6 +11593,75 @@ index d10edd4..2859654 100644
 +        }
 +    }
 +    return G_SOURCE_REMOVE;
++}
++
++static gboolean aeromirror_apply_presentation_command(gpointer data) {
++    aeromirror_presentation_command_t *command =
++        (aeromirror_presentation_command_t *) data;
++    if (!command || do_shutdown.load()) return G_SOURCE_REMOVE;
++
++    if (command->kind == AEROMIRROR_PRESENTATION_FULLSCREEN) {
++        bool fullscreen_state = false;
++        bool applied = video_renderer_toggle_fullscreen(&fullscreen_state);
++        aeromirror_protocol_marker(
++            "AEROMIRROR_VIDEO_FULLSCREEN state=%d result=%s",
++            fullscreen_state ? 1 : 0,
++            applied ? "applied" : "unavailable");
++    } else if (command->kind == AEROMIRROR_PRESENTATION_SCALE) {
++        bool applied = video_renderer_set_scale(command->value);
++        aeromirror_protocol_marker(
++            "AEROMIRROR_VIDEO_SCALE permille=%u result=%s",
++            command->value, applied ? "applied" : "unavailable");
++    }
++    return G_SOURCE_REMOVE;
++}
++
++static int aeromirror_queue_presentation_command(
++        aeromirror_presentation_command_kind_t kind,
++        unsigned int value) {
++    if (do_shutdown.load()) return 0;
++
++    GMainContext *context = NULL;
++    {
++        std::lock_guard<std::mutex> guard(aeromirror_context_mutex);
++        if (aeromirror_main_context && g_loop) {
++            context = g_main_context_ref(aeromirror_main_context);
++        }
++    }
++    if (!context) return 0;
++
++    aeromirror_presentation_command_t *command =
++        g_try_new0(aeromirror_presentation_command_t, 1);
++    if (!command) {
++        g_main_context_unref(context);
++        return 0;
++    }
++    command->kind = kind;
++    command->value = value;
++
++    GSource *source = g_idle_source_new();
++    if (!source) {
++        g_free(command);
++        g_main_context_unref(context);
++        return 0;
++    }
++    g_source_set_callback(source, aeromirror_apply_presentation_command,
++                          command, g_free);
++    guint source_id = g_source_attach(source, context);
++    g_source_unref(source);
++    g_main_context_unref(context);
++    return source_id ? 1 : 0;
++}
++
++int request_video_fullscreen_toggle() {
++    return aeromirror_queue_presentation_command(
++        AEROMIRROR_PRESENTATION_FULLSCREEN, 0);
++}
++
++int request_video_scale(unsigned int permille) {
++    if (permille < 1000 || permille > 2500) return 0;
++    return aeromirror_queue_presentation_command(
++        AEROMIRROR_PRESENTATION_SCALE, permille);
 +}
 +
 +int request_discovery_refresh(unsigned long long request_id) {
@@ -11651,9 +11813,9 @@ index d10edd4..2859654 100644
 +    if (!aeromirror_dnssd_watch_id)
 +        aeromirror_dnssd_watch_id = g_timeout_add(
 +            100, aeromirror_dnssd_watch, NULL);
-     return 0;
- }
- 
++    return 0;
++}
++
 +static gboolean aeromirror_refresh_discovery_on_owner(gpointer data) {
 +    (void) data;
 +    uint64_t request_id = aeromirror_discovery_request.exchange(0);
@@ -11715,7 +11877,7 @@ index d10edd4..2859654 100644
  static bool check_client(char *deviceid) {
      bool ret = false;
      int list =  allowed_clients.size();
-@@ -2143,7 +2762,10 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
+@@ -2143,7 +2841,10 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
              close_window = false;  // we already closed the window
          }
          preserve_connections = false; //we already closed all other connections
@@ -11727,7 +11889,7 @@ index d10edd4..2859654 100644
          relaunch_video = true;
          break;
      case RESET_TYPE_RTP_TO_HLS_TEARDOWN:
-@@ -2154,7 +2776,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
+@@ -2154,7 +2855,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
          if (use_video) {
              video_renderer_stop();
          }
@@ -11737,7 +11899,7 @@ index d10edd4..2859654 100644
          relaunch_video = true;
          break;
      case RESET_TYPE_HLS_SHUTDOWN:
-@@ -2168,7 +2791,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
+@@ -2168,7 +2870,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
          }
          raop_remove_hls_connections(raop);
          preserve_connections = true;
@@ -11747,7 +11909,7 @@ index d10edd4..2859654 100644
          relaunch_video = true;
          break;
      case RESET_TYPE_ON_VIDEO_PLAY:
-@@ -2229,17 +2853,26 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
+@@ -2229,17 +2932,26 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
  }
  
  extern "C" void conn_init (void *cls) {
@@ -11780,7 +11942,7 @@ index d10edd4..2859654 100644
          if (use_audio) {
              audio_renderer_stop();
          }
-@@ -2254,10 +2887,32 @@ extern "C" void conn_destroy (void *cls) {
+@@ -2254,10 +2966,32 @@ extern "C" void conn_destroy (void *cls) {
  
  extern "C" void conn_feedback (void *cls) {
      /* received client heartbeat signal: connection still exists */
@@ -11814,7 +11976,7 @@ index d10edd4..2859654 100644
      switch (reason) {
      case 1:
          LOGI("*** ERROR lost connection with client (network problem?)");
-@@ -2306,11 +2961,28 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
+@@ -2306,11 +3040,28 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
          mux_renderer_push_audio(data->data, data->data_len, data->ntp_time_remote);
      }
      if (use_audio) {
@@ -11835,19 +11997,19 @@ index d10edd4..2859654 100644
 +                aeromirror_audio_clock.initialized = true;
 +            }
 +            audio_offset = aeromirror_audio_clock.offset_ns;
-         }
--        data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
++        }
 +        uint64_t mapped_audio_pts = 0;
 +        if (!aeromirror_add_signed_ns(data->ntp_time_remote, audio_offset,
 +                                      &mapped_audio_pts)) {
 +            mapped_audio_pts = data->ntp_time_local
 +                ? data->ntp_time_local : get_local_time();
-+        }
+         }
+-        data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
 +        data->ntp_time_remote = mapped_audio_pts;
          switch (data->ct) {
          case 2:
              /* for progress monitor (ALAC audio only) */
-@@ -2341,32 +3013,154 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
+@@ -2341,32 +3092,154 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
          mux_renderer_push_video(data->data, data->data_len, data->ntp_time_remote);
      }
      if (use_video) {
@@ -12013,7 +12175,7 @@ index d10edd4..2859654 100644
  
  extern "C" void video_pause (void *cls) {
      if (use_video) {
-@@ -2700,6 +3494,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+@@ -2700,6 +3573,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
      raop_cbs.video_flush = video_flush;
      raop_cbs.video_pause = video_pause;
      raop_cbs.video_resume = video_resume;
@@ -12021,7 +12183,7 @@ index d10edd4..2859654 100644
      raop_cbs.audio_set_client_volume = audio_set_client_volume;
      raop_cbs.audio_set_volume = audio_set_volume;
      raop_cbs.audio_get_format = audio_get_format;
-@@ -2716,9 +3511,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+@@ -2716,9 +3590,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
      raop_cbs.export_dacp = export_dacp;
      raop_cbs.video_reset = video_reset;
      raop_cbs.video_set_codec = video_set_codec;
@@ -12031,7 +12193,7 @@ index d10edd4..2859654 100644
      raop_cbs.on_video_play = on_video_play;
      raop_cbs.on_video_scrub = on_video_scrub;
      raop_cbs.on_video_rate = on_video_rate;
-@@ -2759,8 +3552,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
+@@ -2759,8 +3631,14 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3],
      raop_set_udp_ports(raop, udp);
  
      raop_port = raop_get_port(raop);
@@ -12047,7 +12209,7 @@ index d10edd4..2859654 100644
  
      /* use raop_port for airplay_port (instead of tcp[2]) */
      airplay_port = raop_port;
-@@ -3208,6 +4007,7 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3208,6 +4086,7 @@ int start_uxplay (int argc, char *argv[]) {
      if (start_raop_server(display, tcp, udp, debug_log)) {
          stop_dnssd();
          cleanup();
@@ -12055,7 +12217,7 @@ index d10edd4..2859654 100644
      }
  
      if (lang.length() > 1) {
-@@ -3266,9 +4066,20 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3266,9 +4145,20 @@ int start_uxplay (int argc, char *argv[]) {
              video_renderer_start();
          }
          if (reset_httpd) {
@@ -12078,7 +12240,7 @@ index d10edd4..2859654 100644
          }
          if (mux_to_file) {
              mux_renderer_stop();
-@@ -3280,15 +4091,34 @@ int start_uxplay (int argc, char *argv[]) {
+@@ -3280,15 +4170,34 @@ int start_uxplay (int argc, char *argv[]) {
          stop_dnssd();
      }
      cleanup();
@@ -12118,14 +12280,16 @@ index d10edd4..2859654 100644
  }
  
 diff --git a/uxplay_api.h b/uxplay_api.h
-index 4103ef5..3b6eb21 100644
+index 4103ef5..9a55f26 100644
 --- a/uxplay_api.h
 +++ b/uxplay_api.h
-@@ -7,6 +7,7 @@ extern "C" {
+@@ -7,6 +7,9 @@ extern "C" {
  
  int start_uxplay(int argc, char *argv[]);
  void stop_uxplay();
 +int request_discovery_refresh(unsigned long long request_id);
++int request_video_fullscreen_toggle();
++int request_video_scale(unsigned int permille);
  
  #ifdef __cplusplus
  }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.12.17 — Photos presentation controls (review release)
+
+### Changes
+
+- Added a tray presentation submenu for the active stream window. Fullscreen
+  now toggles the selected Direct3D 11 sink through its native property instead
+  of depending on window focus or simulated Alt+Enter input.
+- Added explicit 100–250% uniform Photos zoom. It is available only for the
+  exact observed `3840x2160 aux=0x0 encoded=3840x2160` presentation canvas,
+  is not persisted, and resets when that canvas ends or a new renderer session
+  starts.
+- Serialized presentation and discovery writes in the managed shell, narrowed
+  the wrapper command grammar, and marshalled renderer changes to the native
+  GLib owner. Native result markers contain only state, scale, and status.
+- Kept automatic crop and `rotate-method=auto` disabled. Fullscreen cannot
+  remove black bars already encoded inside the iPhone canvas; manual zoom is
+  an opt-in crop and still needs physical Photos/Camera/rotation validation.
+
+### Evidence and status
+
+- Managed Release and complete `ReceiverResilience` pass. The eight-case
+  worker harness, native parser/transport/SETUP/renderer contracts, and NIST
+  crypto check also pass.
+- Two clean compatible native builds reproduce core SHA-256
+  `53B13433B9308547D491417F11692361DFC5B6EBFBDA018B8D3EEE7B4436436F`.
+  Staged dependency inspection and the loader test pass.
+- Wrapper patch SHA-256 is
+  `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
+  libuxplay patch SHA-256 is
+  `91AF80A36C7D4ECEB6470A1394722F2EC98312407DFA51A9929FC40E4B220CF5`.
+- Source targets `0.12.17`/`0.12.17.0`. The 147-entry corresponding-source ZIP,
+  pinned-hash validation, and extracted clean 57/57 rebuild pass. The exact
+  13-entry payload, packaged-shell resilience, x64 Setup, byte-exact embedding,
+  and three Setup self-checks pass. Installed and physical-device acceptance
+  remain pending; public `v0.12.16` assets stay immutable.
+
 ## 0.12.16 — persistent idle discovery public review release
 
 ### Release scope

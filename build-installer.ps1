@@ -1,6 +1,6 @@
 param(
     [string]$PortableZip = "",
-    [string]$Version = "0.12.16"
+    [string]$Version = "0.12.17"
 )
 
 $ErrorActionPreference = "Stop"

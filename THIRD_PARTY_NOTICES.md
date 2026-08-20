@@ -57,6 +57,14 @@ the pinned upstream revisions, redistributed runtime, and third-party license
 scope are unchanged. Physical confirmation of the frozen-frame repair remains
 pending.
 
+The internal 0.12.17 extension adds no dependency or protocol capability. It
+adds a narrow wrapper command grammar and libuxplay GLib-owner dispatch for the
+existing Direct3D 11 sink's documented fullscreen and scale properties. Scale
+is equal on both axes, bounded to 100–250%, and explicitly requested by the
+user; no mirrored pixels are inspected and no automatic crop or rotation
+heuristic is introduced. The pinned upstream revisions, redistributed runtime,
+and license scope remain unchanged.
+
 The AeroMirror 0.11 network review installer does **not** mirror the full
 third-party runtime. During installation it downloads this unchanged upstream
 asset directly from GitHub and verifies it before extraction:

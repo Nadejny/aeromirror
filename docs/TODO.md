@@ -522,6 +522,12 @@ encoded=3840x2160` signature automatically becomes a provisional outer-window
 canvas still cannot seed trusted orientation or make automatic placement
 persistable, and the patch does not crop, zoom, or enlarge inner media.
 
+The 0.12.17 review release adds explicit presentation controls without
+claiming content detection. Native property-backed fullscreen affects the outer
+renderer. Uniform 100–250% zoom is available only for the exact recorded Photos
+media canvas, is not persisted, and resets on media-class/session boundaries.
+It may crop bars, UI, or genuine image content and therefore remains opt-in.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
@@ -549,6 +555,10 @@ persistable, and the patch does not crop, zoom, or enlarge inner media.
   phone-shaped marker, without guessing that the canvas is the physical device
   ratio.
 - [ ] Pass source-size/orientation events through native IPC.
+- [x] Add focus-independent native fullscreen and a bounded, equal-X/Y manual
+  zoom command owned by the renderer's GLib context.
+- [x] Restrict manual zoom to the exact Photos media-canvas class and reset it
+  on class exit and renderer-session start instead of persisting a crop.
 - [ ] Expose a trustworthy content rectangle/crop signal or validate a
   conservative pixel-analysis design for Photos canvases that contain their
   own encoded black bars; do not crop real dark content by guesswork.
@@ -563,7 +573,8 @@ persistable, and the patch does not crop, zoom, or enlarge inner media.
 - [x] Keep a user option for automatic fitting and preserve an explicit opt-out
   while snapping proportions only after an interactive resize completes.
 - [ ] Test Photos, fullscreen video, Camera, home-screen rotation, and rapid
-  portrait/landscape transitions on displays with different DPI scaling.
+  portrait/landscape transitions on displays with different DPI scaling,
+  including fullscreen toggles and every manual zoom boundary.
 
 Acceptance target: photos and videos keep their correct proportions and remain
 legible while the viewer changes orientation only when the incoming stream
