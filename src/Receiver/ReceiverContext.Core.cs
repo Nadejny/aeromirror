@@ -2049,7 +2049,11 @@ namespace AirPlayReceiverMvp
             appliedVideoFitSize = Size.Empty;
             appliedVideoFitTargetKind = RendererFitTargetKind.None;
             appliedVideoOrientation = 0;
-            Interlocked.Exchange(ref streamZoomPermille, 1000);
+            Interlocked.Exchange(
+                ref appliedPresentationScalePermille,
+                PresentationScaleBasePermille);
+            rendererFullscreenActive = false;
+            rendererEscapeWasDown = false;
         }
 
         private void ResetIdleDiscoveryRenewalSchedule()

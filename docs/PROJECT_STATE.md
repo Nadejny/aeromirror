@@ -6,6 +6,58 @@ This is the single current-state handoff for AeroMirror. Keep it concise and
 update it whenever release status, accepted tests, blockers, or the immediate
 next step changes.
 
+## Current review release candidate — 0.12.18
+
+- Status: built locally and not installed, tagged, or published. On 2026-08-20
+  the user explicitly authorized a normal updater-visible review publication
+  before physical acceptance. Public `v0.12.17` and every earlier asset remain
+  immutable until the new exact tag and assets pass public verification.
+- User behavior: the tray exposes one direct **Полный экран (Esc — выйти)**
+  action. The three incremental photo-zoom controls are removed. The exact
+  observed Photos `3840x2160 aux=0x0 encoded=3840x2160` transport canvas uses
+  the last trusted portrait phone shape, or a `900x1950` fallback when a
+  session starts directly in Photos, and one centered automatic uniform fill.
+- Fullscreen ownership: the shell detects the actual borderless monitor-sized
+  D3D11 window. While it is active, automatic/manual fitting, saved-placement
+  restore/write, continuity bounds capture, and normal policy mutation are
+  suspended. Scale is 100% in fullscreen and the current normal Photos scale is
+  reapplied after exit. Foreground Esc requests the same native toggle as the
+  tray; Alt+Enter remains supported by the sink.
+- Boundary: portrait fill is geometry-based and limited to the exact known
+  Photos canvas plus a portrait target. It does not inspect pixels, infer an
+  arbitrary content rectangle, rotate the stream, rewrite media, or crop a
+  trusted landscape device target.
+- Evidence: managed x64 Release and complete `ReceiverResilience` pass; the
+  eight-case worker harness, native parser/transport/SETUP/renderer contracts,
+  and crypto check pass. Two clean compatible 57/57 builds reproduce core
+  SHA-256
+  `C217386CBC916F8889A9C03774390FE7EC7D8C7EE0B6F64358215CACEEB35118`.
+  Runtime staging inspects 199 binaries and copies 148 DLLs, resolves 44
+  requested features to 27 plug-ins, and the loader test exits 0. Wrapper patch
+  SHA-256 remains
+  `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
+  libuxplay patch SHA-256 is
+  `11330A0D905CF4480958DAA59B950F3A2CE2B4AD51A18563EBCC77924DD782C4`.
+- Corresponding source: the 147-entry ZIP is 829,835 bytes with SHA-256
+  `ADD131A3B299B859C13834A969232E63C25DC2B6C94C506B27EE9F67351EABBC`.
+  Its extracted no-Git tree verifies all pinned inputs and cleanly rebuilds
+  57/57 to the reviewed core hash.
+- Version: shell/Setup source targets `0.12.18.0`, Setup comparison 0.12.18,
+  and exactly five script defaults target 0.12.18.
+- Package/Setup: the exact 13-entry review ZIP is 1,179,864 bytes with SHA-256
+  `E52070E7FAC722875E9533495BB7C097355DCDEDD81CBDF64809077672E2FFCF`.
+  Packaged-shell resilience and shell/core/provenance equality pass. The x64
+  `0.12.18.0` Setup is 1,412,608 bytes with SHA-256
+  `A5AA2DFAD92B262B85194AF3FA86DA7832A5A650BB210E9F9875078E937C7640`;
+  `/verify-runtime`, `/verify-shortcut-selection`, and
+  `/verify-update-lifecycle` each exit 0.
+- Pending: installed update, physical portrait/landscape Photos transitions,
+  repeated fullscreen/Esc/Alt+Enter, Camera/rotation, exact tag, four public
+  assets, API digests, and public re-download equality.
+- Immediate next step: commit and tag this exact checkpoint, rebuild the four
+  public assets from the tag, publish the normal review Release, and verify
+  every public download. Physical acceptance remains separate.
+
 ## Latest public review release — 0.12.17
 
 - Status: published as the normal updater-visible review Release. Annotated tag

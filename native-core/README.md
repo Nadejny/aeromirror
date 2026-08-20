@@ -77,13 +77,15 @@ transition before delivery. This is a narrow protocol-state repair, not a claim
 that the physical frozen-frame symptom is resolved; that still requires a
 0.12.15 iPhone test.
 
-The internal 0.12.17 extension keeps those protocol and lifetime changes and
+The internal 0.12.18 extension keeps those protocol and lifetime changes and
 adds two presentation commands to the existing headless pipe. The wrapper
 parses exact fullscreen/scale grammar; libuxplay queues work on the active GLib
 owner; and the renderer takes a retained selected D3D11 sink reference before
 changing its documented `fullscreen`, `scale-x`, or `scale-y` properties.
-Scale is equal on both axes, limited to 100–250%, and reset on renderer start.
-This is an explicit user crop, not automatic Photos content detection or a
+Scale is equal on both axes, limited to 100–500%, and reset on renderer start.
+The managed shell applies it automatically only when the exact known Photos
+3840×2160 transport canvas is paired with a trusted portrait device shape. It
+does not inspect pixels, rewrite media, infer arbitrary content, or claim a
 Camera-rotation fix.
 
 The receiver's shared AirPlay identity is canonicalized to at most 50 UTF-8
@@ -179,12 +181,11 @@ both D3D11 and D3D12 because the latency profiles select them explicitly.
 The resulting core's `--loader-test` has also passed against the unchanged
 runtime from release `2.0.0.1736`.
 
-For the 0.12.15 prepackage gate, staged inspection covered 199 binaries and
+For the 0.12.18 prepackage gate, staged inspection covered 199 binaries and
 148 DLLs; all 44 requested GStreamer features resolved to 27 plug-ins, and a
-manual staged `--loader-test` exited 0. The final corresponding-source ZIP has
-147 entries, is 826,213 bytes, and has SHA-256
-`DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`.
-Its extracted no-Git tree validated every pinned hash and completed a clean
+manual staged `--loader-test` exited 0. The versioned corresponding-source ZIP
+has 147 entries. Its extracted no-Git tree validated every pinned hash and
+completed a clean
 57/57 rebuild reproducing core SHA-256
-`38C6A63CE3CA40D3D1E23E5ECB5E0D152F9978986C4384A780C5767EAE0650A4`.
+`C217386CBC916F8889A9C03774390FE7EC7D8C7EE0B6F64358215CACEEB35118`.
 Review payload and Setup verification remain separate pending gates.

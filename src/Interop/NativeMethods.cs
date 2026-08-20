@@ -42,6 +42,7 @@ namespace AirPlayReceiverMvp
         private const long WS_EX_TOOLWINDOW = 0x00000080L;
         private const long WS_EX_APPWINDOW = 0x00040000L;
         private const int VK_LBUTTON = 0x01;
+        private const int VK_ESCAPE = 0x1B;
         private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
         private const int JobObjectExtendedLimitInformation = 9;
 
@@ -114,6 +115,9 @@ namespace AirPlayReceiverMvp
 
         [DllImport("user32.dll")]
         internal static extern bool IsZoomed(IntPtr window);
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll")]
         internal static extern IntPtr GetWindow(IntPtr window, uint command);
@@ -301,6 +305,11 @@ namespace AirPlayReceiverMvp
         internal static bool IsLeftMouseButtonDown()
         {
             return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        }
+
+        internal static bool IsEscapeKeyDown()
+        {
+            return (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
         }
 
         [DllImport("user32.dll")]

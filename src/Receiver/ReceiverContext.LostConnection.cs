@@ -133,6 +133,7 @@ namespace AirPlayReceiverMvp
         {
             NativeMethods.RECT nativeBounds;
             if (window == IntPtr.Zero ||
+                IsRendererFullscreenWindow(window) ||
                 !NativeMethods.GetWindowRect(window, out nativeBounds))
                 return;
 

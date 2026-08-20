@@ -9355,7 +9355,7 @@ index 7568bcd..2b7a5c2 100644
  }
  
 diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
-index ea1c450..058c345 100644
+index ea1c450..834c938 100644
 --- a/renderers/video_renderer.c
 +++ b/renderers/video_renderer.c
 @@ -75,12 +75,20 @@ typedef enum {
@@ -10033,7 +10033,7 @@ index ea1c450..058c345 100644
 +}
 +
 +bool video_renderer_set_scale(unsigned int permille) {
-+    if (permille < 1000 || permille > 2500) return false;
++    if (permille < 1000 || permille > 5000) return false;
 +    GstElement *sink = aeromirror_snapshot_selected_present_sink();
 +    if (!sink) return false;
 +    GObjectClass *klass = G_OBJECT_GET_CLASS(sink);
@@ -10881,7 +10881,7 @@ index fd48415..37a799c 100644
  #endif //VIDEO_RENDERER_H
 -
 diff --git a/uxplay.cpp b/uxplay.cpp
-index d10edd4..381c9df 100644
+index d10edd4..8c8dd00 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
 @@ -28,6 +28,8 @@
@@ -11659,7 +11659,7 @@ index d10edd4..381c9df 100644
 +}
 +
 +int request_video_scale(unsigned int permille) {
-+    if (permille < 1000 || permille > 2500) return 0;
++    if (permille < 1000 || permille > 5000) return 0;
 +    return aeromirror_queue_presentation_command(
 +        AEROMIRROR_PRESENTATION_SCALE, permille);
 +}

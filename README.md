@@ -68,13 +68,13 @@ Apple. AirPlay, iPhone, and Apple are trademarks of Apple Inc.
   while a scaled marker with the same class/aspect is consumed without another
   move; the window also adapts on real portrait/landscape changes, and
   automatic fitting restores the learned proportions after a manual resize
-  unless the user turns it off; the exact correlated Photos/media signature
-  automatically shapes the outer window temporarily without becoming trusted
-  device orientation or making the provisional landscape persistable; the
-  former schema-12 Photos-specific A/B key and checkbox are retired; the
-  0.12.17 review release adds property-backed native fullscreen and an
-  explicit, non-persisted 100–250% uniform zoom only for that exact Photos
-  canvas, resetting it when the canvas ends or the renderer restarts;
+  unless the user turns it off; for the exact correlated Photos/media
+  signature, 0.12.18 keeps the trusted phone shape (or a conservative portrait
+  fallback when Photos arrives first) and applies one centered automatic fill
+  without promoting the canvas to device orientation or making provisional
+  placement persistable; the former schema-12 Photos A/B key and the 0.12.17
+  incremental zoom controls are retired; property-backed fullscreen now
+  suspends every shell resize/save path and exits with foreground Esc;
   the last normal position, size, and DPI are restored on the next session and
   clamped into an available monitor; saved bounds are applied from the early
   window-show event, unchanged native-window policy is cached, and the window
@@ -161,32 +161,40 @@ officially supports Windows 10 1809 x64 and newer. Windows 10 is outside Microso
 but remains an explicit application target. ARM64 and 32-bit packages are not
 included.
 
-## Current 0.12.17 review release
+## Current 0.12.18 review release candidate
 
-The source targets 0.12.17/`0.12.17.0`. This normal-channel review Release is
-published for physical Photos presentation testing; automated checks do not
-claim that the Photos/Camera matrix has passed. Earlier public assets remain
-immutable.
+The source targets 0.12.18/`0.12.18.0`. A normal updater-visible review
+publication is authorized so the gallery/fullscreen behavior can be tested on
+real devices. Until that exact tag and asset set are verified, public
+`v0.12.17` and all of its assets remain immutable.
 
-0.12.17 adds an **Отображение трансляции** tray submenu. **Полный экран**
-changes the selected Direct3D 11 sink through its real fullscreen property.
-The photo controls apply equal X/Y scale from 100% to 250% only while the exact
-recorded Photos 3840x2160 media canvas is active. The scale is not saved and
-returns to 100% when the stream returns to a normal device frame or a new
-renderer session starts.
+The tray now has one direct **Полный экран (Esc — выйти)** action. While the
+native D3D11 window actually covers its monitor without a frame, the shell
+does not refit, resize, restore, remember, or persist it. This prevents a
+Photos geometry change from turning fullscreen into an unmanageable borderless
+window. Alt+Enter remains native behavior, and foreground Esc requests the same
+native fullscreen toggle.
 
-This is deliberately an explicit presentation tool, not automatic content
-detection. Fullscreen cannot remove bars encoded inside the iPhone canvas;
-zoom crops the canvas edges and may crop Photos controls or genuine image
-content. AeroMirror still does not enable automatic crop, pixel analysis, or
-automatic rotation metadata handling.
+The three incremental photo-zoom controls are removed. For only the exact
+recorded Photos 3840×2160 transport canvas, AeroMirror keeps a learned portrait
+phone shape—or a conservative 900×1950 target when the session starts directly
+in Photos—and applies one centered uniform fill. Fullscreen uses 100% scale;
+the portrait fill returns after exit. A trusted landscape target stays
+unscaled. This rule reads geometry only: it does not inspect pixels, infer a
+general content rectangle, rotate the stream, or rewrite media.
 
 Managed/native contract tests, two reproducible native builds, staged runtime
-inspection, and the loader test pass. Physical iPhone Photos, Camera,
-orientation, fullscreen, and zoom checks remain pending. The 147-entry
-corresponding-source ZIP and its no-Git clean rebuild pass; package, Setup,
-and packaged-shell tests also pass. Installed and physical-device acceptance
-remain pending. See the
+inspection, the loader test, and the 147-entry corresponding-source archive
+plus extracted no-Git rebuild pass. Package, Setup, installed update, physical
+Photos/Camera/rotation, exact-tag, and public re-download checks remain pending.
+See the
+[0.12.18 release notes](docs/releases/0.12.18/RELEASE_NOTES.md) and
+[test plan](docs/releases/0.12.18/TEST_PLAN.md).
+
+## Latest public 0.12.17 review release
+
+Public `v0.12.17` remains the updater-visible review release with native
+fullscreen and explicit 100–250% Photos zoom. Its exact evidence remains in the
 [0.12.17 build report](docs/releases/0.12.17/BUILD_REPORT.md),
 [release notes](docs/releases/0.12.17/RELEASE_NOTES.md), and
 [test plan](docs/releases/0.12.17/TEST_PLAN.md).
@@ -466,31 +474,31 @@ installer from that exact ZIP with:
 
 ```powershell
 .\package-review.ps1 `
-  -Version 0.12.17 `
+  -Version 0.12.18 `
   -HeadlessRuntimePath .\artifacts\headless-runtime
 
 .\build-installer.ps1 `
-  -Version 0.12.17 `
-  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.17.zip
+  -Version 0.12.18 `
+  -PortableZip .\artifacts\AeroMirror-review-payload-x64-0.12.18.zip
 ```
 
 The result is:
 
 ```text
-artifacts\installer\AeroMirror-Setup-0.12.17.exe
+artifacts\installer\AeroMirror-Setup-0.12.18.exe
 ```
 
-Public release names use three-part semantic versions such as `0.12.17`.
+Public release names use three-part semantic versions such as `0.12.18`.
 Windows executable metadata internally requires four numeric fields and may
-show `0.12.17.0` in a file-property dialog; the AeroMirror UI and published
-GitHub Release intentionally show only `0.12.17`.
+show `0.12.18.0` in a file-property dialog; the AeroMirror UI and a future
+GitHub Release would intentionally show only `0.12.18`.
 
 For local offline engineering tests, create the full portable package with
 both explicit inputs:
 
 ```powershell
 .\package.ps1 `
-  -Version 0.12.17 `
+  -Version 0.12.18 `
   -UxPlayPortablePath .\artifacts\headless-runtime `
   -HeadlessCorePath .\artifacts\headless-runtime\uxplay-windows.exe
 ```
@@ -504,7 +512,7 @@ SHA-256.
 
 ### Rebuild the reviewed native core
 
-`AeroMirror-native-source-0.12.17.zip` is a prepared corresponding-source
+`AeroMirror-native-source-0.12.18.zip` is a prepared corresponding-source
 archive: the `uxplay-windows` and `libuxplay` patches are already applied, so
 do not apply them a second time. After providing the pinned Qt 6.10.1 and
 MSYS2 toolchains listed in
@@ -513,7 +521,7 @@ MSYS2 toolchains listed in
 ```powershell
 # Use a short extraction path: the MinGW/CMake object tree can exceed the
 # Windows filename limit under a deeply nested Downloads/workspace folder.
-$source = Resolve-Path .\AeroMirror-native-source-0.12.17\uxplay-windows
+$source = Resolve-Path .\AeroMirror-native-source-0.12.18\uxplay-windows
 & "$source\AeroMirror-build-inputs\build-compatible-core.ps1" `
   -UpstreamRoot $source `
   -Qt610Prefix C:\path\to\Qt-6.10.1 `
@@ -604,6 +612,9 @@ docs/
   TROUBLESHOOTING.md         log collection and first-run reproduction
   TODO.md                    product and protocol roadmap
   releases/
+    0.12.18/
+      RELEASE_NOTES.md       automatic Photos layout candidate summary
+      TEST_PLAN.md           fullscreen-state and gallery acceptance gates
     0.12.17/
       RELEASE_NOTES.md       Photos presentation review-release summary
       TEST_PLAN.md           fullscreen, zoom, rotation, and package gates

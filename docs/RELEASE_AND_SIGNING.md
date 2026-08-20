@@ -97,7 +97,17 @@ corresponding-source validation before publication, and publication still
 requires explicit user authorization. A normal Release may be labelled as a
 review candidate so installed clients can participate in physical testing,
 but it must not be described as accepted until its versioned physical plan
-passes. The published 0.12.17 Photos-presentation Release is uninstalled and
+passes. The 0.12.18 gallery/fullscreen review candidate is currently local,
+uninstalled, untagged, and unpublished. Its automated source/native/runtime
+gates, the versioned corresponding-source archive plus extracted no-Git
+rebuild, exact review package, x64 Setup, embedded-input equality, and all
+three non-installing Setup self-checks pass. Installed update and the physical
+matrix remain governed by
+[`releases/0.12.18/TEST_PLAN.md`](releases/0.12.18/TEST_PLAN.md). It must not
+move or replace `v0.12.17`. The user explicitly authorized a normal
+updater-visible 0.12.18 review publication on 2026-08-20 before the physical
+matrix; the Release must state that limitation and cannot claim acceptance.
+The published 0.12.17 Photos-presentation Release is uninstalled and
 remains a review build until its physical matrix passes; its status is tracked in
 [`releases/0.12.17/TEST_PLAN.md`](releases/0.12.17/TEST_PLAN.md). It must not
 alter or replace any `v0.12.16` asset. The user explicitly authorized a normal

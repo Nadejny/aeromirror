@@ -114,7 +114,7 @@ Assert-True ($nativePatchSource.Contains(
     $nativePatchSource.Contains(
         'bool video_renderer_set_scale(unsigned int permille)') -and
     $nativePatchSource.Contains(
-        'if (permille < 1000 || permille > 2500) return false;') -and
+        'if (permille < 1000 || permille > 5000) return false;') -and
     $nativePatchSource.Contains('"scale-x", scale') -and
     $nativePatchSource.Contains('"scale-y", scale') -and
     $nativePatchSource.Contains('aeromirror_reset_present_scale();')) `
@@ -928,16 +928,22 @@ Assert-True ($source.Contains("autoFit = MakeCheckBox(") -and
 Assert-True ([regex]::Matches(
         $receiverContextSource,
         'ToggleStreamWindowFullscreen\s*\(\s*true\s*\)').Count -eq 1 -and
+    $receiverContextSource.Contains('(Esc ') -and
     $source.Contains('"video-fullscreen-toggle"') -and
-    $source.Contains('"video-scale permille=" + next') -and
-    $source.Contains('"video-scale permille=1000"') -and
+    $source.Contains('"video-scale permille=" + desired') -and
     $source.Contains("TryWriteNativeVideoCommand(") -and
     $receiverCoreSource.Contains("lock (coreCommandSync)") -and
-    $source.Contains("ref streamZoomPermille, 0, 0") -and
-    $source.Contains("Math.Min(2500") -and
+    $source.Contains("ref appliedPresentationScalePermille, 0, 0") -and
+    $source.Contains("PresentationScaleMaximumPermille = 5000") -and
+    $source.Contains("ResolveAutomaticPresentationScale(") -and
+    $source.Contains("IsRendererFullscreenWindow(window)") -and
+    $source.Contains("NativeMethods.GetForegroundWindow() == window") -and
+    $source.Contains("NativeMethods.IsEscapeKeyDown()") -and
+    -not $source.Contains("AdjustPhotosZoom(") -and
+    -not $source.Contains("ResetPhotosZoom(") -and
     -not $source.Contains("WM_SYSKEYDOWN") -and
     -not $source.Contains("PostMessage(")) `
-    "the tray uses bounded native fullscreen and session-scoped Photos zoom commands without restarting the receiver"
+    "fullscreen preserves native window state with Esc exit and Photos uses automatic portrait fill without manual zoom controls"
 Assert-True ($source.Contains("internal sealed class LostConnectionForm") -and
     $lostConnectionUiSource.Contains("titleLabel.Text =") -and
     $lostConnectionUiSource.Contains("detailLabel.Text =") -and
@@ -1998,16 +2004,20 @@ $resolveAutomaticVideo = $contextType.GetMethod(
     "ResolveAutomaticVideoSize", $instanceFlags)
 $resolveManualFitVideo = $contextType.GetMethod(
     "ResolveManualFitVideoSize", $instanceFlags)
+$resolveAutomaticPresentationScale = $contextType.GetMethod(
+    "ResolveAutomaticPresentationScale", $staticFlags)
 Assert-True ($null -ne $sameDeviceAspect -and
     $null -ne $likelyModernIPhoneFrame -and
     $null -ne $knownAmbiguousMediaCanvas -and
     $null -ne $resolveAutomaticVideo -and
-    $null -ne $resolveManualFitVideo) `
-    "renderer orientation uses a session device-frame baseline"
+    $null -ne $resolveManualFitVideo -and
+    $null -ne $resolveAutomaticPresentationScale) `
+    "renderer orientation and automatic Photos fill expose deterministic decisions"
 
 $portraitFrame = [Drawing.Size]::new(998, 2160)
 $landscapeFrame = [Drawing.Size]::new(3840, 1776)
 $presentationCanvas = [Drawing.Size]::new(3840, 2160)
+$provisionalPortrait = [Drawing.Size]::new(900, 1950)
 $unknownCanvas = [Drawing.Size]::new(1200, 1000)
 $sixteenByNinePortrait = [Drawing.Size]::new(1080, 1920)
 $sixteenByNineLandscape = [Drawing.Size]::new(1920, 1080)
@@ -2160,11 +2170,11 @@ $automaticPhotosArgumentsBefore = Invoke-UxPlayArguments $settingsProbe
 $unlearnedCanvasResult = Resolve-AutomaticVideoSize `
     $presentationCanvas $true
 Assert-True (-not $unlearnedCanvasResult.OrientationAuthoritative -and
-    $unlearnedCanvasResult.Size -eq $presentationCanvas -and
-    -not $unlearnedCanvasResult.SuppressionChanged -and
+    $unlearnedCanvasResult.Size -eq $provisionalPortrait -and
+    $unlearnedCanvasResult.SuppressionChanged -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         [Drawing.Size]::Empty) `
-    "a direct-in-Photos canvas automatically drives landscape without seeding the device baseline"
+    "a direct-in-Photos canvas uses the portrait fallback without seeding the device baseline"
 $directMediaPortrait = Resolve-AutomaticVideoSize $portraitFrame
 Assert-True ($directMediaPortrait.OrientationAuthoritative -and
     $directMediaPortrait.Size -eq $portraitFrame) `
@@ -2189,20 +2199,33 @@ Assert-True ($portraitResult.OrientationAuthoritative -and
     "the first exact frame establishes session orientation"
 $photoResult = Resolve-AutomaticVideoSize $presentationCanvas $true
 Assert-True (-not $photoResult.OrientationAuthoritative -and
-    $photoResult.Size -eq $presentationCanvas -and
-    -not $photoResult.SuppressionChanged -and
+    $photoResult.Size -eq $portraitFrame -and
+    $photoResult.SuppressionChanged -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         $portraitFrame) `
-    "998x2160 to the exact Photos canvas automatically targets landscape while preserving the trusted portrait baseline"
+    "998x2160 to the exact Photos canvas keeps the trusted portrait window target"
 $repeatedPhotoResult = Resolve-AutomaticVideoSize $presentationCanvas $true
 Assert-True (-not $repeatedPhotoResult.OrientationAuthoritative -and
-    $repeatedPhotoResult.Size -eq $presentationCanvas -and
+    $repeatedPhotoResult.Size -eq $portraitFrame -and
     -not $repeatedPhotoResult.SuppressionChanged) `
-    "a stable presentation canvas resolves to the same provisional target"
+    "a stable presentation canvas resolves to the same portrait target"
 $manualPhotoFit = [Drawing.Size]$resolveManualFitVideo.Invoke(
     $context, [object[]]@($presentationCanvas, $true))
-Assert-True ($manualPhotoFit -eq $presentationCanvas) `
-    "manual tray fitting uses the exact observed Photos canvas"
+Assert-True ($manualPhotoFit -eq $portraitFrame) `
+    "manual tray fitting uses the automatic Photos portrait target"
+Assert-True ([int]$resolveAutomaticPresentationScale.Invoke(
+        $null, [object[]]@(
+            $presentationCanvas, $portraitFrame, $true)) -eq 3848 -and
+    [int]$resolveAutomaticPresentationScale.Invoke(
+        $null, [object[]]@(
+            $presentationCanvas, $provisionalPortrait, $true)) -eq 3852 -and
+    [int]$resolveAutomaticPresentationScale.Invoke(
+        $null, [object[]]@(
+            $presentationCanvas, $landscapeFrame, $true)) -eq 1000 -and
+    [int]$resolveAutomaticPresentationScale.Invoke(
+        $null, [object[]]@(
+            $presentationCanvas, $portraitFrame, $false)) -eq 1000) `
+    "automatic Photos fill covers only a portrait target and resets elsewhere"
 $portraitReturnResult = Resolve-AutomaticVideoSize $portraitFrame
 Assert-True ($portraitReturnResult.OrientationAuthoritative -and
     $portraitReturnResult.Size -eq $portraitFrame) `
@@ -2215,11 +2238,11 @@ $mediaAfterLandscape = Resolve-AutomaticVideoSize `
     $presentationCanvas $true
 Assert-True ($landscapeBeforeMedia.OrientationAuthoritative -and
     $landscapeBeforeMedia.Size -eq $landscapeFrame -and
-    $mediaAfterLandscape.Size -eq $presentationCanvas -and
+    $mediaAfterLandscape.Size -eq $landscapeFrame -and
     -not $mediaAfterLandscape.OrientationAuthoritative -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         $landscapeFrame) `
-    "3840x1776 device landscape to 3840x2160 media remains a provisional class transition"
+    "3840x1776 device landscape retains its shape for a Photos class transition"
 $portraitAfterLandscapeMedia = Resolve-AutomaticVideoSize $portraitFrame
 Assert-True ($portraitAfterLandscapeMedia.OrientationAuthoritative -and
     $portraitAfterLandscapeMedia.Size -eq $portraitFrame -and
@@ -2599,11 +2622,11 @@ Assert-True ($recordedStableCanvas -eq $presentationCanvas -and
     [long]$stableArguments[0] -eq $recordedCanvasSequence -and
     [bool]$stableArguments[1] -and
     -not $recordedPhotosResult.OrientationAuthoritative -and
-    $recordedPhotosResult.Size -eq $presentationCanvas -and
-    -not $recordedPhotosResult.SuppressionChanged -and
+    $recordedPhotosResult.Size -eq $portraitFrame -and
+    $recordedPhotosResult.SuppressionChanged -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         $portraitFrame) `
-    "the recorded portrait-to-Photos sequence commits its newest event and automatically targets the canvas without replacing its baseline"
+    "the recorded portrait-to-Photos sequence commits its newest event while retaining the portrait target and baseline"
 $observe.Invoke(
     $context,
     [object[]]@(42,
@@ -2660,11 +2683,11 @@ $directCanvasResult = Resolve-AutomaticVideoSize `
     $directCanvas ([bool]$directCanvasArguments[1])
 Assert-True ($directCanvas -eq $presentationCanvas -and
     [bool]$directCanvasArguments[1] -and
-    $directCanvasResult.Size -eq $presentationCanvas -and
+    $directCanvasResult.Size -eq $provisionalPortrait -and
     -not $directCanvasResult.OrientationAuthoritative -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         [Drawing.Size]::Empty) `
-    "the observed Photos-first canvas automatically targets landscape without becoming a device baseline"
+    "the observed Photos-first canvas uses the portrait fallback without becoming a device baseline"
 $observe.Invoke(
     $context,
     [object[]]@(42,
@@ -2678,7 +2701,7 @@ $observe.Invoke(
 $latePortraitResult = Resolve-AutomaticVideoSize `
     $directCanvas ([bool]$directCanvasArguments[1])
 Assert-True (-not $latePortraitResult.OrientationAuthoritative -and
-    $latePortraitResult.Size -eq $presentationCanvas -and
+    $latePortraitResult.Size -eq $portraitFrame -and
     [Drawing.Size]$deviceFrameVideoSize.GetValue($context) -eq
         $portraitFrame) `
     "a later early phone marker repairs the trusted baseline while the stable Photos target remains provisional"

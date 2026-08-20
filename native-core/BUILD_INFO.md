@@ -16,8 +16,8 @@ pumping and recovery across transient internal GLib-loop resets. AeroMirror
 worker lifecycle, socket ownership, parsers, setup/pairing, RTP/NTP, crypto,
 buffers, and both renderers. The source bundle contains the complete upstream
 trees and both patches separately and applied in place. Two clean compatible
-0.12.17 builds reproduce the executable hash recorded below after adding
-GLib-owner fullscreen and Photos scale commands. The final 0.12.15 source
+0.12.18 builds reproduce the executable hash recorded below after extending
+the GLib-owner Photos scale command for automatic portrait fill. The final 0.12.15 source
 archive contained 147 validated entries; its no-Git extracted tree validated
 all pinned hashes and a clean 57/57 rebuild reproduced that earlier executable.
 
@@ -64,18 +64,16 @@ all pinned hashes and a clean 57/57 rebuild reproduced that earlier executable.
   managed Windows audio selection.
 - Engineering build/staging GStreamer input: 1.28.5. It is not the
   redistributed-runtime version recorded above.
-- AeroMirror 0.12.17 compatible executable SHA-256 reproduced by both clean
+- AeroMirror 0.12.18 compatible executable SHA-256 reproduced by clean
   builds:
-  `53B13433B9308547D491417F11692361DFC5B6EBFBDA018B8D3EEE7B4436436F`
+  `C217386CBC916F8889A9C03774390FE7EC7D8C7EE0B6F64358215CACEEB35118`
 - Materialized wrapper patch SHA-256:
   `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`
 - Materialized libuxplay patch SHA-256:
-  `91AF80A36C7D4ECEB6470A1394722F2EC98312407DFA51A9929FC40E4B220CF5`
+  `11330A0D905CF4480958DAA59B950F3A2CE2B4AD51A18563EBCC77924DD782C4`
 - Provenance still pins 37 libuxplay sources and 41 patched sources in total.
-  The prior 0.12.15 corresponding-source archive contained 147 entries, was
-  826,213 bytes, and had SHA-256
-  `DA95EC58A17C37DA53948F770DABEAF29FAD75405CDF69F005F84ACF56362EB7`.
-  Its no-Git extracted tree passes the same input/hash validation, and a clean
+  The 0.12.18 corresponding-source archive contains 147 entries. Its no-Git
+  extracted tree passes the same input/hash validation, and a clean
   57/57 build reproduces the reviewed executable.
 - Reproducible PE timestamp (`SOURCE_DATE_EPOCH`): `1786008050`
 - Local checkout paths are remapped to `/src/uxplay-windows`, and debug
@@ -89,10 +87,12 @@ The AeroMirror patches add the headless launcher integration,
 `--loader-test`, stable video-size and codec-header geometry markers, a
 feedback-health capability and one-shot recovery markers, a one-shot selected
 GStreamer decoder/videosink marker, and stable DNS-SD readiness markers. The
-0.12.17 extension also accepts exact fullscreen/scale control lines, marshals
+0.12.18 extension accepts the same exact fullscreen/scale control lines, marshals
 them to the native GLib owner, and changes only documented properties on a
-retained selected Direct3D 11 sink. Scale is uniform, bounded to 100–250%, and
-reset at renderer start; no pixel inspection or automatic crop is added. The
+retained selected Direct3D 11 sink. Scale is uniform, bounded to 100–500%, and
+reset at renderer start. The managed shell uses it only for deterministic
+portrait fill of the exact known Photos transport canvas; no pixels are
+inspected and no media bytes are rewritten. The
 native HTTP listener now reports initial/reset readiness with its actual port,
 checks same-port reset binding, exits for full shell recovery when a reset
 cannot restore the advertised port, and logs typed RTSP `TEARDOWN` as

@@ -382,6 +382,14 @@ eligible. A session exposing only the exact canvas receives a provisional
 landscape outer fit, but its physical device orientation is still unresolved
 because stdout provides no independent orientation metadata.
 
+Version 0.12.18 supersedes that presentation target without changing the
+trusted-baseline rule. The exact ambiguous canvas resolves to the last trusted
+device-frame shape; when no phone-shaped marker exists yet, the shell uses a
+conservative `900x1950` portrait presentation target but does not store it as
+device orientation. A trusted landscape target remains landscape. This keeps
+direct-in-Photos portrait usable while preserving the distinction between a
+presentation fallback and protocol evidence.
+
 The shell installs an out-of-context WinEvent hook scoped to the active native
 core process and watches both the renderer's early show event and interactive
 move/size completion. The show callback applies only validated saved placement
@@ -412,20 +420,29 @@ Photos-first session cannot poison the next session's placement.
 The marker reports the encoded stream dimensions; it is not remote-control
 input, pixel-aspect metadata, or a guarantee that an iPhone application itself
 has not letterboxed content inside the video frame. In particular, Photos may
-place a small image and black bars inside the encoded `3840x2160` canvas. The
-managed shell can choose the outer window aspect but cannot automatically
-identify or crop that inner content without a native content rectangle or
-validated pixel analysis. The 0.12.17 candidate therefore exposes only an
-explicit uniform 100–250% native scale for the exact replay-backed Photos
-media-canvas class. It can crop the canvas at the user's request, is never
-persisted, and resets when the class ends or renderer lifecycle restarts.
+place a portrait presentation inside the encoded `3840x2160` canvas. Version
+0.12.18 uses a deterministic geometry-only transform for this one replay-backed
+case: when the target window is portrait, uniform scale is the canvas aspect
+divided by the target aspect (3848 permille for the observed `998x2160` target
+and 3852 for the fallback). The result is clamped to 1000–5000 permille,
+centered, equal on both axes, and reset outside that portrait media-canvas
+state. No pixels are classified and no generic content rectangle is inferred.
 
 Presentation commands share the redirected standard-input control channel with
 discovery commands. The shell serializes writes and revalidates current process
 identity; the wrapper accepts exact fullscreen/scale grammar; libuxplay attaches
 the work to its active GLib owner and takes a retained selected-sink reference
 before changing D3D11 properties. The control is deliberately not a general
-window-input injection path. A future versioned IPC contract should replace
+window-input injection path.
+
+Fullscreen is detected from the actual renderer HWND rather than from only a
+managed toggle flag, because Alt+Enter can change native state independently.
+The shell requires a monitor-sized outer rectangle and a matching borderless
+client area. While that state is active, supervision skips policy mutation,
+saved-placement restore/write, automatic/manual fitting, and continuity-bounds
+capture. Foreground Esc queues the same native toggle; automatic Photos scale
+is 100% in fullscreen and is recalculated after the normal framed window
+returns. A future versioned IPC contract should replace
 stdout parsing and expose explicit stream, orientation, and content-layout
 events before any automatic crop or rotation policy is considered.
 

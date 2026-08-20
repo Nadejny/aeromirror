@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.12.18 — automatic Photos layout and safe fullscreen (review release)
+
+### Changes
+
+- Removed the incremental **Увеличить фото**, **Уменьшить фото**, and
+  **Сбросить увеличение** controls. For the exact observed Photos
+  `3840x2160 aux=0x0 encoded=3840x2160` transport canvas, AeroMirror now keeps
+  the last trusted portrait phone shape (or a conservative portrait fallback)
+  and applies one centered uniform fill automatically.
+- Added actual fullscreen-state detection around the native D3D11 window.
+  While fullscreen is active the shell no longer restores, fits, resizes,
+  remembers, or persists the foreign renderer window. This prevents a Photos
+  geometry transition from leaving a borderless but movable-state-less window.
+- Added **Esc** exit when the fullscreen renderer owns foreground focus.
+  Alt+Enter remains native behavior. Entering fullscreen temporarily restores
+  100% presentation scale; leaving it reapplies the automatic portrait fill.
+- Extended the existing native uniform-scale command from 100–250% to
+  100–500%. The command still runs on the GLib owner, uses equal X/Y scale,
+  resets at renderer start, and does not inspect pixels or rewrite media.
+
+### Evidence and status
+
+- Managed x64 Release, complete `ReceiverResilience`, the eight-case native
+  worker harness, native core contracts, and the production crypto check pass.
+- Two clean compatible 57/57 builds reproduce core SHA-256
+  `C217386CBC916F8889A9C03774390FE7EC7D8C7EE0B6F64358215CACEEB35118`.
+  Runtime staging (199 binaries, 148 DLLs, 44 features to 27 plug-ins) and the
+  loader test pass.
+- Wrapper patch SHA-256 remains
+  `8F48A4E72D765B0549119BC6366CB970384BAB8116B4430CE60ED67228213F9C`;
+  libuxplay patch SHA-256 is
+  `11330A0D905CF4480958DAA59B950F3A2CE2B4AD51A18563EBCC77924DD782C4`.
+- Source targets `0.12.18`/`0.12.18.0`. The 147-entry corresponding-source ZIP
+  is 829,835 bytes with SHA-256
+  `ADD131A3B299B859C13834A969232E63C25DC2B6C94C506B27EE9F67351EABBC`;
+  its extracted no-Git tree verifies every pinned hash and rebuilds 57/57 to
+  the same core. Package, Setup, installed update, physical
+  Photos/fullscreen/rotation, exact-tag, and public re-download gates remain
+  pending. The user authorized a normal updater-visible review publication on
+  2026-08-20; public `v0.12.17` stays immutable.
+
 ## 0.12.17 — Photos presentation controls (review release)
 
 ### Changes

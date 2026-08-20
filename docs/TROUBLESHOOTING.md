@@ -175,6 +175,11 @@ Depending on the review build, the log may include:
   suspended. The same unit continues to the renderer. This marker proves the
   parser/action boundary only; correlate it with later health deltas, sink and
   Present progress, and a screen recording before saying visible video resumed;
+- for 0.12.18, managed fullscreen enter/exit/suspension lines plus native
+  `AEROMIRROR_VIDEO_FULLSCREEN` and `AEROMIRROR_VIDEO_SCALE` results. Automatic
+  portrait fill is expected only for the exact Photos canvas with a portrait
+  target; fullscreen is expected to use 1000 permille. These geometry/state
+  records do not contain pixels and do not prove that the visible crop is right;
 - the actual GStreamer decoder/video sink selected at pipeline creation, plus
   renderer, pipeline warnings, and errors.
 
@@ -220,9 +225,10 @@ Please include:
 - for a Photos sizing report, the ordered raw/encoded geometry, whether a
   phone-shaped frame preceded or followed the exact media signature, outer
   renderer client bounds, separately measured visible inner-media bounds,
-  phone orientation, and whether the same session remained connected; an
-  automatically wide outer window is not evidence that inner media was
-  enlarged;
+  phone orientation, automatic scale result, and whether the same session
+  remained connected; for fullscreen also record tray/Alt+Enter/Esc entry and
+  exit, Photos entry/exit while fullscreen, whether the title bar returned, and
+  whether the normal window could again move and resize;
 - for a receiver-name problem, include input/effective UTF-8 byte counts and
   whether the save notice appeared, but replace the actual private name. State
   whether the value came from an interactive save or a legacy profile;

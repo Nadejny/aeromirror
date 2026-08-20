@@ -22,6 +22,10 @@ namespace AirPlayReceiverMvp
     {
         private const double ProvisionalIPhoneAspect = 9.0 / 19.5;
         private const double DeviceFrameAspectTolerance = 0.03;
+        private const int PresentationScaleBasePermille = 1000;
+        private const int PresentationScaleMaximumPermille = 5000;
+        private static readonly Size ProvisionalIPhonePortraitSize =
+            new Size(900, 1950);
 
         private enum RendererFitTargetKind
         {
@@ -126,6 +130,8 @@ namespace AirPlayReceiverMvp
             NativeMethods.GetWindowText(window, title, title.Capacity);
             if (!IsRendererWindowTitle(title.ToString()))
                 return;
+            if (IsRendererFullscreenWindow(window))
+                return;
 
             // EVENT_OBJECT_SHOW reaches the shell before the 250 ms polling
             // path. Apply only the already-loaded placement here: no settings
@@ -162,6 +168,8 @@ namespace AirPlayReceiverMvp
                 if (window != fittedStreamWindow &&
                     window != videoSizeWindow)
                     return;
+                if (IsRendererFullscreenWindow(window))
+                    return;
 
                 Size clientSize;
                 if (!TryGetRendererClientSize(window, out clientSize))
@@ -184,6 +192,7 @@ namespace AirPlayReceiverMvp
             Size endSize;
             if (NativeMethods.IsIconic(window) ||
                 NativeMethods.IsZoomed(window) ||
+                IsRendererFullscreenWindow(window) ||
                 !TryGetRendererClientSize(window, out endSize))
             {
                 ClearPendingManualRendererFit();
@@ -232,6 +241,39 @@ namespace AirPlayReceiverMvp
             return true;
         }
 
+        private static bool IsRendererFullscreenWindow(IntPtr window)
+        {
+            if (window == IntPtr.Zero || !NativeMethods.IsWindow(window) ||
+                NativeMethods.IsIconic(window))
+                return false;
+
+            try
+            {
+                NativeMethods.RECT outer;
+                NativeMethods.RECT client;
+                if (!NativeMethods.GetWindowRect(window, out outer) ||
+                    !NativeMethods.GetClientRect(window, out client))
+                    return false;
+
+                Rectangle monitor = Screen.FromHandle(window).Bounds;
+                int outerWidth = outer.Right - outer.Left;
+                int outerHeight = outer.Bottom - outer.Top;
+                int clientWidth = client.Right - client.Left;
+                int clientHeight = client.Bottom - client.Top;
+                const int tolerance = 8;
+                return Math.Abs(outer.Left - monitor.Left) <= tolerance &&
+                    Math.Abs(outer.Top - monitor.Top) <= tolerance &&
+                    Math.Abs(outer.Right - monitor.Right) <= tolerance &&
+                    Math.Abs(outer.Bottom - monitor.Bottom) <= tolerance &&
+                    Math.Abs(outerWidth - clientWidth) <= tolerance &&
+                    Math.Abs(outerHeight - clientHeight) <= tolerance;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void ClearPendingManualRendererFit()
         {
             Interlocked.Exchange(ref pendingManualFit, 0);
@@ -258,6 +300,7 @@ namespace AirPlayReceiverMvp
                 !NativeMethods.IsWindowVisible(window) ||
                 NativeMethods.IsIconic(window) ||
                 NativeMethods.IsZoomed(window) ||
+                IsRendererFullscreenWindow(window) ||
                 NativeMethods.IsLeftMouseButtonDown())
                 return false;
 
@@ -358,7 +401,8 @@ namespace AirPlayReceiverMvp
                 !NativeMethods.IsWindow(targetWindow) ||
                 !NativeMethods.IsWindowVisible(targetWindow) ||
                 NativeMethods.IsIconic(targetWindow) ||
-                NativeMethods.IsZoomed(targetWindow))
+                NativeMethods.IsZoomed(targetWindow) ||
+                IsRendererFullscreenWindow(targetWindow))
                 return false;
 
             Rectangle bounds;
@@ -436,6 +480,13 @@ namespace AirPlayReceiverMvp
             if (!TryGetRendererWindow(out window))
             {
                 ClearStreamWindowPlacementPersistence(IntPtr.Zero);
+                return;
+            }
+            if (IsRendererFullscreenWindow(window))
+            {
+                Log("Skipped renderer placement persistence while fullscreen.");
+                ClearPendingStreamWindowPlacementSave();
+                ClearStreamWindowPlacementPersistence(window);
                 return;
             }
             if (CanPersistStreamWindowPlacement(window))
@@ -679,6 +730,21 @@ namespace AirPlayReceiverMvp
             IntPtr window;
             if (!TryGetRendererWindow(out window))
                 return;
+            bool fullscreen = UpdateRendererFullscreenState(window);
+            if (fullscreen)
+            {
+                // If fullscreen was reached before the first supervision pass,
+                // re-discover the window after exit so normal placement and
+                // policy initialization still run exactly once.
+                if (previousWindow != window)
+                    fittedStreamWindow = IntPtr.Zero;
+                ClearPendingManualRendererFit();
+                ApplyPresentationScale(
+                    PresentationScaleBasePermille,
+                    "fullscreen presentation");
+                CompleteLostConnectionRendererHandoff();
+                return;
+            }
             RememberRendererBounds(window);
 
             bool newWindow = previousWindow != window;
@@ -727,16 +793,14 @@ namespace AirPlayReceiverMvp
             bool ambiguousMediaCanvas;
             Size videoSize = GetStableVideoSize(
                 out videoSizeSequence, out ambiguousMediaCanvas);
-            if (!ambiguousMediaCanvas &&
-                Interlocked.CompareExchange(
-                    ref streamZoomPermille, 0, 0) != 1000)
-                ResetPhotosZoom(false);
             bool orientationAuthoritative;
             bool suppressionChanged;
             Size automaticVideoSize = ResolveAutomaticVideoSize(
                 videoSize, ambiguousMediaCanvas,
                 out orientationAuthoritative,
                 out suppressionChanged);
+            ApplyAutomaticPresentationScale(
+                videoSize, automaticVideoSize, ambiguousMediaCanvas);
             bool provisionalMediaCanvasFit = ambiguousMediaCanvas;
             RendererFitTargetKind fitTargetKind =
                 ResolveRendererFitTargetKind(
@@ -855,6 +919,30 @@ namespace AirPlayReceiverMvp
             CompleteLostConnectionRendererHandoff();
         }
 
+        private bool UpdateRendererFullscreenState(IntPtr window)
+        {
+            bool fullscreen = IsRendererFullscreenWindow(window);
+            bool escapeDown = fullscreen &&
+                NativeMethods.GetForegroundWindow() == window &&
+                NativeMethods.IsEscapeKeyDown();
+            if (escapeDown && !rendererEscapeWasDown)
+            {
+                if (TryWriteNativeVideoCommand(
+                        "video-fullscreen-toggle", "fullscreen escape"))
+                    Log("Requested renderer fullscreen exit from Esc.");
+            }
+            rendererEscapeWasDown = escapeDown;
+
+            if (rendererFullscreenActive != fullscreen)
+            {
+                rendererFullscreenActive = fullscreen;
+                Log(fullscreen
+                    ? "Renderer entered fullscreen; automatic window fitting is suspended."
+                    : "Renderer left fullscreen; automatic window fitting resumed.");
+            }
+            return fullscreen;
+        }
+
         private static RendererFitTargetKind ResolveRendererFitTargetKind(
             Size videoSize, bool provisionalMediaCanvasFit)
         {
@@ -971,6 +1059,15 @@ namespace AirPlayReceiverMvp
 
             if (window != IntPtr.Zero)
             {
+                if (IsRendererFullscreenWindow(window))
+                {
+                    Log("Manual renderer fit skipped while fullscreen.");
+                    if (notifyIfMissing && settings.Notify)
+                        tray.ShowBalloonTip(2500, AppTitle,
+                            "Сначала выйдите из полноэкранного режима клавишей Esc.",
+                            ToolTipIcon.Info);
+                    return;
+                }
                 long videoSizeSequence;
                 bool ambiguousMediaCanvas;
                 Size rawVideoSize = GetStableVideoSize(
@@ -1029,12 +1126,18 @@ namespace AirPlayReceiverMvp
                     Thread.Sleep(150);
             }
 
-            if (window != IntPtr.Zero &&
-                TryWriteNativeVideoCommand(
-                    "video-fullscreen-toggle", "fullscreen toggle"))
+            if (window != IntPtr.Zero)
             {
-                Log("Requested renderer fullscreen toggle.");
-                return;
+                if (!IsRendererFullscreenWindow(window))
+                    ApplyPresentationScale(
+                        PresentationScaleBasePermille,
+                        "fullscreen entry");
+                if (TryWriteNativeVideoCommand(
+                        "video-fullscreen-toggle", "fullscreen toggle"))
+                {
+                    Log("Requested renderer fullscreen toggle.");
+                    return;
+                }
             }
 
             Log("Renderer fullscreen toggle skipped: no visible renderer " +
@@ -1045,59 +1148,55 @@ namespace AirPlayReceiverMvp
                     ToolTipIcon.Info);
         }
 
-        private void AdjustPhotosZoom(int deltaPermille, bool notifyIfMissing)
+        private void ApplyAutomaticPresentationScale(
+            Size mediaCanvas, Size targetWindow,
+            bool ambiguousMediaCanvas)
         {
-            long sequence;
-            bool ambiguousMediaCanvas;
-            GetStableVideoSize(out sequence, out ambiguousMediaCanvas);
-            if (!ambiguousMediaCanvas)
-            {
-                if (notifyIfMissing && settings.Notify)
-                    tray.ShowBalloonTip(3000, AppTitle,
-                        "Увеличение доступно только для отдельного холста с фото.",
-                        ToolTipIcon.Info);
-                return;
-            }
-
-            int current = Interlocked.CompareExchange(
-                ref streamZoomPermille, 0, 0);
-            int next = Math.Max(1000, Math.Min(2500,
-                current + deltaPermille));
-            if (next == current)
-                return;
-            if (TryWriteNativeVideoCommand(
-                    "video-scale permille=" + next,
-                    "Photos scale " + next + "/1000"))
-            {
-                Interlocked.Exchange(ref streamZoomPermille, next);
-                Log("Photos media-canvas scale set to " +
-                    (next / 10) + "% for the current session.");
-                return;
-            }
-
-            if (notifyIfMissing && settings.Notify)
-                tray.ShowBalloonTip(3000, AppTitle,
-                    "Не удалось изменить масштаб: окно трансляции пока не готово.",
-                    ToolTipIcon.Info);
+            int desired = ResolveAutomaticPresentationScale(
+                mediaCanvas, targetWindow, ambiguousMediaCanvas);
+            ApplyPresentationScale(desired,
+                desired == PresentationScaleBasePermille
+                    ? "normal presentation"
+                    : "automatic Photos portrait fill");
         }
 
-        private void ResetPhotosZoom(bool notifyIfMissing)
+        private static int ResolveAutomaticPresentationScale(
+            Size mediaCanvas, Size targetWindow,
+            bool ambiguousMediaCanvas)
+        {
+            if (!ambiguousMediaCanvas ||
+                mediaCanvas.Width <= 0 || mediaCanvas.Height <= 0 ||
+                targetWindow.Width <= 0 || targetWindow.Height <= 0 ||
+                targetWindow.Height <= targetWindow.Width ||
+                mediaCanvas.Width <= mediaCanvas.Height)
+                return PresentationScaleBasePermille;
+
+            double mediaAspect = (double)mediaCanvas.Width /
+                mediaCanvas.Height;
+            double targetAspect = (double)targetWindow.Width /
+                targetWindow.Height;
+            int permille = (int)Math.Round(
+                PresentationScaleBasePermille * mediaAspect / targetAspect);
+            return Math.Max(PresentationScaleBasePermille,
+                Math.Min(PresentationScaleMaximumPermille, permille));
+        }
+
+        private bool ApplyPresentationScale(int desired, string reason)
         {
             int current = Interlocked.CompareExchange(
-                ref streamZoomPermille, 0, 0);
-            if (current == 1000)
-                return;
-            if (TryWriteNativeVideoCommand(
-                    "video-scale permille=1000", "Photos scale reset"))
-            {
-                Interlocked.Exchange(ref streamZoomPermille, 1000);
-                Log("Photos media-canvas scale reset to 100%.");
-                return;
-            }
-            if (notifyIfMissing && settings.Notify)
-                tray.ShowBalloonTip(3000, AppTitle,
-                    "Не удалось сбросить масштаб: окно трансляции пока не готово.",
-                    ToolTipIcon.Info);
+                ref appliedPresentationScalePermille, 0, 0);
+            if (current == desired)
+                return true;
+            if (!TryWriteNativeVideoCommand(
+                    "video-scale permille=" + desired,
+                    reason + " scale " + desired + "/1000"))
+                return false;
+
+            Interlocked.Exchange(
+                ref appliedPresentationScalePermille, desired);
+            Log("Renderer presentation scale set to " +
+                (desired / 10.0).ToString("0.0") + "% (" + reason + ").");
+            return true;
         }
 
         private Size ResolveManualFitVideoSize(
@@ -1160,12 +1259,17 @@ namespace AirPlayReceiverMvp
 
                 if (ambiguousMediaCanvas)
                 {
-                    // The exact recorded Photos/media signature is a
-                    // temporary shell-window target. It deliberately does
-                    // not become the trusted device-frame baseline used by
-                    // later rotations or placement persistence.
-                    lastSuppressedVideoSize = Size.Empty;
-                    return videoSize;
+                    // Photos uses a landscape transport canvas even for a
+                    // portrait phone. Keep the last trusted device shape (or
+                    // the conservative iPhone portrait fallback) as the
+                    // shell-window target; the D3D sink is scaled separately
+                    // to fill that target without changing the stream bytes.
+                    Size presentationTarget = deviceFrameVideoSize.IsEmpty
+                        ? ProvisionalIPhonePortraitSize
+                        : deviceFrameVideoSize;
+                    suppressionChanged = lastSuppressedVideoSize != videoSize;
+                    lastSuppressedVideoSize = videoSize;
+                    return presentationTarget;
                 }
 
                 if (deviceFrameVideoSize.IsEmpty)

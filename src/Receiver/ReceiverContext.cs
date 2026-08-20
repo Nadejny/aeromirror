@@ -132,7 +132,9 @@ namespace AirPlayReceiverMvp
         private IntPtr rendererPolicyWindow = IntPtr.Zero;
         private bool rendererPolicyApplied;
         private bool rendererPolicyAlwaysOnTop;
-        private int streamZoomPermille = 1000;
+        private int appliedPresentationScalePermille = 1000;
+        private bool rendererFullscreenActive;
+        private bool rendererEscapeWasDown;
         private bool rendererPolicyShowInTaskbar;
         private IntPtr rendererMoveSizeWindow = IntPtr.Zero;
         private Size rendererMoveSizeStartClientSize = Size.Empty;
@@ -213,20 +215,10 @@ namespace AirPlayReceiverMvp
             menu.Items.Add(autoStartItem);
             menu.Items.Add(topMostItem);
             menu.Items.Add("Восстановить пропорции окна", null, delegate { FitStreamWindow(true); });
-            var presentationItem = new ToolStripMenuItem("Отображение трансляции");
-            presentationItem.DropDownItems.Add(
-                "Полный экран", null, delegate
+            menu.Items.Add("Полный экран (Esc — выйти)", null, delegate
             {
                 ToggleStreamWindowFullscreen(true);
             });
-            presentationItem.DropDownItems.Add(new ToolStripSeparator());
-            presentationItem.DropDownItems.Add(
-                "Увеличить фото", null, delegate { AdjustPhotosZoom(100, true); });
-            presentationItem.DropDownItems.Add(
-                "Уменьшить фото", null, delegate { AdjustPhotosZoom(-100, true); });
-            presentationItem.DropDownItems.Add(
-                "Сбросить увеличение", null, delegate { ResetPhotosZoom(true); });
-            menu.Items.Add(presentationItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Диагностика", null, delegate { ShowDiagnostics(); });
             menu.Items.Add("Открыть журнал", null, delegate { OpenLog(); });

@@ -528,6 +528,19 @@ renderer. Uniform 100–250% zoom is available only for the exact recorded Photo
 media canvas, is not persisted, and resets on media-class/session boundaries.
 It may crop bars, UI, or genuine image content and therefore remains opt-in.
 
+The 0.12.18 review candidate replaces those incremental zoom controls with
+one deterministic layout. The exact Photos canvas keeps the trusted device
+shape; a direct-in-Photos session gets a non-authoritative portrait fallback.
+Only a portrait target receives centered uniform fill. Actual fullscreen
+suspends every shell fit/restore/persist path, uses 100% scale, and exits through
+foreground Esc or native Alt+Enter before the normal-window fill is restored.
+The versioned corresponding-source archive/extracted rebuild, exact 13-entry
+review package, packaged-shell resilience, x64 Setup, embedded-input equality,
+and all three non-installing Setup self-checks pass. Physical iPhone behavior
+and a real installed update remain pending. The user authorized a normal
+updater-visible review publication on 2026-08-20 without converting those
+pending physical rows into PASS.
+
 - [ ] Log source dimensions, pixel aspect ratio, rotation metadata, and
   renderer dimensions for orientation transitions.
 - [x] Suppress a different Photos/media canvas ratio after a device-frame
@@ -555,10 +568,14 @@ It may crop bars, UI, or genuine image content and therefore remains opt-in.
   phone-shaped marker, without guessing that the canvas is the physical device
   ratio.
 - [ ] Pass source-size/orientation events through native IPC.
-- [x] Add focus-independent native fullscreen and a bounded, equal-X/Y manual
-  zoom command owned by the renderer's GLib context.
-- [x] Restrict manual zoom to the exact Photos media-canvas class and reset it
-  on class exit and renderer-session start instead of persisting a crop.
+- [x] Add focus-independent native fullscreen and a bounded equal-X/Y scale
+  command owned by the renderer's GLib context.
+- [x] Detect actual monitor-sized borderless fullscreen, suspend every managed
+  fit/restore/save path while active, and support foreground Esc without
+  removing native Alt+Enter.
+- [x] Replace incremental manual zoom with one exact-canvas portrait-fill
+  calculation, preserving a trusted landscape target and resetting scale in
+  fullscreen, on class exit, and at renderer-session start.
 - [ ] Expose a trustworthy content rectangle/crop signal or validate a
   conservative pixel-analysis design for Photos canvases that contain their
   own encoded black bars; do not crop real dark content by guesswork.
@@ -574,7 +591,8 @@ It may crop bars, UI, or genuine image content and therefore remains opt-in.
   while snapping proportions only after an interactive resize completes.
 - [ ] Test Photos, fullscreen video, Camera, home-screen rotation, and rapid
   portrait/landscape transitions on displays with different DPI scaling,
-  including fullscreen toggles and every manual zoom boundary.
+  including repeated tray/Alt+Enter/Esc exits and entry/exit from Photos while
+  fullscreen.
 
 Acceptance target: photos and videos keep their correct proportions and remain
 legible while the viewer changes orientation only when the incoming stream
